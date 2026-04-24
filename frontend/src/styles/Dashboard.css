@@ -13,7 +13,13 @@
 .profit { color: #b42318; font-weight: 800; }
 .loss { color: #177245; font-weight: 800; }
 .charts-section { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 24px; }
+.chart-wide { grid-column: 1 / -1; }
 .chart-container, .products-table { padding: 18px; }
+.holding-allocation-list { display: grid; gap: 8px; margin-top: 4px; }
+.holding-allocation-item { display: grid; grid-template-columns: 12px minmax(0, 1fr) 44px 56px; gap: 8px; align-items: center; color: #52606d; font-size: 13px; }
+.holding-allocation-item .dot { width: 10px; height: 10px; border-radius: 999px; }
+.holding-name { color: #102a43; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.holding-allocation-item strong { color: #102a43; text-align: right; }
 table { width: 100%; border-collapse: collapse; min-width: 760px; }
 th { text-align: left; color: #52606d; font-size: 13px; background: #f8fafc; }
 th, td { padding: 12px; border-bottom: 1px solid #e5eaf0; }

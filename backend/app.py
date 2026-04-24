@@ -6,7 +6,7 @@ from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from sqlalchemy import inspect, text
 
-from models import db
+from models import db, Product
 from routes import api
 from scheduler import start_scheduler
 
@@ -64,6 +64,17 @@ def ensure_schema():
                 AND (upper(product_code) LIKE 'K%' OR upper(product_code) LIKE 'KR%')
           )
     """))
+
+    for product in Product.query.all():
+        code = str(product.product_code or '').strip().upper()
+        if len(code) % 2 != 0:
+            continue
+        half = code[:len(code) // 2]
+        if half != code[len(code) // 2:]:
+            continue
+        if len(half) == 6 or len(half) == 12:
+            product.product_code = half
+
     db.session.commit()
 
 

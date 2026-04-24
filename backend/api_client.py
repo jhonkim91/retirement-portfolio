@@ -16,8 +16,21 @@ class StockAPIClient:
             'pages': {}
         }
 
-    def normalize_symbol(self, code):
+    def clean_code(self, code):
         code = str(code or '').strip().upper()
+        if re.fullmatch(r'[0-9A-Z]{6}\.(KS|KQ)', code):
+            return code.split('.')[0]
+        if len(code) % 2 == 0:
+            half = code[:len(code) // 2]
+            if half == code[len(code) // 2:] and (
+                re.fullmatch(r'[0-9A-Z]{6}', half)
+                or re.fullmatch(r'(?:K[0-9A-Z]{11}|KR[0-9A-Z]{10})', half)
+            ):
+                return half
+        return code
+
+    def normalize_symbol(self, code):
+        code = self.clean_code(code)
         if re.fullmatch(r'[0-9A-Z]{6}\.(KS|KQ)', code):
             return code
         if code.isdigit() and len(code) < 6:
@@ -27,10 +40,10 @@ class StockAPIClient:
         return code
 
     def is_krx_code(self, code):
-        return bool(re.fullmatch(r'[0-9A-Z]{6}', str(code or '').strip().upper()))
+        return bool(re.fullmatch(r'[0-9A-Z]{6}', self.clean_code(code)))
 
     def is_fund_code(self, code):
-        return bool(re.fullmatch(r'(?:K[0-9A-Z]{11}|KR[0-9A-Z]{10})', str(code or '').strip().upper()))
+        return bool(re.fullmatch(r'(?:K[0-9A-Z]{11}|KR[0-9A-Z]{10})', self.clean_code(code)))
 
     def get_current_price(self, code):
         if self.is_fund_code(code):
@@ -38,7 +51,7 @@ class StockAPIClient:
         return self.get_price_from_yfinance(code) or self.get_price_from_naver(code)
 
     def search_products(self, query, limit=12):
-        query = str(query or '').strip()
+        query = self.clean_code(query)
         if len(query) < 2:
             return []
 
@@ -47,7 +60,7 @@ class StockAPIClient:
         normalized_query = self.normalize_search_text(query)
 
         def add_result(item):
-            code = str(item.get('code') or '').strip().upper()
+            code = self.clean_code(item.get('code'))
             name = str(item.get('name') or '').strip()
             if not code or not name:
                 return
@@ -190,7 +203,7 @@ class StockAPIClient:
 
     def get_naver_product_by_code(self, code):
         try:
-            code = str(code or '').strip().upper()
+            code = self.clean_code(code)
             if not self.is_krx_code(code):
                 return None
             response = requests.get(
@@ -262,7 +275,7 @@ class StockAPIClient:
             return []
 
     def get_funetf_product_by_code(self, code):
-        code = str(code or '').strip().upper()
+        code = self.clean_code(code)
         if not self.is_fund_code(code):
             return None
         try:
@@ -301,7 +314,7 @@ class StockAPIClient:
         return {'price': latest['price'], 'date': latest['date']}
 
     def get_history_from_funetf(self, fund_code, start_date, end_date):
-        fund_code = str(fund_code or '').strip().upper()
+        fund_code = self.clean_code(fund_code)
         if not self.is_fund_code(fund_code):
             return []
 
@@ -501,7 +514,7 @@ class StockAPIClient:
 
     def get_price_from_naver(self, stock_code):
         try:
-            stock_code = str(stock_code or '').strip().upper()
+            stock_code = self.clean_code(stock_code)
             if stock_code.isdigit() and len(stock_code) < 6:
                 stock_code = stock_code.zfill(6)
             if not self.is_krx_code(stock_code):
@@ -534,7 +547,7 @@ class StockAPIClient:
 
     def get_history_from_naver(self, stock_code, start_date, end_date):
         try:
-            stock_code = str(stock_code or '').strip().upper()
+            stock_code = self.clean_code(stock_code)
             if stock_code.isdigit() and len(stock_code) < 6:
                 stock_code = stock_code.zfill(6)
             if not self.is_krx_code(stock_code):
@@ -563,7 +576,7 @@ class StockAPIClient:
             return []
 
     def get_history_from_naver_sise_day(self, stock_code, start_date, end_date, max_pages=10):
-        stock_code = str(stock_code or '').strip().upper()
+        stock_code = self.clean_code(stock_code)
         if not self.is_krx_code(stock_code):
             return []
 

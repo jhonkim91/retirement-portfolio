@@ -4,6 +4,7 @@ import { portfolioAPI } from '../utils/api';
 import '../styles/Dashboard.css';
 
 const COLORS = { risk: '#d94841', safe: '#256f68' };
+const HOLDING_COLORS = ['#33658a', '#d94841', '#256f68', '#f6ae2d', '#6a4c93', '#2f4858', '#9f6b2e', '#0081a7'];
 
 function Dashboard() {
   const [summary, setSummary] = useState(null);
@@ -61,6 +62,21 @@ function Dashboard() {
     }
     return rows;
   }, [products, summary]);
+
+  const holdingAllocation = useMemo(() => {
+    const total = Number(summary?.total_current_value || 0);
+    if (!total) return [];
+    return displayProducts
+      .filter((product) => Number(product.current_value || 0) > 0)
+      .map((product, index) => ({
+        key: product.id,
+        name: product.product_name,
+        amount: Number(product.current_value || 0),
+        value: Number(product.current_value || 0) / total * 100,
+        asset_type: product.asset_type,
+        fill: product.is_cash ? COLORS.safe : HOLDING_COLORS[index % HOLDING_COLORS.length]
+      }));
+  }, [displayProducts, summary]);
 
   const profitData = products.map((product) => ({
     name: product.product_name.length > 10 ? `${product.product_name.slice(0, 10)}...` : product.product_name,
@@ -143,7 +159,7 @@ function Dashboard() {
 
       <section className="charts-section">
         <div className="chart-container">
-          <h2>포트폴리오 비중</h2>
+          <h2>자산 구분 비중</h2>
           <ResponsiveContainer width="100%" height={280}>
             <PieChart>
               <Pie data={allocation} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={86} label={({ name, value }) => `${name} ${value.toFixed(1)}%`}>
@@ -155,6 +171,31 @@ function Dashboard() {
           </ResponsiveContainer>
         </div>
         <div className="chart-container">
+          <h2>보유종목 비중</h2>
+          {holdingAllocation.length === 0 ? <p className="no-data">등록된 보유 상품이 없습니다.</p> : (
+            <>
+              <ResponsiveContainer width="100%" height={240}>
+                <PieChart>
+                  <Pie data={holdingAllocation} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={82} labelLine={false}>
+                    {holdingAllocation.map((entry) => <Cell key={entry.key} fill={entry.fill} />)}
+                  </Pie>
+                  <Tooltip formatter={(value, name, item) => [`${Number(value).toFixed(2)}% (${formatCurrency(item.payload.amount)})`, name]} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="holding-allocation-list">
+                {holdingAllocation.map((item) => (
+                  <div className="holding-allocation-item" key={item.key}>
+                    <span className="dot" style={{ backgroundColor: item.fill }} />
+                    <span className="holding-name">{item.name}</span>
+                    <span>{item.asset_type === 'risk' ? '위험' : '안전'}</span>
+                    <strong>{item.value.toFixed(1)}%</strong>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+        <div className="chart-container chart-wide">
           <h2>상품별 수익률</h2>
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={profitData}>

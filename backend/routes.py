@@ -9,7 +9,7 @@ from models import db, User, Product, PriceHistory, TradeLog, CashBalance
 
 api = Blueprint('api', __name__, url_prefix='/api')
 market_client = StockAPIClient()
-API_VERSION = '2026-04-24-sell-unit-edit-v1'
+API_VERSION = '2026-04-24-holding-allocation-code-clean-v1'
 
 
 def current_user_id():
@@ -43,7 +43,7 @@ def get_deposit_principal(user_id):
 
 
 def is_manual_price_product(code):
-    code_text = str(code or '').strip()
+    code_text = market_client.clean_code(code)
     return code_text.isdigit() and len(code_text) != 6
 
 
@@ -74,11 +74,21 @@ def trade_amount(quantity, price, unit_type):
     return Product.amount_for(quantity, price, unit_type)
 
 
+def normalize_product_code(product):
+    cleaned = market_client.clean_code(product.product_code)
+    if cleaned and cleaned != product.product_code:
+        product.product_code = cleaned
+        return True
+    return False
+
+
 def refresh_product_market_data(product, start_date=None):
     if product.status == 'sold':
         return False, '이미 매도 완료된 상품입니다.'
     if not product.product_code:
         return False, '상품 코드가 비어 있습니다.'
+
+    normalize_product_code(product)
 
     if is_manual_price_product(product.product_code):
         return False, '공개 시세 코드가 아닙니다. 상품/추이 > 상품 관리 > 새 기준가에 직접 입력하세요.'
@@ -119,8 +129,9 @@ def sync_user_holdings(user_id):
         )
         start_date = latest_history.record_date if latest_history else product.purchase_date
         before_price = product.current_price
+        before_code = product.product_code
         ok, reason = refresh_product_market_data(product, start_date)
-        changed = ok or changed
+        changed = ok or product.product_code != before_code or changed
         result.append({
             'product_id': product.id,
             'product_name': product.product_name,
@@ -357,7 +368,7 @@ def add_product():
         product = Product(
             user_id=current_user_id(),
             product_name=data['product_name'],
-            product_code=data['product_code'],
+            product_code=market_client.clean_code(data['product_code']),
             purchase_price=purchase_price,
             quantity=quantity,
             unit_type=unit_type,
@@ -404,7 +415,7 @@ def update_product(product_id):
             return jsonify({'error': '보유 중인 상품을 찾을 수 없습니다.'}), 404
 
         product.product_name = data.get('product_name') or product.product_name
-        product.product_code = data.get('product_code') or product.product_code
+        product.product_code = market_client.clean_code(data.get('product_code') or product.product_code)
         product.asset_type = data.get('asset_type') or product.asset_type
         product.unit_type = normalize_unit_type(data.get('unit_type', product.unit_type))
 

@@ -30,6 +30,7 @@ function Portfolio() {
   const [buyInputs, setBuyInputs] = useState({});
   const [editForms, setEditForms] = useState({});
   const [editingId, setEditingId] = useState(null);
+  const [activePanel, setActivePanel] = useState({ productId: null, mode: null });
   const [productSearchResults, setProductSearchResults] = useState([]);
   const [productSearchLoading, setProductSearchLoading] = useState(false);
   const [showProductSearch, setShowProductSearch] = useState(false);
@@ -176,6 +177,7 @@ function Portfolio() {
       await portfolioAPI.updatePrice(productId, price);
       setPriceInputs((prev) => ({ ...prev, [productId]: '' }));
       setMessage('기준가를 갱신하고 추이에 반영했습니다.');
+      setActivePanel({ productId: null, mode: null });
       await loadData();
     } catch (err) {
       setMessage(err.message);
@@ -213,6 +215,7 @@ function Portfolio() {
       await portfolioAPI.sellProduct(product.id, saleData);
       setSellInputs((prev) => ({ ...prev, [product.id]: { sale_date: today, sale_price: '', notes: '' } }));
       setMessage('매도 완료 처리했습니다. 현황과 추이에서 제외하고 매매일지에 기록했습니다.');
+      setActivePanel({ productId: null, mode: null });
       await loadData();
     } catch (err) {
       setMessage(err.message);
@@ -234,6 +237,7 @@ function Portfolio() {
       });
       setBuyInputs((prev) => ({ ...prev, [product.id]: { purchase_date: today, purchase_price: '', quantity: '', notes: '' } }));
       setMessage('추가매수를 반영하고 매매일지에 기록했습니다.');
+      setActivePanel({ productId: null, mode: null });
       await loadData();
     } catch (err) {
       setMessage(err.message);
@@ -242,6 +246,7 @@ function Portfolio() {
 
   const startEdit = (product) => {
     setEditingId(product.id);
+    setActivePanel({ productId: product.id, mode: 'edit' });
     setEditForms((prev) => ({
       ...prev,
       [product.id]: {
@@ -262,11 +267,26 @@ function Portfolio() {
     try {
       await portfolioAPI.updateProduct(product.id, editForms[product.id]);
       setEditingId(null);
+      setActivePanel({ productId: null, mode: null });
       setMessage('상품 정보를 수정했습니다.');
       await loadData();
     } catch (err) {
       setMessage(err.message);
     }
+  };
+
+  const openProductPanel = (product, mode) => {
+    if (activePanel.productId === product.id && activePanel.mode === mode) {
+      setActivePanel({ productId: null, mode: null });
+      if (mode === 'edit') setEditingId(null);
+      return;
+    }
+    if (mode === 'edit') {
+      startEdit(product);
+      return;
+    }
+    setEditingId(null);
+    setActivePanel({ productId: product.id, mode });
   };
 
   return (
@@ -408,59 +428,107 @@ function Portfolio() {
                 <div className="product-main">
                   <strong>{product.product_name}</strong>
                   <span>{product.product_code} · {product.asset_type === 'risk' ? '위험자산' : '안전자산'} · {formatQuantity(product.quantity)}{unitLabel(product.unit_type)}</span>
-                  <span>평균 {formatCurrency(product.purchase_price)} / 현재 {formatCurrency(product.current_price)} / 평가 {formatCurrency(product.current_value)}</span>
                 </div>
 
-                <div className="inline-actions">
-                  <input type="number" min="0" step="0.01" placeholder="새 기준가" value={priceInputs[product.id] || ''} onChange={(e) => setPriceInputs((prev) => ({ ...prev, [product.id]: e.target.value }))} />
-                  <button type="button" onClick={() => updatePrice(product.id)}>갱신</button>
+                <div className="product-metric">
+                  <span>평균 기준가</span>
+                  <strong>{formatCurrency(product.purchase_price)}</strong>
                 </div>
 
-                <div className="inline-actions buy-actions">
-                  <input type="date" value={buyInput.purchase_date || today} onChange={(e) => setBuyInputs((prev) => ({ ...prev, [product.id]: { ...(prev[product.id] || {}), purchase_date: e.target.value } }))} />
-                  <input type="number" min="0" step="0.01" placeholder="추가 기준가" value={buyInput.purchase_price || ''} onChange={(e) => setBuyInputs((prev) => ({ ...prev, [product.id]: { ...(prev[product.id] || {}), purchase_price: e.target.value } }))} />
-                  <input type="number" min="0" step="0.0001" placeholder={`추가 ${unitLabel(product.unit_type)}`} value={buyInput.quantity || ''} onChange={(e) => setBuyInputs((prev) => ({ ...prev, [product.id]: { ...(prev[product.id] || {}), quantity: e.target.value } }))} />
-                  <button type="button" onClick={() => addBuy(product)}>추가매수</button>
+                <div className="product-metric">
+                  <span>현재 기준가</span>
+                  <strong>{formatCurrency(product.current_price)}</strong>
                 </div>
 
-                <div className="inline-actions sell-actions">
-                  <input type="date" value={sellInput.sale_date || today} onChange={(e) => setSellInputs((prev) => ({ ...prev, [product.id]: { ...(prev[product.id] || {}), sale_date: e.target.value } }))} />
-                  <input type="number" min="0" step="0.01" placeholder="매도가/기준가" value={sellInput.sale_price || ''} onChange={(e) => setSellInputs((prev) => ({ ...prev, [product.id]: { ...(prev[product.id] || {}), sale_price: e.target.value } }))} />
-                  <button type="button" onClick={() => sellProduct(product)}>매도완료</button>
+                <div className="product-metric">
+                  <span>평가액</span>
+                  <strong>{formatCurrency(product.current_value)}</strong>
                 </div>
 
                 <div className="row-actions">
-                  <button type="button" onClick={() => startEdit(product)}>수정</button>
+                  <button type="button" onClick={() => openProductPanel(product, 'price')}>기준가</button>
+                  <button type="button" onClick={() => openProductPanel(product, 'buy')}>추가매수</button>
+                  <button type="button" onClick={() => openProductPanel(product, 'sell')}>매도</button>
+                  <button type="button" onClick={() => openProductPanel(product, 'edit')}>수정</button>
                   <button type="button" className="delete-btn" onClick={() => deleteProduct(product)}>삭제</button>
                 </div>
 
-                {editingId === product.id && (
-                  <div className="edit-panel">
-                    <div className="form-row">
-                      <input value={edit.product_name || ''} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, product_name: e.target.value } }))} />
-                      <input value={edit.product_code || ''} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, product_code: e.target.value } }))} />
+                {activePanel.productId === product.id && activePanel.mode === 'price' && (
+                  <div className="action-panel">
+                    <div className="panel-heading">
+                      <strong>기준가 갱신</strong>
+                      <span>오늘 기준가를 저장하면 추이 그래프에도 반영됩니다.</span>
+                    </div>
+                    <div className="panel-fields price-fields">
+                      <input type="number" min="0" step="0.01" placeholder="새 기준가" value={priceInputs[product.id] || ''} onChange={(e) => setPriceInputs((prev) => ({ ...prev, [product.id]: e.target.value }))} />
+                      <button type="button" onClick={() => updatePrice(product.id)}>갱신</button>
+                    </div>
+                  </div>
+                )}
+
+                {activePanel.productId === product.id && activePanel.mode === 'buy' && (
+                  <div className="action-panel">
+                    <div className="panel-heading">
+                      <strong>추가매수</strong>
+                      <span>입력한 매수 금액은 평균 기준가에 반영되고 매매일지에 남습니다.</span>
+                    </div>
+                    <div className="panel-fields buy-fields">
+                      <input type="date" value={buyInput.purchase_date || today} onChange={(e) => setBuyInputs((prev) => ({ ...prev, [product.id]: { ...(prev[product.id] || {}), purchase_date: e.target.value } }))} />
+                      <input type="number" min="0" step="0.01" placeholder="추가 기준가" value={buyInput.purchase_price || ''} onChange={(e) => setBuyInputs((prev) => ({ ...prev, [product.id]: { ...(prev[product.id] || {}), purchase_price: e.target.value } }))} />
+                      <input type="number" min="0" step="0.0001" placeholder={`추가 ${unitLabel(product.unit_type)}`} value={buyInput.quantity || ''} onChange={(e) => setBuyInputs((prev) => ({ ...prev, [product.id]: { ...(prev[product.id] || {}), quantity: e.target.value } }))} />
+                      <button type="button" onClick={() => addBuy(product)}>추가매수</button>
+                    </div>
+                  </div>
+                )}
+
+                {activePanel.productId === product.id && activePanel.mode === 'sell' && (
+                  <div className="action-panel">
+                    <div className="panel-heading">
+                      <strong>매도 처리</strong>
+                      <span>매도 완료 후 현황과 추이에서는 제외되고 매매일지에만 기록됩니다.</span>
+                    </div>
+                    <div className="panel-fields sell-fields">
+                      <input type="date" value={sellInput.sale_date || today} onChange={(e) => setSellInputs((prev) => ({ ...prev, [product.id]: { ...(prev[product.id] || {}), sale_date: e.target.value } }))} />
+                      <input type="number" min="0" step="0.01" placeholder="매도가/기준가" value={sellInput.sale_price || ''} onChange={(e) => setSellInputs((prev) => ({ ...prev, [product.id]: { ...(prev[product.id] || {}), sale_price: e.target.value } }))} />
+                      <button type="button" onClick={() => sellProduct(product)}>매도완료</button>
+                    </div>
+                  </div>
+                )}
+
+                {editingId === product.id && activePanel.mode === 'edit' && (
+                  <div className="action-panel edit-panel">
+                    <div className="panel-heading">
+                      <strong>상품 정보 수정</strong>
+                      <span>기존 입력값을 바로 고칠 때 사용합니다. 추가 매수는 별도 버튼을 사용하세요.</span>
                     </div>
                     <div className="form-row">
-                      <input type="number" min="0" step="0.01" value={edit.purchase_price || ''} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, purchase_price: e.target.value } }))} />
-                      <input type="number" min="0" step="0.01" value={edit.current_price || ''} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, current_price: e.target.value } }))} />
+                      <input placeholder="상품명" value={edit.product_name || ''} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, product_name: e.target.value } }))} />
+                      <input placeholder="상품 코드" value={edit.product_code || ''} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, product_code: e.target.value } }))} />
                     </div>
                     <div className="form-row">
-                      <input type="number" min="0" step="0.0001" value={edit.quantity || ''} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, quantity: e.target.value } }))} />
-                      <input type="date" value={edit.purchase_date || today} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, purchase_date: e.target.value } }))} />
+                      <input aria-label="평균 기준가" type="number" min="0" step="0.01" value={edit.purchase_price || ''} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, purchase_price: e.target.value } }))} />
+                      <input aria-label="현재 기준가" type="number" min="0" step="0.01" value={edit.current_price || ''} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, current_price: e.target.value } }))} />
                     </div>
                     <div className="form-row">
-                      <select value={edit.unit_type || 'share'} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, unit_type: e.target.value } }))}>
+                      <input aria-label="수량 또는 좌수" type="number" min="0" step="0.0001" value={edit.quantity || ''} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, quantity: e.target.value } }))} />
+                      <input aria-label="매입일" type="date" value={edit.purchase_date || today} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, purchase_date: e.target.value } }))} />
+                    </div>
+                    <div className="form-row">
+                      <select aria-label="단위" value={edit.unit_type || 'share'} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, unit_type: e.target.value } }))}>
                         <option value="share">수</option>
                         <option value="unit">좌</option>
                       </select>
-                      <select value={edit.asset_type || 'risk'} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, asset_type: e.target.value } }))}>
+                      <select aria-label="자산 구분" value={edit.asset_type || 'risk'} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, asset_type: e.target.value } }))}>
                         <option value="risk">위험자산</option>
                         <option value="safe">안전자산</option>
                       </select>
                     </div>
                     <div className="row-actions">
                       <button type="button" onClick={() => saveEdit(product)}>저장</button>
-                      <button type="button" onClick={() => setEditingId(null)}>취소</button>
+                      <button type="button" onClick={() => {
+                        setEditingId(null);
+                        setActivePanel({ productId: null, mode: null });
+                      }}>취소</button>
                     </div>
                   </div>
                 )}
