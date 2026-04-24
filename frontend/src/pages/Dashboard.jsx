@@ -72,6 +72,8 @@ function Dashboard() {
     currency: 'KRW',
     maximumFractionDigits: 0
   }).format(value || 0);
+  const formatQuantity = (value) => Number(value || 0).toLocaleString('ko-KR', { maximumFractionDigits: 4 });
+  const unitLabel = (product) => product.unit_label || (product.unit_type === 'unit' ? '좌' : '수');
 
   const syncPrices = async () => {
     try {
@@ -179,7 +181,7 @@ function Dashboard() {
                   <td>{product.purchase_date}</td>
                   <td>{product.is_cash ? '-' : formatCurrency(product.purchase_price)}</td>
                   <td>{product.is_cash ? '-' : formatCurrency(product.current_price)}</td>
-                  <td>{product.is_cash ? '-' : product.quantity.toLocaleString()}</td>
+                  <td>{product.is_cash ? '-' : `${formatQuantity(product.quantity)}${unitLabel(product)}`}</td>
                   <td>{formatCurrency(product.current_value)}</td>
                   <td className={product.is_cash ? '' : (product.profit_rate >= 0 ? 'profit' : 'loss')}>{product.is_cash ? '-' : `${product.profit_rate.toFixed(2)}%`}</td>
                   <td>

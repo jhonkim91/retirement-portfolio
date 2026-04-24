@@ -25,6 +25,8 @@ function TradeLog() {
   }, [tradeType, assetType]);
 
   const formatCurrency = (value) => new Intl.NumberFormat('ko-KR', { style: 'currency', currency: 'KRW', maximumFractionDigits: 0 }).format(value || 0);
+  const formatQuantity = (value) => Number(value || 0).toLocaleString('ko-KR', { maximumFractionDigits: 4 });
+  const unitLabel = (log) => log.unit_label || (log.unit_type === 'unit' ? '좌' : '수');
   const tradeTypeLabel = (type) => {
     if (type === 'buy') return '매수';
     if (type === 'sell') return '매도';
@@ -56,7 +58,7 @@ function TradeLog() {
                 <td>{log.product_name}</td>
                 <td><span className={`trade-type ${log.trade_type}`}>{tradeTypeLabel(log.trade_type)}</span></td>
                 <td>{assetTypeLabel(log.asset_type)}</td>
-                <td>{log.trade_type === 'deposit' ? '-' : log.quantity.toLocaleString()}</td>
+                <td>{log.trade_type === 'deposit' ? '-' : `${formatQuantity(log.quantity)}${unitLabel(log)}`}</td>
                 <td>{log.trade_type === 'deposit' ? '-' : formatCurrency(log.price)}</td>
                 <td>{formatCurrency(log.total_amount)}</td>
                 <td>{log.notes || '-'}</td>

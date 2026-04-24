@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 from flask import Flask
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
+from sqlalchemy import inspect, text
 
 from models import db
 from routes import api
@@ -28,6 +29,44 @@ jwt = JWTManager(app)
 app.register_blueprint(api)
 
 
+def ensure_schema():
+    inspector = inspect(db.engine)
+    dialect = db.engine.dialect.name
+
+    product_columns = {column['name'] for column in inspector.get_columns('products')}
+    trade_columns = {column['name'] for column in inspector.get_columns('trade_logs')}
+
+    if 'unit_type' not in product_columns:
+        db.session.execute(text("ALTER TABLE products ADD COLUMN unit_type VARCHAR(20) DEFAULT 'share' NOT NULL"))
+    if 'unit_type' not in trade_columns:
+        db.session.execute(text("ALTER TABLE trade_logs ADD COLUMN unit_type VARCHAR(20) DEFAULT 'share' NOT NULL"))
+
+    if dialect == 'postgresql':
+        db.session.execute(text("ALTER TABLE products ALTER COLUMN quantity TYPE DOUBLE PRECISION USING quantity::double precision"))
+        db.session.execute(text("ALTER TABLE trade_logs ALTER COLUMN quantity TYPE DOUBLE PRECISION USING quantity::double precision"))
+
+    db.session.execute(text("""
+        UPDATE products
+        SET unit_type = 'unit'
+        WHERE length(product_code) = 12
+          AND (upper(product_code) LIKE 'K%' OR upper(product_code) LIKE 'KR%')
+          AND (unit_type IS NULL OR unit_type = 'share')
+    """))
+    db.session.execute(text("""
+        UPDATE trade_logs
+        SET unit_type = 'unit',
+            total_amount = quantity * price / 1000
+        WHERE trade_type IN ('buy', 'sell')
+          AND product_id IN (
+              SELECT id
+              FROM products
+              WHERE length(product_code) = 12
+                AND (upper(product_code) LIKE 'K%' OR upper(product_code) LIKE 'KR%')
+          )
+    """))
+    db.session.commit()
+
+
 @app.errorhandler(404)
 def not_found(error):
     return {'error': '요청한 리소스를 찾을 수 없습니다.'}, 404
@@ -40,6 +79,7 @@ def server_error(error):
 
 with app.app_context():
     db.create_all()
+    ensure_schema()
 
 scheduler = start_scheduler(app)
 

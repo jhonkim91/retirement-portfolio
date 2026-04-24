@@ -9,7 +9,7 @@ from models import db, User, Product, PriceHistory, TradeLog, CashBalance
 
 api = Blueprint('api', __name__, url_prefix='/api')
 market_client = StockAPIClient()
-API_VERSION = '2026-04-24-fund-nav-price-v1'
+API_VERSION = '2026-04-24-sell-unit-edit-v1'
 
 
 def current_user_id():
@@ -45,6 +45,33 @@ def get_deposit_principal(user_id):
 def is_manual_price_product(code):
     code_text = str(code or '').strip()
     return code_text.isdigit() and len(code_text) != 6
+
+
+def parse_float(value, field_name):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f'{field_name} 형식이 올바르지 않습니다.')
+    return number
+
+
+def parse_positive_float(value, field_name):
+    number = parse_float(value, field_name)
+    if number <= 0:
+        raise ValueError(f'{field_name}은 0보다 크게 입력하세요.')
+    return number
+
+
+def parse_trade_date(value, fallback=None):
+    return datetime.strptime(value or (fallback or date.today().isoformat()), '%Y-%m-%d').date()
+
+
+def normalize_unit_type(value):
+    return 'unit' if value == 'unit' else 'share'
+
+
+def trade_amount(quantity, price, unit_type):
+    return Product.amount_for(quantity, price, unit_type)
 
 
 def refresh_product_market_data(product, start_date=None):
@@ -167,13 +194,13 @@ def get_portfolio_summary():
         products = Product.query.filter_by(user_id=user_id, status='holding').all()
         cash = get_cash_balance(user_id).amount
         total_investment = get_deposit_principal(user_id)
-        product_current_value = sum(p.quantity * p.current_price for p in products)
+        product_current_value = sum(Product.amount_for(p.quantity, p.current_price, p.unit_type) for p in products)
         total_current_value = product_current_value + cash
         total_profit_loss = total_current_value - total_investment
         total_profit_rate = (total_profit_loss / total_investment * 100) if total_investment else 0
 
-        risk_value = sum(p.quantity * p.current_price for p in products if p.asset_type == 'risk')
-        safe_value = sum(p.quantity * p.current_price for p in products if p.asset_type == 'safe') + cash
+        risk_value = sum(Product.amount_for(p.quantity, p.current_price, p.unit_type) for p in products if p.asset_type == 'risk')
+        safe_value = sum(Product.amount_for(p.quantity, p.current_price, p.unit_type) for p in products if p.asset_type == 'safe') + cash
         total_value = risk_value + safe_value
 
         return jsonify({
@@ -282,6 +309,7 @@ def add_cash_deposit():
             product_name='회사 현금입금',
             trade_type='deposit',
             quantity=1,
+            unit_type='share',
             price=amount,
             total_amount=amount,
             trade_date=deposit_date,
@@ -321,15 +349,21 @@ def add_product():
             if not data.get(field):
                 return jsonify({'error': f'{field} is required'}), 400
 
+        unit_type = normalize_unit_type(data.get('unit_type'))
+        quantity = parse_positive_float(data['quantity'], '수량/좌수')
+        purchase_price = parse_positive_float(data['purchase_price'], '매입가/기준가')
+        purchase_date = parse_trade_date(data['purchase_date'])
+
         product = Product(
             user_id=current_user_id(),
             product_name=data['product_name'],
             product_code=data['product_code'],
-            purchase_price=float(data['purchase_price']),
-            quantity=int(data['quantity']),
-            purchase_date=datetime.strptime(data['purchase_date'], '%Y-%m-%d').date(),
+            purchase_price=purchase_price,
+            quantity=quantity,
+            unit_type=unit_type,
+            purchase_date=purchase_date,
             asset_type=data['asset_type'],
-            current_price=float(data['purchase_price']),
+            current_price=purchase_price,
             status='holding'
         )
         db.session.add(product)
@@ -343,8 +377,9 @@ def add_product():
             product_name=product.product_name,
             trade_type='buy',
             quantity=product.quantity,
+            unit_type=product.unit_type,
             price=product.purchase_price,
-            total_amount=product.purchase_price * product.quantity,
+            total_amount=trade_amount(product.quantity, product.purchase_price, product.unit_type),
             trade_date=product.purchase_date,
             asset_type=product.asset_type,
             notes=data.get('notes', '')
@@ -354,6 +389,113 @@ def add_product():
     except ValueError as e:
         db.session.rollback()
         return jsonify({'error': f'입력 형식 오류: {str(e)}'}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/products/<int:product_id>', methods=['PUT'])
+@jwt_required()
+def update_product(product_id):
+    try:
+        data = request.get_json() or {}
+        product = Product.query.filter_by(id=product_id, user_id=current_user_id(), status='holding').first()
+        if not product:
+            return jsonify({'error': '보유 중인 상품을 찾을 수 없습니다.'}), 404
+
+        product.product_name = data.get('product_name') or product.product_name
+        product.product_code = data.get('product_code') or product.product_code
+        product.asset_type = data.get('asset_type') or product.asset_type
+        product.unit_type = normalize_unit_type(data.get('unit_type', product.unit_type))
+
+        if data.get('purchase_price') not in (None, ''):
+            product.purchase_price = parse_positive_float(data.get('purchase_price'), '매입가/기준가')
+        if data.get('quantity') not in (None, ''):
+            product.quantity = parse_positive_float(data.get('quantity'), '수량/좌수')
+        if data.get('purchase_date'):
+            product.purchase_date = parse_trade_date(data.get('purchase_date'))
+        if data.get('current_price') not in (None, ''):
+            product.current_price = parse_positive_float(data.get('current_price'), '현재가/기준가')
+
+        upsert_price_history(product.id, product.purchase_date, product.purchase_price)
+
+        trade_logs = TradeLog.query.filter_by(product_id=product.id).all()
+        for log in trade_logs:
+            log.product_name = product.product_name
+            log.asset_type = product.asset_type
+            log.unit_type = product.unit_type
+            if log.trade_type in ('buy', 'sell'):
+                log.total_amount = trade_amount(log.quantity, log.price, product.unit_type)
+
+        buy_logs = (
+            TradeLog.query
+            .filter_by(product_id=product.id, trade_type='buy')
+            .order_by(TradeLog.trade_date.asc(), TradeLog.id.asc())
+            .all()
+        )
+        if len(buy_logs) == 1:
+            first_buy = buy_logs[0]
+            first_buy.product_name = product.product_name
+            first_buy.quantity = product.quantity
+            first_buy.unit_type = product.unit_type
+            first_buy.price = product.purchase_price
+            first_buy.total_amount = trade_amount(product.quantity, product.purchase_price, product.unit_type)
+            first_buy.trade_date = product.purchase_date
+            first_buy.asset_type = product.asset_type
+            if data.get('notes') is not None:
+                first_buy.notes = data.get('notes')
+
+        db.session.commit()
+        return jsonify({'message': '상품 정보가 수정되었습니다.', 'product': product.to_dict()}), 200
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/products/<int:product_id>/buy', methods=['POST'])
+@jwt_required()
+def add_product_buy(product_id):
+    try:
+        data = request.get_json() or {}
+        product = Product.query.filter_by(id=product_id, user_id=current_user_id(), status='holding').first()
+        if not product:
+            return jsonify({'error': '보유 중인 상품을 찾을 수 없습니다.'}), 404
+
+        quantity = parse_positive_float(data.get('quantity'), '추가 수량/좌수')
+        price = parse_positive_float(data.get('purchase_price'), '추가 매입가/기준가')
+        buy_date = parse_trade_date(data.get('purchase_date'))
+
+        previous_amount = trade_amount(product.quantity, product.purchase_price, product.unit_type)
+        additional_amount = trade_amount(quantity, price, product.unit_type)
+        new_quantity = product.quantity + quantity
+        product.purchase_price = Product.price_for_amount(previous_amount + additional_amount, new_quantity, product.unit_type)
+        product.quantity = new_quantity
+        if buy_date < product.purchase_date:
+            product.purchase_date = buy_date
+
+        upsert_price_history(product.id, buy_date, price)
+
+        db.session.add(TradeLog(
+            user_id=product.user_id,
+            product_id=product.id,
+            product_name=product.product_name,
+            trade_type='buy',
+            quantity=quantity,
+            unit_type=product.unit_type,
+            price=price,
+            total_amount=additional_amount,
+            trade_date=buy_date,
+            asset_type=product.asset_type,
+            notes=data.get('notes', '추가매수')
+        ))
+        db.session.commit()
+        return jsonify({'message': '추가매수가 반영되었습니다.', 'product': product.to_dict()}), 201
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 400
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
@@ -371,8 +513,8 @@ def sell_product(product_id):
             return jsonify({'error': '이미 매도 완료된 상품입니다.'}), 400
 
         product.status = 'sold'
-        product.sale_price = float(data['sale_price'])
-        product.sale_date = datetime.strptime(data['sale_date'], '%Y-%m-%d').date()
+        product.sale_price = parse_positive_float(data.get('sale_price'), '매도가/기준가')
+        product.sale_date = parse_trade_date(data.get('sale_date'))
 
         db.session.add(TradeLog(
             user_id=product.user_id,
@@ -380,8 +522,9 @@ def sell_product(product_id):
             product_name=product.product_name,
             trade_type='sell',
             quantity=product.quantity,
+            unit_type=product.unit_type,
             price=product.sale_price,
-            total_amount=product.sale_price * product.quantity,
+            total_amount=trade_amount(product.quantity, product.sale_price, product.unit_type),
             trade_date=product.sale_date,
             asset_type=product.asset_type,
             notes=data.get('notes', '')
@@ -515,7 +658,7 @@ def get_price_history(product_id):
 def get_portfolio_trends():
     try:
         user_id = current_user_id()
-        products = Product.query.filter_by(user_id=user_id).all()
+        products = Product.query.filter_by(user_id=user_id, status='holding').all()
         rows = []
         for product in products:
             histories = PriceHistory.query.filter_by(product_id=product.id)
