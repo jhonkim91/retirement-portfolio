@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { portfolioAPI } from '../utils/api';
+import AccountSelector from '../components/AccountSelector';
+import { ACCOUNT_STORAGE_KEY, DEFAULT_ACCOUNT_NAME, portfolioAPI } from '../utils/api';
 import '../styles/Portfolio.css';
 
 const emptyProductForm = (today) => ({
@@ -14,8 +15,11 @@ const emptyProductForm = (today) => ({
   notes: ''
 });
 
+const getInitialAccountName = () => localStorage.getItem(ACCOUNT_STORAGE_KEY) || DEFAULT_ACCOUNT_NAME;
+
 function Portfolio() {
   const today = new Date().toISOString().slice(0, 10);
+  const [accountName, setAccountName] = useState(getInitialAccountName);
   const [formData, setFormData] = useState(emptyProductForm(today));
   const [depositForm, setDepositForm] = useState({ amount: '', deposit_date: today, notes: '' });
   const [cashAmount, setCashAmount] = useState('');
@@ -36,40 +40,35 @@ function Portfolio() {
   const [showProductSearch, setShowProductSearch] = useState(false);
   const [selectedProductName, setSelectedProductName] = useState('');
   const [selectedTrendProductIds, setSelectedTrendProductIds] = useState([]);
-  const trendSelectionInitialized = useRef(false);
-  const previousTrendProductIds = useRef([]);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     const [productData, trendData, cashData] = await Promise.all([
-      portfolioAPI.getProducts(),
-      portfolioAPI.getTrends(),
-      portfolioAPI.getCash()
+      portfolioAPI.getProducts(accountName),
+      portfolioAPI.getTrends(accountName),
+      portfolioAPI.getCash(accountName)
     ]);
     setProducts(productData);
     setTrends(trendData);
     setCashAmount(String(cashData.amount || 0));
-  };
+  }, [accountName]);
 
   useEffect(() => {
     loadData().catch((err) => setMessage(err.message));
-  }, []);
+  }, [loadData]);
 
   useEffect(() => {
     const productIds = products.map((product) => String(product.id));
-    const knownIds = previousTrendProductIds.current;
-
-    setSelectedTrendProductIds((prev) => {
-      if (!trendSelectionInitialized.current) {
-        return productIds;
-      }
-      const kept = prev.filter((id) => productIds.includes(id));
-      const added = productIds.filter((id) => !knownIds.includes(id));
-      return [...kept, ...added];
-    });
-
-    trendSelectionInitialized.current = true;
-    previousTrendProductIds.current = productIds;
+    setSelectedTrendProductIds((prev) => prev.filter((id) => productIds.includes(id)));
   }, [products]);
+
+  const changeAccountName = (value) => {
+    localStorage.setItem(ACCOUNT_STORAGE_KEY, value);
+    setAccountName(value);
+    setMessage('');
+    setSelectedTrendProductIds([]);
+    setActivePanel({ productId: null, mode: null });
+    setEditingId(null);
+  };
 
   useEffect(() => {
     const query = formData.product_name.trim();
@@ -111,7 +110,8 @@ function Portfolio() {
     const byDate = {};
     filteredTrends.forEach((row) => {
       byDate[row.record_date] = byDate[row.record_date] || { date: row.record_date };
-      byDate[row.record_date][row.product_name] = row.price;
+      byDate[row.record_date][row.product_name] = row.evaluation_value;
+      byDate[row.record_date][`${row.product_name}__meta`] = row;
     });
     return Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
   }, [filteredTrends]);
@@ -132,6 +132,28 @@ function Portfolio() {
   }).format(value || 0);
   const formatQuantity = (value) => Number(value || 0).toLocaleString('ko-KR', { maximumFractionDigits: 4 });
   const unitLabel = (unitType) => (unitType === 'unit' ? '좌' : '수');
+  const formatPercent = (value) => `${Number(value || 0).toFixed(2)}%`;
+
+  const TrendTooltip = ({ active, payload, label }) => {
+    if (!active || !payload?.length) return null;
+    return (
+      <div className="trend-tooltip">
+        <strong>{label}</strong>
+        {payload.map((item) => {
+          const row = item.payload?.[`${item.name}__meta`];
+          if (!row) return null;
+          return (
+            <div className="trend-tooltip-item" key={item.name}>
+              <span className="trend-tooltip-name" style={{ color: item.color }}>{item.name}</span>
+              <span>기준가 {formatCurrency(row.price)}</span>
+              <span>평가액 {formatCurrency(row.evaluation_value)}</span>
+              <span className={(row.profit_rate || 0) >= 0 ? 'profit-text' : 'loss-text'}>수익률 {formatPercent(row.profit_rate)}</span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
 
   const handleChange = (event) => {
     const { name, value } = event.target;
@@ -159,7 +181,7 @@ function Portfolio() {
     setLoading(true);
     setMessage('');
     try {
-      await portfolioAPI.addProduct(formData);
+      await portfolioAPI.addProduct(formData, accountName);
       setMessage('상품을 추가하고 매수 내역을 기록했습니다.');
       setFormData(emptyProductForm(today));
       setSelectedProductName('');
@@ -177,7 +199,7 @@ function Portfolio() {
     setCashLoading(true);
     setMessage('');
     try {
-      await portfolioAPI.updateCash(cashAmount);
+      await portfolioAPI.updateCash(cashAmount, accountName);
       setMessage('보유 현금을 저장했습니다. 매매일지에는 기록하지 않습니다.');
       await loadData();
     } catch (err) {
@@ -192,7 +214,7 @@ function Portfolio() {
     setDepositLoading(true);
     setMessage('');
     try {
-      await portfolioAPI.addCashDeposit(depositForm);
+      await portfolioAPI.addCashDeposit(depositForm, accountName);
       setDepositForm({ amount: '', deposit_date: today, notes: '' });
       setMessage('회사 현금입금을 원금과 매매일지에 기록했습니다.');
       await loadData();
@@ -333,7 +355,6 @@ function Portfolio() {
   };
 
   const toggleTrendProduct = (productId) => {
-    if (activePanel.productId === productId) return;
     const id = String(productId);
     setSelectedTrendProductIds((prev) => (
       prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
@@ -342,6 +363,7 @@ function Portfolio() {
 
   return (
     <main className="portfolio-container">
+      <AccountSelector value={accountName} onChange={changeAccountName} />
       <section className="portfolio-workspace">
         <aside className="portfolio-left">
           <h1>상품 등록</h1>
@@ -588,7 +610,7 @@ function Portfolio() {
         </aside>
 
         <div className="trend-panel">
-          <h2>퇴직연금 추이</h2>
+          <h2>{accountName} 추이</h2>
           <div className="trend-view">
             <div className="trend-chart">
               <ResponsiveContainer width="100%" height={320}>
@@ -596,7 +618,7 @@ function Portfolio() {
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="date" />
                   <YAxis tickFormatter={(value) => value.toLocaleString()} />
-                  <Tooltip formatter={(value) => formatCurrency(value)} />
+                  <Tooltip content={<TrendTooltip />} />
                   <Legend />
                   {productNames.map((name, index) => (
                     <Line key={name} type="monotone" dataKey={name} stroke={colors[index % colors.length]} connectNulls={false} />
@@ -607,7 +629,8 @@ function Portfolio() {
           </div>
           <div className="trend-detail">
             <h3>상품 추이 상세</h3>
-            {trendRows.length === 0 ? <p className="no-data">표시할 추이 데이터가 없습니다.</p> : (
+            {selectedTrendProductIds.length > 0 && trendRows.length === 0 && <p className="no-data">선택한 상품의 추이 데이터가 없습니다.</p>}
+            {selectedTrendProductIds.length > 0 && trendRows.length > 0 && (
               <div className="trend-table-wrapper">
                 <table className="trend-table">
                   <thead>

@@ -18,11 +18,16 @@
 .product-search-item strong { display: block; color: #102a43; font-size: 14px; line-height: 1.35; }
 .product-search-item span { display: block; margin-top: 3px; color: #697586; font-size: 12px; line-height: 1.35; }
 .holding-panel { margin-top: 0; }
-.cash-panel, .deposit-panel { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; align-items: end; }
+.cash-panel, .deposit-panel { display: grid; grid-template-columns: 1fr; gap: 12px; align-items: stretch; }
 .cash-panel h3, .deposit-panel h3 { margin: 0 0 6px; }
 .cash-panel p, .deposit-panel p { margin: 0; color: #697586; font-size: 13px; line-height: 1.5; }
 .trend-view { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
 .trend-chart { min-width: 0; }
+.trend-tooltip { min-width: 190px; border: 1px solid #d9e2ec; border-radius: 8px; background: #fff; padding: 10px 12px; box-shadow: 0 10px 26px rgba(15, 23, 42, .14); }
+.trend-tooltip > strong { display: block; margin-bottom: 8px; color: #102a43; font-size: 13px; }
+.trend-tooltip-item { display: grid; gap: 3px; padding-top: 8px; border-top: 1px solid #edf2f7; color: #52606d; font-size: 12px; }
+.trend-tooltip-item:first-of-type { border-top: 0; padding-top: 0; }
+.trend-tooltip-name { font-weight: 850; }
 .trend-detail { border-top: 1px solid #e5eaf0; margin-top: 18px; padding-top: 18px; }
 .trend-detail h3 { margin: 0 0 10px; }
 .trend-table-wrapper { overflow-x: auto; border: 1px solid #e5eaf0; border-radius: 8px; }
@@ -34,7 +39,7 @@
 .profit-text { color: #b42318; font-weight: 800; }
 .loss-text { color: #177245; font-weight: 800; }
 .cash-actions { display: grid; grid-template-columns: minmax(180px, 240px) auto; gap: 8px; }
-.deposit-actions { display: grid; grid-template-columns: 150px minmax(170px, 240px) auto; gap: 8px; }
+.deposit-actions { display: grid; grid-template-columns: 150px minmax(170px, 1fr) auto; gap: 8px; }
 .cash-actions input, .deposit-actions input, .deposit-panel textarea { border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 11px; }
 .deposit-panel textarea { grid-column: 1 / -1; resize: vertical; }
 .cash-actions button, .deposit-actions button { border: 0; background: #33658a; color: #fff; border-radius: 6px; padding: 9px 12px; font-weight: 800; }

@@ -2,6 +2,7 @@ from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
 
 db = SQLAlchemy()
+DEFAULT_ACCOUNT_NAME = '퇴직연금'
 
 class User(db.Model):
     __tablename__ = 'users'
@@ -29,6 +30,7 @@ class Product(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    account_name = db.Column(db.String(80), nullable=False, default=DEFAULT_ACCOUNT_NAME)
     product_name = db.Column(db.String(255), nullable=False)
     product_code = db.Column(db.String(50), nullable=False)
     purchase_price = db.Column(db.Float, nullable=False)
@@ -65,6 +67,7 @@ class Product(db.Model):
         
         return {
             'id': self.id,
+            'account_name': self.account_name,
             'product_name': self.product_name,
             'product_code': self.product_code,
             'purchase_price': self.purchase_price,
@@ -86,9 +89,11 @@ class Product(db.Model):
 
 class CashBalance(db.Model):
     __tablename__ = 'cash_balances'
+    __table_args__ = (db.UniqueConstraint('user_id', 'account_name', name='uq_cash_balance_user_account'),)
 
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), unique=True, nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    account_name = db.Column(db.String(80), nullable=False, default=DEFAULT_ACCOUNT_NAME)
     amount = db.Column(db.Float, default=0, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -96,6 +101,7 @@ class CashBalance(db.Model):
         return {
             'id': self.id,
             'user_id': self.user_id,
+            'account_name': self.account_name,
             'amount': self.amount,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
@@ -123,6 +129,7 @@ class TradeLog(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    account_name = db.Column(db.String(80), nullable=False, default=DEFAULT_ACCOUNT_NAME)
     product_id = db.Column(db.Integer, db.ForeignKey('products.id'), nullable=True)
     product_name = db.Column(db.String(255), nullable=False)
     trade_type = db.Column(db.String(10), nullable=False)  # 'buy', 'sell', 'deposit'
@@ -138,6 +145,7 @@ class TradeLog(db.Model):
     def to_dict(self):
         return {
             'id': self.id,
+            'account_name': self.account_name,
             'product_id': self.product_id,
             'product_name': self.product_name,
             'trade_type': self.trade_type,

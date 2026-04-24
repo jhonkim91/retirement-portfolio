@@ -1,6 +1,11 @@
 const API_BASE_URL = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname || 'localhost'}:5000/api`;
+export const DEFAULT_ACCOUNT_NAME = '퇴직연금';
+export const ACCOUNT_OPTIONS = ['퇴직연금', 'IRP'];
+export const ACCOUNT_STORAGE_KEY = 'selected_account_name';
 
 const getToken = () => localStorage.getItem('access_token');
+const accountNameOrDefault = (accountName) => accountName || localStorage.getItem(ACCOUNT_STORAGE_KEY) || DEFAULT_ACCOUNT_NAME;
+const accountQuery = (accountName) => `account_name=${encodeURIComponent(accountNameOrDefault(accountName))}`;
 
 const apiCall = async (endpoint, method = 'GET', body = null) => {
   const headers = { 'Content-Type': 'application/json' };
@@ -31,16 +36,16 @@ export const authAPI = {
 };
 
 export const portfolioAPI = {
-  getSummary: () => apiCall('/portfolio/summary'),
-  getProducts: () => apiCall('/portfolio/products'),
-  getAllProducts: () => apiCall('/portfolio/all-products'),
-  getTrends: () => apiCall('/portfolio/trends'),
-  syncPrices: () => apiCall('/portfolio/sync-prices', 'POST'),
+  getSummary: (accountName) => apiCall(`/portfolio/summary?${accountQuery(accountName)}`),
+  getProducts: (accountName) => apiCall(`/portfolio/products?${accountQuery(accountName)}`),
+  getAllProducts: (accountName) => apiCall(`/portfolio/all-products?${accountQuery(accountName)}`),
+  getTrends: (accountName) => apiCall(`/portfolio/trends?${accountQuery(accountName)}`),
+  syncPrices: (accountName) => apiCall(`/portfolio/sync-prices?${accountQuery(accountName)}`, 'POST'),
   searchProducts: (query) => apiCall(`/products/search?q=${encodeURIComponent(query)}`),
-  getCash: () => apiCall('/cash'),
-  updateCash: (amount) => apiCall('/cash', 'PUT', { amount }),
-  addCashDeposit: (depositData) => apiCall('/cash/deposits', 'POST', depositData),
-  addProduct: (productData) => apiCall('/products', 'POST', productData),
+  getCash: (accountName) => apiCall(`/cash?${accountQuery(accountName)}`),
+  updateCash: (amount, accountName) => apiCall('/cash', 'PUT', { amount, account_name: accountNameOrDefault(accountName) }),
+  addCashDeposit: (depositData, accountName) => apiCall('/cash/deposits', 'POST', { ...depositData, account_name: accountNameOrDefault(accountName) }),
+  addProduct: (productData, accountName) => apiCall('/products', 'POST', { ...productData, account_name: accountNameOrDefault(accountName) }),
   updateProduct: (productId, productData) => apiCall(`/products/${productId}`, 'PUT', productData),
   addBuy: (productId, buyData) => apiCall(`/products/${productId}/buy`, 'POST', buyData),
   deleteProduct: (productId) => apiCall(`/products/${productId}/delete`, 'POST'),
@@ -50,10 +55,11 @@ export const portfolioAPI = {
 };
 
 export const tradeLogAPI = {
-  getRealizedSummary: () => apiCall('/trade-logs/realized-summary'),
+  getRealizedSummary: (accountName) => apiCall(`/trade-logs/realized-summary?${accountQuery(accountName)}`),
   updateLog: (logId, logData) => apiCall(`/trade-logs/${logId}`, 'PUT', logData),
   getLogs: (filters = {}) => {
     const params = new URLSearchParams();
+    params.append('account_name', accountNameOrDefault(filters.accountName));
     if (filters.tradeType && filters.tradeType !== 'all') params.append('trade_type', filters.tradeType);
     if (filters.assetType && filters.assetType !== 'all') params.append('asset_type', filters.assetType);
     const query = params.toString();

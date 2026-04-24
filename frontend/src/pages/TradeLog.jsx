@@ -1,8 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { tradeLogAPI } from '../utils/api';
+import AccountSelector from '../components/AccountSelector';
+import { ACCOUNT_STORAGE_KEY, DEFAULT_ACCOUNT_NAME, tradeLogAPI } from '../utils/api';
 import '../styles/TradeLog.css';
 
+const getInitialAccountName = () => localStorage.getItem(ACCOUNT_STORAGE_KEY) || DEFAULT_ACCOUNT_NAME;
+
 function TradeLog() {
+  const [accountName, setAccountName] = useState(getInitialAccountName);
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tradeType, setTradeType] = useState('all');
@@ -25,8 +29,8 @@ function TradeLog() {
       setLoading(true);
       setError('');
       const [logRows, summary] = await Promise.all([
-        tradeLogAPI.getLogs({ tradeType, assetType }),
-        tradeLogAPI.getRealizedSummary()
+        tradeLogAPI.getLogs({ tradeType, assetType, accountName }),
+        tradeLogAPI.getRealizedSummary(accountName)
       ]);
       setLogs(logRows);
       setRealizedSummary(summary);
@@ -35,7 +39,7 @@ function TradeLog() {
     } finally {
       setLoading(false);
     }
-  }, [tradeType, assetType]);
+  }, [tradeType, assetType, accountName]);
 
   useEffect(() => {
     loadLogs();
@@ -56,6 +60,11 @@ function TradeLog() {
     if (type === 'safe') return '안전자산';
     if (type === 'cash') return '현금';
     return type;
+  };
+  const changeAccountName = (value) => {
+    localStorage.setItem(ACCOUNT_STORAGE_KEY, value);
+    setAccountName(value);
+    setEditingLogId(null);
   };
   const startEdit = (log) => {
     setEditingLogId(log.id);
@@ -98,6 +107,7 @@ function TradeLog() {
 
   return (
     <main className="tradelog-container">
+      <AccountSelector value={accountName} onChange={changeAccountName} />
       <div className="page-header"><h1>매매일지</h1><p>상품 매수, 매도 완료, 회사 현금입금이 누적 기록됩니다.</p></div>
       {error && <div className="error-message">{error}</div>}
       <section className="realized-summary">

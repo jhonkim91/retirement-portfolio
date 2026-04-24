@@ -1,12 +1,15 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { portfolioAPI } from '../utils/api';
+import AccountSelector from '../components/AccountSelector';
+import { ACCOUNT_STORAGE_KEY, DEFAULT_ACCOUNT_NAME, portfolioAPI } from '../utils/api';
 import '../styles/Dashboard.css';
 
 const COLORS = { risk: '#d94841', safe: '#256f68' };
 const HOLDING_COLORS = ['#33658a', '#d94841', '#256f68', '#f6ae2d', '#6a4c93', '#2f4858', '#9f6b2e', '#0081a7'];
+const getInitialAccountName = () => localStorage.getItem(ACCOUNT_STORAGE_KEY) || DEFAULT_ACCOUNT_NAME;
 
 function Dashboard() {
+  const [accountName, setAccountName] = useState(getInitialAccountName);
   const [summary, setSummary] = useState(null);
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -15,12 +18,12 @@ function Dashboard() {
   const [syncing, setSyncing] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
 
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = useCallback(async () => {
     try {
       setError('');
       const [summaryRes, productsRes] = await Promise.all([
-        portfolioAPI.getSummary(),
-        portfolioAPI.getProducts()
+        portfolioAPI.getSummary(accountName),
+        portfolioAPI.getProducts(accountName)
       ]);
       setSummary(summaryRes);
       setProducts(productsRes);
@@ -29,13 +32,21 @@ function Dashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [accountName]);
 
   useEffect(() => {
     fetchDashboardData();
     const interval = setInterval(fetchDashboardData, 60000);
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchDashboardData]);
+
+  const changeAccountName = (value) => {
+    localStorage.setItem(ACCOUNT_STORAGE_KEY, value);
+    setAccountName(value);
+    setNotice('');
+    setError('');
+    setLoading(true);
+  };
 
   const allocation = useMemo(() => ([
     { name: '위험자산', value: summary?.asset_allocation?.risk?.percentage || 0, amount: summary?.asset_allocation?.risk?.value || 0, key: 'risk' },
@@ -96,7 +107,7 @@ function Dashboard() {
       setSyncing(true);
       setError('');
       setNotice('');
-      const result = await portfolioAPI.syncPrices();
+      const result = await portfolioAPI.syncPrices(accountName);
       await fetchDashboardData();
       const failed = result.items.filter((item) => !item.success);
       if (failed.length > 0) {
@@ -133,10 +144,11 @@ function Dashboard() {
 
   return (
     <main className="dashboard">
+      <AccountSelector value={accountName} onChange={changeAccountName} />
       <section className="summary-section">
         <div className="header">
           <div>
-            <h1>퇴직연금 현황</h1>
+            <h1>{accountName} 현황</h1>
             <p>회사 현금입금 원금 대비 현재 보유 상품과 보유 현금을 기준으로 평가합니다.</p>
           </div>
           <div className="header-actions">

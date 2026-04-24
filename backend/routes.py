@@ -5,15 +5,31 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
 
 from api_client import StockAPIClient
-from models import db, User, Product, PriceHistory, TradeLog, CashBalance
+from models import db, User, Product, PriceHistory, TradeLog, CashBalance, DEFAULT_ACCOUNT_NAME
 
 api = Blueprint('api', __name__, url_prefix='/api')
 market_client = StockAPIClient()
-API_VERSION = '2026-04-24-card-layout-tradelog-edit-v1'
+API_VERSION = '2026-04-25-account-filter-trend-tooltip-v1'
 
 
 def current_user_id():
     return int(get_jwt_identity())
+
+
+def normalize_account_name(value):
+    account_name = str(value or '').strip()
+    if not account_name:
+        return DEFAULT_ACCOUNT_NAME
+    return account_name[:80]
+
+
+def current_account_name():
+    data = request.get_json(silent=True) or {}
+    return normalize_account_name(
+        request.args.get('account_name')
+        or data.get('account_name')
+        or DEFAULT_ACCOUNT_NAME
+    )
 
 
 def upsert_price_history(product_id, record_date, price):
@@ -24,19 +40,25 @@ def upsert_price_history(product_id, record_date, price):
         db.session.add(PriceHistory(product_id=product_id, price=price, record_date=record_date))
 
 
-def get_cash_balance(user_id):
-    balance = CashBalance.query.filter_by(user_id=user_id).first()
+def get_cash_balance(user_id, account_name=None):
+    account_name = normalize_account_name(account_name)
+    balance = CashBalance.query.filter_by(user_id=user_id, account_name=account_name).first()
     if not balance:
-        balance = CashBalance(user_id=user_id, amount=0)
+        balance = CashBalance(user_id=user_id, account_name=account_name, amount=0)
         db.session.add(balance)
         db.session.commit()
     return balance
 
 
-def get_deposit_principal(user_id):
+def get_deposit_principal(user_id, account_name=None):
+    account_name = normalize_account_name(account_name)
     total = (
         db.session.query(db.func.coalesce(db.func.sum(TradeLog.total_amount), 0))
-        .filter(TradeLog.user_id == user_id, TradeLog.trade_type == 'deposit')
+        .filter(
+            TradeLog.user_id == user_id,
+            TradeLog.account_name == account_name,
+            TradeLog.trade_type == 'deposit'
+        )
         .scalar()
     )
     return float(total or 0)
@@ -74,10 +96,15 @@ def trade_amount(quantity, price, unit_type):
     return Product.amount_for(quantity, price, unit_type)
 
 
-def get_realized_positions(user_id):
+def get_realized_positions(user_id, account_name=None):
+    account_name = normalize_account_name(account_name)
     logs = (
         TradeLog.query
-        .filter(TradeLog.user_id == user_id, TradeLog.product_id.isnot(None))
+        .filter(
+            TradeLog.user_id == user_id,
+            TradeLog.account_name == account_name,
+            TradeLog.product_id.isnot(None)
+        )
         .filter(TradeLog.trade_type.in_(('buy', 'sell')))
         .order_by(TradeLog.trade_date.asc(), TradeLog.id.asc())
         .all()
@@ -176,8 +203,11 @@ def refresh_product_market_data(product, start_date=None):
     return False, '자동조회 불가. ETF는 6자리 공개 코드(예: 069500, 0177N0), 펀드는 표준코드(예: K55207BU0715)로 입력하세요.'
 
 
-def sync_user_holdings(user_id):
-    products = Product.query.filter_by(user_id=user_id, status='holding').all()
+def sync_user_holdings(user_id, account_name=None):
+    query = Product.query.filter_by(user_id=user_id, status='holding')
+    if account_name:
+        query = query.filter_by(account_name=normalize_account_name(account_name))
+    products = query.all()
     result = []
     changed = False
 
@@ -263,9 +293,10 @@ def login():
 def get_portfolio_summary():
     try:
         user_id = current_user_id()
-        products = Product.query.filter_by(user_id=user_id, status='holding').all()
-        cash = get_cash_balance(user_id).amount
-        total_investment = get_deposit_principal(user_id)
+        account_name = current_account_name()
+        products = Product.query.filter_by(user_id=user_id, account_name=account_name, status='holding').all()
+        cash = get_cash_balance(user_id, account_name).amount
+        total_investment = get_deposit_principal(user_id, account_name)
         product_current_value = sum(Product.amount_for(p.quantity, p.current_price, p.unit_type) for p in products)
         total_current_value = product_current_value + cash
         total_profit_loss = total_current_value - total_investment
@@ -301,7 +332,8 @@ def get_portfolio_summary():
 def get_products():
     try:
         user_id = current_user_id()
-        products = Product.query.filter_by(user_id=user_id, status='holding').order_by(Product.purchase_date.desc()).all()
+        account_name = current_account_name()
+        products = Product.query.filter_by(user_id=user_id, account_name=account_name, status='holding').order_by(Product.purchase_date.desc()).all()
         return jsonify([p.to_dict() for p in products]), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -311,7 +343,7 @@ def get_products():
 @jwt_required()
 def sync_prices():
     try:
-        result = sync_user_holdings(current_user_id())
+        result = sync_user_holdings(current_user_id(), current_account_name())
         success_count = sum(1 for row in result if row['success'])
         return jsonify({
             'message': f'{success_count}개 상품 가격을 동기화했습니다.',
@@ -338,7 +370,7 @@ def search_products():
 @jwt_required()
 def get_cash():
     try:
-        return jsonify(get_cash_balance(current_user_id()).to_dict()), 200
+        return jsonify(get_cash_balance(current_user_id(), current_account_name()).to_dict()), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -352,7 +384,7 @@ def update_cash():
         if amount < 0:
             return jsonify({'error': '현금은 0원 이상으로 입력하세요.'}), 400
 
-        balance = get_cash_balance(current_user_id())
+        balance = get_cash_balance(current_user_id(), current_account_name())
         balance.amount = amount
         db.session.commit()
         return jsonify({'message': '현금이 저장되었습니다.', 'cash': balance.to_dict()}), 200
@@ -374,9 +406,11 @@ def add_cash_deposit():
 
         deposit_date = datetime.strptime(data.get('deposit_date') or date.today().isoformat(), '%Y-%m-%d').date()
         user_id = current_user_id()
+        account_name = current_account_name()
 
         log = TradeLog(
             user_id=user_id,
+            account_name=account_name,
             product_id=None,
             product_name='회사 현금입금',
             trade_type='deposit',
@@ -405,7 +439,7 @@ def add_cash_deposit():
 @jwt_required()
 def get_all_products():
     try:
-        products = Product.query.filter_by(user_id=current_user_id()).order_by(Product.purchase_date.desc()).all()
+        products = Product.query.filter_by(user_id=current_user_id(), account_name=current_account_name()).order_by(Product.purchase_date.desc()).all()
         return jsonify([p.to_dict() for p in products]), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -425,9 +459,11 @@ def add_product():
         quantity = parse_positive_float(data['quantity'], '수량/좌수')
         purchase_price = parse_positive_float(data['purchase_price'], '매입가/기준가')
         purchase_date = parse_trade_date(data['purchase_date'])
+        account_name = current_account_name()
 
         product = Product(
             user_id=current_user_id(),
+            account_name=account_name,
             product_name=data['product_name'],
             product_code=market_client.clean_code(data['product_code']),
             purchase_price=purchase_price,
@@ -445,6 +481,7 @@ def add_product():
 
         db.session.add(TradeLog(
             user_id=product.user_id,
+            account_name=product.account_name,
             product_id=product.id,
             product_name=product.product_name,
             trade_type='buy',
@@ -493,6 +530,7 @@ def update_product(product_id):
 
         trade_logs = TradeLog.query.filter_by(product_id=product.id).all()
         for log in trade_logs:
+            log.account_name = product.account_name
             log.product_name = product.product_name
             log.asset_type = product.asset_type
             log.unit_type = product.unit_type
@@ -552,6 +590,7 @@ def add_product_buy(product_id):
 
         db.session.add(TradeLog(
             user_id=product.user_id,
+            account_name=product.account_name,
             product_id=product.id,
             product_name=product.product_name,
             trade_type='buy',
@@ -590,6 +629,7 @@ def sell_product(product_id):
 
         db.session.add(TradeLog(
             user_id=product.user_id,
+            account_name=product.account_name,
             product_id=product.id,
             product_name=product.product_name,
             trade_type='sell',
@@ -619,6 +659,7 @@ def delete_user_product(user_id, product_id):
     fallback_log_filters = [
         db.and_(
             TradeLog.product_id.is_(None),
+            TradeLog.account_name == product.account_name,
             TradeLog.product_name == product.product_name,
             TradeLog.trade_type == 'buy',
             TradeLog.trade_date == product.purchase_date,
@@ -629,6 +670,7 @@ def delete_user_product(user_id, product_id):
         fallback_log_filters.append(
             db.and_(
                 TradeLog.product_id.is_(None),
+                TradeLog.account_name == product.account_name,
                 TradeLog.product_name == product.product_name,
                 TradeLog.trade_type == 'sell',
                 TradeLog.trade_date == product.sale_date,
@@ -730,7 +772,8 @@ def get_price_history(product_id):
 def get_portfolio_trends():
     try:
         user_id = current_user_id()
-        products = Product.query.filter_by(user_id=user_id, status='holding').all()
+        account_name = current_account_name()
+        products = Product.query.filter_by(user_id=user_id, account_name=account_name, status='holding').all()
         rows = []
         for product in products:
             histories = PriceHistory.query.filter_by(product_id=product.id)
@@ -768,7 +811,7 @@ def get_portfolio_trends():
 @jwt_required()
 def get_trade_logs():
     try:
-        query = TradeLog.query.filter_by(user_id=current_user_id())
+        query = TradeLog.query.filter_by(user_id=current_user_id(), account_name=current_account_name())
         trade_type = request.args.get('trade_type')
         asset_type = request.args.get('asset_type')
         if trade_type:
@@ -832,6 +875,6 @@ def update_trade_log(log_id):
 @jwt_required()
 def get_trade_logs_realized_summary():
     try:
-        return jsonify(get_realized_positions(current_user_id())), 200
+        return jsonify(get_realized_positions(current_user_id(), current_account_name())), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
