@@ -16,7 +16,13 @@ app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'sqlite:///ret
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'change-this-secret-key')
 
-CORS(app, resources={r'/api/*': {'origins': '*'}})
+CORS(app, resources={
+    r'/api/*': {
+        'origins': '*',
+        'methods': ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+        'allow_headers': ['Content-Type', 'Authorization']
+    }
+})
 db.init_app(app)
 jwt = JWTManager(app)
 app.register_blueprint(api)

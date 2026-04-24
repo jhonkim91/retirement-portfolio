@@ -382,18 +382,45 @@ def sell_product(product_id):
         return jsonify({'error': str(e)}), 500
 
 
+def delete_user_product(user_id, product_id):
+    product = Product.query.filter_by(id=product_id, user_id=user_id).first()
+    if not product:
+        return None, 0
+
+    deleted_logs = TradeLog.query.filter_by(user_id=user_id, product_id=product.id).delete(synchronize_session=False)
+    PriceHistory.query.filter_by(product_id=product.id).delete(synchronize_session=False)
+    db.session.delete(product)
+    return product, deleted_logs
+
+
 @api.route('/products/<int:product_id>', methods=['DELETE'])
 @jwt_required()
 def delete_product(product_id):
     try:
         user_id = current_user_id()
-        product = Product.query.filter_by(id=product_id, user_id=user_id).first()
+        product, deleted_logs = delete_user_product(user_id, product_id)
         if not product:
             return jsonify({'error': '상품을 찾을 수 없습니다.'}), 404
 
-        deleted_logs = TradeLog.query.filter_by(user_id=user_id, product_id=product.id).delete(synchronize_session=False)
-        PriceHistory.query.filter_by(product_id=product.id).delete(synchronize_session=False)
-        db.session.delete(product)
+        db.session.commit()
+        return jsonify({
+            'message': '상품과 관련 매매일지, 가격 이력을 삭제했습니다.',
+            'deleted_trade_logs': deleted_logs
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/products/<int:product_id>/delete', methods=['POST'])
+@jwt_required()
+def delete_product_with_post(product_id):
+    try:
+        user_id = current_user_id()
+        product, deleted_logs = delete_user_product(user_id, product_id)
+        if not product:
+            return jsonify({'error': '상품을 찾을 수 없습니다.'}), 404
+
         db.session.commit()
         return jsonify({
             'message': '상품과 관련 매매일지, 가격 이력을 삭제했습니다.',
