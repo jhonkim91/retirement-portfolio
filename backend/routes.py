@@ -199,6 +199,18 @@ def sync_prices():
         return jsonify({'error': str(e)}), 500
 
 
+@api.route('/products/search', methods=['GET'])
+@jwt_required()
+def search_products():
+    try:
+        query = request.args.get('q', '').strip()
+        if len(query) < 2:
+            return jsonify([]), 200
+        return jsonify(market_client.search_products(query)), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @api.route('/cash', methods=['GET'])
 @jwt_required()
 def get_cash():

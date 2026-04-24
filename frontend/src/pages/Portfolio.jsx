@@ -22,6 +22,10 @@ function Portfolio() {
   const [cashLoading, setCashLoading] = useState(false);
   const [priceInputs, setPriceInputs] = useState({});
   const [sellInputs, setSellInputs] = useState({});
+  const [productSearchResults, setProductSearchResults] = useState([]);
+  const [productSearchLoading, setProductSearchLoading] = useState(false);
+  const [showProductSearch, setShowProductSearch] = useState(false);
+  const [selectedProductName, setSelectedProductName] = useState('');
 
   const loadData = async () => {
     const [productData, trendData, cashData] = await Promise.all([
@@ -37,6 +41,36 @@ function Portfolio() {
   useEffect(() => {
     loadData().catch((err) => setMessage(err.message));
   }, []);
+
+  useEffect(() => {
+    const query = formData.product_name.trim();
+    if (query.length < 2 || query === selectedProductName) {
+      setProductSearchResults([]);
+      setProductSearchLoading(false);
+      return undefined;
+    }
+
+    let active = true;
+    const timer = setTimeout(async () => {
+      setProductSearchLoading(true);
+      try {
+        const results = await portfolioAPI.searchProducts(query);
+        if (active) {
+          setProductSearchResults(results);
+          setShowProductSearch(true);
+        }
+      } catch (err) {
+        if (active) setProductSearchResults([]);
+      } finally {
+        if (active) setProductSearchLoading(false);
+      }
+    }, 350);
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [formData.product_name, selectedProductName]);
 
   const chartData = useMemo(() => {
     const byDate = {};
@@ -56,7 +90,23 @@ function Portfolio() {
   }).format(value || 0);
 
   const handleChange = (event) => {
-    setFormData((prev) => ({ ...prev, [event.target.name]: event.target.value }));
+    const { name, value } = event.target;
+    if (name === 'product_name') {
+      setSelectedProductName('');
+      setShowProductSearch(value.trim().length >= 2);
+    }
+    setFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const selectSearchProduct = (product) => {
+    setFormData((prev) => ({
+      ...prev,
+      product_name: product.name,
+      product_code: product.code
+    }));
+    setSelectedProductName(product.name);
+    setProductSearchResults([]);
+    setShowProductSearch(false);
   };
 
   const handleSubmit = async (event) => {
@@ -75,6 +125,9 @@ function Portfolio() {
         asset_type: 'risk',
         notes: ''
       });
+      setSelectedProductName('');
+      setProductSearchResults([]);
+      setShowProductSearch(false);
       await loadData();
     } catch (err) {
       setMessage(err.message);
@@ -127,12 +180,42 @@ function Portfolio() {
           <form onSubmit={handleSubmit} className="product-form">
             <div className="form-group">
               <label>상품명</label>
-              <input name="product_name" value={formData.product_name} onChange={handleChange} placeholder="예: KODEX 200" required />
+              <div className="product-search-field">
+                <input
+                  name="product_name"
+                  value={formData.product_name}
+                  onChange={handleChange}
+                  onFocus={() => {
+                    if (productSearchResults.length > 0) setShowProductSearch(true);
+                  }}
+                  onBlur={() => setTimeout(() => setShowProductSearch(false), 150)}
+                  placeholder="예: KODEX 200, 삼성전자"
+                  autoComplete="off"
+                  required
+                />
+                {showProductSearch && (productSearchLoading || productSearchResults.length > 0) && (
+                  <div className="product-search-list">
+                    {productSearchLoading && <div className="product-search-status">검색 중...</div>}
+                    {productSearchResults.map((product) => (
+                      <button
+                        key={product.code}
+                        type="button"
+                        className="product-search-item"
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => selectSearchProduct(product)}
+                      >
+                        <strong>{product.name}</strong>
+                        <span>{product.code} · {product.exchange} · {product.source}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
             <div className="form-group">
               <label>상품 코드</label>
               <input name="product_code" value={formData.product_code} onChange={handleChange} placeholder="예: 069500" required />
-              <small className="field-help">상장 주식/ETF는 6자리 종목코드로 자동 조회됩니다. 퇴직연금/펀드 내부 상품코드는 새 기준가에서 수동 갱신하세요.</small>
+              <small className="field-help">상품명 검색 결과를 클릭하면 6자리 공개 코드가 자동 입력됩니다. 퇴직연금/펀드 내부 상품은 새 기준가에서 수동 갱신하세요.</small>
             </div>
             <div className="form-row">
               <div className="form-group">

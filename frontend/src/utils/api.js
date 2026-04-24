@@ -36,6 +36,7 @@ export const portfolioAPI = {
   getAllProducts: () => apiCall('/portfolio/all-products'),
   getTrends: () => apiCall('/portfolio/trends'),
   syncPrices: () => apiCall('/portfolio/sync-prices', 'POST'),
+  searchProducts: (query) => apiCall(`/products/search?q=${encodeURIComponent(query)}`),
   getCash: () => apiCall('/cash'),
   updateCash: (amount) => apiCall('/cash', 'PUT', { amount }),
   addProduct: (productData) => apiCall('/products', 'POST', productData),

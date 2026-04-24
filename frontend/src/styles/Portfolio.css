@@ -8,6 +8,14 @@
 .form-group label { display: block; margin-bottom: 6px; font-size: 14px; font-weight: 700; }
 .form-group input, .form-group select, .form-group textarea, .inline-actions input, .filter-section select { width: 100%; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 11px; }
 .field-help { display: block; margin-top: 6px; color: #697586; font-size: 12px; line-height: 1.45; }
+.product-search-field { position: relative; }
+.product-search-list { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; right: 0; max-height: 260px; overflow-y: auto; background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; box-shadow: 0 12px 28px rgba(15, 23, 42, .16); }
+.product-search-status { padding: 11px 12px; color: #697586; font-size: 13px; }
+.product-search-item { width: 100%; border: 0; border-bottom: 1px solid #e5eaf0; background: #fff; padding: 10px 12px; text-align: left; cursor: pointer; }
+.product-search-item:last-child { border-bottom: 0; }
+.product-search-item:hover { background: #f4f7fb; }
+.product-search-item strong { display: block; color: #102a43; font-size: 14px; line-height: 1.35; }
+.product-search-item span { display: block; margin-top: 3px; color: #697586; font-size: 12px; line-height: 1.35; }
 .holding-panel { margin-top: 20px; }
 .cash-panel { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: end; border-top: 1px solid #e5eaf0; margin-top: 18px; padding-top: 18px; }
 .cash-panel h3 { margin: 0 0 6px; }
