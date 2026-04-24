@@ -48,7 +48,12 @@ function TradeLog() {
   const formatCurrency = (value) => new Intl.NumberFormat('ko-KR', { style: 'currency', currency: 'KRW', maximumFractionDigits: 0 }).format(value || 0);
   const formatQuantity = (value) => Number(value || 0).toLocaleString('ko-KR', { maximumFractionDigits: 4 });
   const unitLabel = (log) => log.unit_label || (log.unit_type === 'unit' ? '좌' : '수');
-  const realizedByProduct = new Map((realizedSummary.positions || []).map((position) => [position.product_id, position]));
+  const realizedByKey = new Map();
+  (realizedSummary.positions || []).forEach((position) => {
+    const key = position.position_key || (position.product_id ? `id:${position.product_id}` : `account:${position.account_name}:name:${position.product_name}`);
+    realizedByKey.set(key, position);
+    if (position.product_id) realizedByKey.set(String(position.product_id), position);
+  });
   const tradeTypeLabel = (type) => {
     if (type === 'buy') return '매수';
     if (type === 'sell') return '매도';
@@ -126,7 +131,8 @@ function TradeLog() {
           <table className="tradelog-table">
             <thead><tr><th>거래일</th><th>상품명</th><th>거래</th><th>자산</th><th>수량</th><th>가격</th><th>금액</th><th>실현손익</th><th>메모</th><th>관리</th></tr></thead>
             <tbody>{logs.map((log) => {
-              const realized = log.trade_type === 'sell' ? realizedByProduct.get(log.product_id) : null;
+              const logPositionKey = log.position_key || (log.product_id ? `id:${log.product_id}` : `account:${log.account_name}:name:${log.product_name}`);
+              const realized = log.trade_type === 'sell' ? (realizedByKey.get(logPositionKey) || realizedByKey.get(String(log.product_id))) : null;
               const edit = editForms[log.id] || {};
               return (
                 <React.Fragment key={log.id}>

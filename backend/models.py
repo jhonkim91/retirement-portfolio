@@ -143,9 +143,11 @@ class TradeLog(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     def to_dict(self):
+        position_key = f'id:{self.product_id}' if self.product_id else f'account:{self.account_name}:name:{self.product_name}'
         return {
             'id': self.id,
             'account_name': self.account_name,
+            'position_key': position_key,
             'product_id': self.product_id,
             'product_name': self.product_name,
             'trade_type': self.trade_type,

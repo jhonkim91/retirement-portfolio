@@ -100,11 +100,7 @@ def get_realized_positions(user_id, account_name=None):
     account_name = normalize_account_name(account_name)
     logs = (
         TradeLog.query
-        .filter(
-            TradeLog.user_id == user_id,
-            TradeLog.account_name == account_name,
-            TradeLog.product_id.isnot(None)
-        )
+        .filter(TradeLog.user_id == user_id, TradeLog.account_name == account_name)
         .filter(TradeLog.trade_type.in_(('buy', 'sell')))
         .order_by(TradeLog.trade_date.asc(), TradeLog.id.asc())
         .all()
@@ -112,9 +108,12 @@ def get_realized_positions(user_id, account_name=None):
 
     positions = {}
     for log in logs:
-        row = positions.setdefault(log.product_id, {
+        position_key = f'id:{log.product_id}' if log.product_id else f'account:{log.account_name}:name:{log.product_name}'
+        row = positions.setdefault(position_key, {
+            'position_key': position_key,
             'product_id': log.product_id,
             'product_name': log.product_name,
+            'account_name': log.account_name,
             'asset_type': log.asset_type,
             'buy_amount': 0,
             'sell_amount': 0,
