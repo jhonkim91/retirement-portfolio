@@ -125,7 +125,6 @@ def login():
 def get_portfolio_summary():
     try:
         user_id = current_user_id()
-        refresh_user_holdings(user_id)
         products = Product.query.filter_by(user_id=user_id, status='holding').all()
         total_investment = sum(p.quantity * p.purchase_price for p in products)
         total_current_value = sum(p.quantity * p.current_price for p in products)
@@ -161,7 +160,6 @@ def get_portfolio_summary():
 def get_products():
     try:
         user_id = current_user_id()
-        refresh_user_holdings(user_id)
         products = Product.query.filter_by(user_id=user_id, status='holding').order_by(Product.purchase_date.desc()).all()
         return jsonify([p.to_dict() for p in products]), 200
     except Exception as e:
@@ -217,8 +215,7 @@ def add_product():
         db.session.add(product)
         db.session.flush()
 
-        if not refresh_product_market_data(product):
-            upsert_price_history(product.id, product.purchase_date, product.current_price)
+        upsert_price_history(product.id, product.purchase_date, product.current_price)
 
         db.session.add(TradeLog(
             user_id=product.user_id,
@@ -324,7 +321,6 @@ def get_price_history(product_id):
 def get_portfolio_trends():
     try:
         user_id = current_user_id()
-        refresh_user_holdings(user_id)
         products = Product.query.filter_by(user_id=user_id).all()
         rows = []
         for product in products:
