@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import AccountSelector from '../components/AccountSelector';
 import { ACCOUNT_STORAGE_KEY, DEFAULT_ACCOUNT_NAME, tradeLogAPI } from '../utils/api';
 import '../styles/TradeLog.css';
@@ -54,6 +54,22 @@ function TradeLog() {
     realizedByKey.set(key, position);
     if (position.product_id) realizedByKey.set(String(position.product_id), position);
   });
+  const displaySummary = useMemo(() => {
+    const totalBuy = Number(realizedSummary.total_buy_amount || 0);
+    const totalProfit = Number(realizedSummary.total_profit_loss || 0);
+    const fallbackSoldCount = new Set(
+      logs
+        .filter((log) => log.trade_type === 'sell')
+        .map((log) => log.position_key || log.product_id || `${log.account_name}:${log.product_name}`)
+    ).size;
+    const fallbackRate = totalBuy > 0 ? totalProfit / totalBuy * 100 : 0;
+
+    return {
+      ...realizedSummary,
+      sold_count: Number(realizedSummary.sold_count || 0) || fallbackSoldCount,
+      total_profit_rate: Number(realizedSummary.total_profit_rate || 0) || fallbackRate
+    };
+  }, [logs, realizedSummary]);
   const tradeTypeLabel = (type) => {
     if (type === 'buy') return '매수';
     if (type === 'sell') return '매도';
@@ -116,11 +132,11 @@ function TradeLog() {
       <div className="page-header"><h1>매매일지</h1><p>상품 매수, 매도 완료, 회사 현금입금이 누적 기록됩니다.</p></div>
       {error && <div className="error-message">{error}</div>}
       <section className="realized-summary">
-        <div className="summary-card"><span>매도 완료 상품</span><strong>{realizedSummary.sold_count || 0}개</strong></div>
-        <div className="summary-card"><span>매수 원금</span><strong>{formatCurrency(realizedSummary.total_buy_amount)}</strong></div>
-        <div className="summary-card"><span>매도 금액</span><strong>{formatCurrency(realizedSummary.total_sell_amount)}</strong></div>
-        <div className="summary-card"><span>실현손익</span><strong className={(realizedSummary.total_profit_loss || 0) >= 0 ? 'profit' : 'loss'}>{formatCurrency(realizedSummary.total_profit_loss)}</strong></div>
-        <div className="summary-card"><span>누적수익률</span><strong className={(realizedSummary.total_profit_rate || 0) >= 0 ? 'profit' : 'loss'}>{Number(realizedSummary.total_profit_rate || 0).toFixed(2)}%</strong></div>
+        <div className="summary-card"><span>매도 완료 상품</span><strong>{displaySummary.sold_count || 0}개</strong></div>
+        <div className="summary-card"><span>매수 원금</span><strong>{formatCurrency(displaySummary.total_buy_amount)}</strong></div>
+        <div className="summary-card"><span>매도 금액</span><strong>{formatCurrency(displaySummary.total_sell_amount)}</strong></div>
+        <div className="summary-card"><span>실현손익</span><strong className={(displaySummary.total_profit_loss || 0) >= 0 ? 'profit' : 'loss'}>{formatCurrency(displaySummary.total_profit_loss)}</strong></div>
+        <div className="summary-card"><span>누적수익률</span><strong className={(displaySummary.total_profit_rate || 0) >= 0 ? 'profit' : 'loss'}>{Number(displaySummary.total_profit_rate || 0).toFixed(2)}%</strong></div>
       </section>
       <div className="filter-section">
         <select value={tradeType} onChange={(e) => setTradeType(e.target.value)}><option value="all">전체 거래</option><option value="buy">매수</option><option value="sell">매도</option><option value="deposit">입금</option></select>

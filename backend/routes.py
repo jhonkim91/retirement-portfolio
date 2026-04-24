@@ -9,7 +9,7 @@ from models import db, User, Product, PriceHistory, TradeLog, CashBalance, DEFAU
 
 api = Blueprint('api', __name__, url_prefix='/api')
 market_client = StockAPIClient()
-API_VERSION = '2026-04-25-tradelog-realized-restore-v1'
+API_VERSION = '2026-04-25-tradelog-summary-name-match-v1'
 
 
 def current_user_id():
@@ -108,7 +108,8 @@ def get_realized_positions(user_id, account_name=None):
 
     positions = {}
     for log in logs:
-        position_key = f'id:{log.product_id}' if log.product_id else f'account:{log.account_name}:name:{log.product_name}'
+        normalized_name = str(log.product_name or '').strip().lower()
+        position_key = f'account:{log.account_name}:name:{normalized_name}' if normalized_name else f'id:{log.product_id}'
         row = positions.setdefault(position_key, {
             'position_key': position_key,
             'product_id': log.product_id,
@@ -141,13 +142,18 @@ def get_realized_positions(user_id, account_name=None):
     total_sell = sum(row['sell_amount'] for row in realized)
     total_profit = total_sell - total_buy
     total_rate = (total_profit / total_buy * 100) if total_buy else 0
+    if not realized:
+        total_buy = sum(float(log.total_amount or 0) for log in logs if log.trade_type == 'buy')
+        total_sell = sum(float(log.total_amount or 0) for log in logs if log.trade_type == 'sell')
+        total_profit = total_sell - total_buy
+        total_rate = (total_profit / total_buy * 100) if total_buy else 0
 
     return {
         'total_buy_amount': round(total_buy, 2),
         'total_sell_amount': round(total_sell, 2),
         'total_profit_loss': round(total_profit, 2),
         'total_profit_rate': round(total_rate, 2),
-        'sold_count': len(realized),
+        'sold_count': len(realized) or len({row['position_key'] for row in positions.values() if row['sell_amount'] > 0}),
         'positions': [
             {
                 **row,
