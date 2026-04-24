@@ -1,0 +1,11 @@
+.env
+*.log
+__pycache__/
+*.py[cod]
+backend/venv/
+backend/instance/
+frontend/node_modules/
+frontend/build/
+frontend/.env.local
+frontend/.env
+frontend/.git_backup/
