@@ -17,17 +17,21 @@
 .product-search-item strong { display: block; color: #102a43; font-size: 14px; line-height: 1.35; }
 .product-search-item span { display: block; margin-top: 3px; color: #697586; font-size: 12px; line-height: 1.35; }
 .holding-panel { margin-top: 20px; }
-.cash-panel { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: end; border-top: 1px solid #e5eaf0; margin-top: 18px; padding-top: 18px; }
-.cash-panel h3 { margin: 0 0 6px; }
-.cash-panel p { margin: 0; color: #697586; font-size: 13px; line-height: 1.5; }
+.cash-panel, .deposit-panel { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: end; border-top: 1px solid #e5eaf0; margin-top: 18px; padding-top: 18px; }
+.cash-panel h3, .deposit-panel h3 { margin: 0 0 6px; }
+.cash-panel p, .deposit-panel p { margin: 0; color: #697586; font-size: 13px; line-height: 1.5; }
 .cash-actions { display: grid; grid-template-columns: minmax(160px, 220px) auto; gap: 8px; }
-.cash-actions input { border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 11px; }
-.cash-actions button { border: 0; background: #33658a; color: #fff; border-radius: 6px; padding: 9px 12px; font-weight: 800; }
+.deposit-actions { display: grid; grid-template-columns: 150px minmax(150px, 220px) auto; gap: 8px; }
+.cash-actions input, .deposit-actions input, .deposit-panel textarea { border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 11px; }
+.deposit-panel textarea { grid-column: 1 / -1; resize: vertical; }
+.cash-actions button, .deposit-actions button { border: 0; background: #33658a; color: #fff; border-radius: 6px; padding: 9px 12px; font-weight: 800; }
 .product-list { display: grid; gap: 12px; }
-.product-row { display: grid; grid-template-columns: 1.3fr .8fr 1fr 1.4fr; gap: 12px; align-items: center; padding: 14px; border: 1px solid #e5eaf0; border-radius: 8px; }
+.product-row { display: grid; grid-template-columns: minmax(160px, 1.2fr) minmax(120px, .7fr) minmax(160px, 1fr) minmax(260px, 1.3fr) auto; gap: 12px; align-items: center; padding: 14px; border: 1px solid #e5eaf0; border-radius: 8px; }
 .product-main span { display: block; color: #697586; font-size: 13px; margin-top: 4px; }
 .inline-actions { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
 .inline-actions:has(input + input) { grid-template-columns: 1fr 1fr auto; }
 .inline-actions button { border: 0; background: #33658a; color: #fff; border-radius: 6px; padding: 9px 12px; font-weight: 800; }
+.delete-action { justify-self: end; }
+.delete-btn { border: 1px solid #f1b8b5; background: #fff5f5; color: #9f1d18; border-radius: 6px; padding: 9px 12px; font-weight: 800; }
 @media (max-width: 980px) { .portfolio-grid, .product-row { grid-template-columns: 1fr; } }
-@media (max-width: 640px) { .portfolio-container { padding: 16px 12px 36px; } .form-row, .inline-actions, .inline-actions:has(input + input), .cash-panel, .cash-actions { grid-template-columns: 1fr; } }
+@media (max-width: 640px) { .portfolio-container { padding: 16px 12px 36px; } .form-row, .inline-actions, .inline-actions:has(input + input), .cash-panel, .deposit-panel, .cash-actions, .deposit-actions { grid-template-columns: 1fr; } .delete-action { justify-self: stretch; } .delete-btn { width: 100%; } }

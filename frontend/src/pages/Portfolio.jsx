@@ -14,12 +14,18 @@ function Portfolio() {
     asset_type: 'risk',
     notes: ''
   });
+  const [depositForm, setDepositForm] = useState({
+    amount: '',
+    deposit_date: today,
+    notes: ''
+  });
   const [cashAmount, setCashAmount] = useState('');
   const [products, setProducts] = useState([]);
   const [trends, setTrends] = useState([]);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [cashLoading, setCashLoading] = useState(false);
+  const [depositLoading, setDepositLoading] = useState(false);
   const [priceInputs, setPriceInputs] = useState({});
   const [sellInputs, setSellInputs] = useState({});
   const [productSearchResults, setProductSearchResults] = useState([]);
@@ -150,6 +156,22 @@ function Portfolio() {
     }
   };
 
+  const saveDeposit = async (event) => {
+    event.preventDefault();
+    setDepositLoading(true);
+    setMessage('');
+    try {
+      await portfolioAPI.addCashDeposit(depositForm);
+      setDepositForm({ amount: '', deposit_date: today, notes: '' });
+      setMessage('회사 현금입금이 원금과 매매일지에 기록되었습니다.');
+      await loadData();
+    } catch (err) {
+      setMessage(err.message);
+    } finally {
+      setDepositLoading(false);
+    }
+  };
+
   const updatePrice = async (productId) => {
     const price = priceInputs[productId];
     if (!price) return;
@@ -157,6 +179,19 @@ function Portfolio() {
     setPriceInputs((prev) => ({ ...prev, [productId]: '' }));
     setMessage('기준가가 갱신되고 추이에 반영되었습니다.');
     await loadData();
+  };
+
+  const deleteProduct = async (product) => {
+    const ok = window.confirm(`${product.product_name} 상품을 삭제할까요?\n관련 기준가 이력과 매매일지도 함께 삭제됩니다.`);
+    if (!ok) return;
+
+    try {
+      await portfolioAPI.deleteProduct(product.id);
+      setMessage('상품과 관련 기준가 이력, 매매일지를 삭제했습니다.');
+      await loadData();
+    } catch (err) {
+      setMessage(err.message);
+    }
   };
 
   const sellProduct = async (product) => {
@@ -264,14 +299,44 @@ function Portfolio() {
           </ResponsiveContainer>
           <div className="cash-panel">
             <div>
-              <h3>현금</h3>
-              <p>현금은 현황과 상품/추이 화면에만 표시되며 매매일지와 가격 이력에는 기록되지 않습니다.</p>
+              <h3>보유 현금</h3>
+              <p>현재 계좌에 남아 있는 현금입니다. 직접 저장한 보유 현금 변경은 매매일지에 기록되지 않습니다.</p>
             </div>
             <div className="cash-actions">
               <input type="number" min="0" value={cashAmount} onChange={(event) => setCashAmount(event.target.value)} />
               <button type="button" onClick={saveCash} disabled={cashLoading}>{cashLoading ? '저장 중...' : '현금 저장'}</button>
             </div>
           </div>
+          <form className="deposit-panel" onSubmit={saveDeposit}>
+            <div>
+              <h3>회사 현금입금</h3>
+              <p>입금액은 퇴직금 원금으로 계산되고 매매일지에 남습니다. 보유 현금은 현재 잔액에 맞춰 따로 저장하세요.</p>
+            </div>
+            <div className="deposit-actions">
+              <input
+                type="date"
+                value={depositForm.deposit_date}
+                onChange={(event) => setDepositForm((prev) => ({ ...prev, deposit_date: event.target.value }))}
+                required
+              />
+              <input
+                type="number"
+                min="1"
+                step="1"
+                placeholder="입금액"
+                value={depositForm.amount}
+                onChange={(event) => setDepositForm((prev) => ({ ...prev, amount: event.target.value }))}
+                required
+              />
+              <button type="submit" disabled={depositLoading}>{depositLoading ? '기록 중...' : '입금 기록'}</button>
+            </div>
+            <textarea
+              rows="2"
+              placeholder="메모 선택 입력"
+              value={depositForm.notes}
+              onChange={(event) => setDepositForm((prev) => ({ ...prev, notes: event.target.value }))}
+            />
+          </form>
         </div>
       </section>
 
@@ -298,6 +363,9 @@ function Portfolio() {
                   </div>
                 </>
               )}
+              <div className="delete-action">
+                <button type="button" className="delete-btn" onClick={() => deleteProduct(product)}>삭제</button>
+              </div>
             </div>
           ))}
           {products.length === 0 && <p className="no-data">등록된 상품이 없습니다.</p>}

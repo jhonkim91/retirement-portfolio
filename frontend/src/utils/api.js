@@ -39,7 +39,9 @@ export const portfolioAPI = {
   searchProducts: (query) => apiCall(`/products/search?q=${encodeURIComponent(query)}`),
   getCash: () => apiCall('/cash'),
   updateCash: (amount) => apiCall('/cash', 'PUT', { amount }),
+  addCashDeposit: (depositData) => apiCall('/cash/deposits', 'POST', depositData),
   addProduct: (productData) => apiCall('/products', 'POST', productData),
+  deleteProduct: (productId) => apiCall(`/products/${productId}`, 'DELETE'),
   sellProduct: (productId, saleData) => apiCall(`/products/${productId}/sell`, 'PUT', saleData),
   updatePrice: (productId, price) => apiCall(`/products/${productId}/update-price`, 'PUT', { price }),
   getPriceHistory: (productId) => apiCall(`/products/${productId}/price-history`)

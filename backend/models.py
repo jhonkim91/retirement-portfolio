@@ -109,7 +109,7 @@ class TradeLog(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     product_id = db.Column(db.Integer, db.ForeignKey('products.id'), nullable=True)
     product_name = db.Column(db.String(255), nullable=False)
-    trade_type = db.Column(db.String(10), nullable=False)  # 'buy' 또는 'sell'
+    trade_type = db.Column(db.String(10), nullable=False)  # 'buy', 'sell', 'deposit'
     quantity = db.Column(db.Integer, nullable=False)
     price = db.Column(db.Float, nullable=False)
     total_amount = db.Column(db.Float, nullable=False)

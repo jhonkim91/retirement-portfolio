@@ -7,4 +7,5 @@
 .trade-type { display: inline-block; min-width: 46px; text-align: center; padding: 4px 8px; border-radius: 999px; font-size: 12px; font-weight: 800; }
 .trade-type.buy { background: #e7f5ef; color: #17634d; }
 .trade-type.sell { background: #fde8e7; color: #9f1d18; }
+.trade-type.deposit { background: #e8f1ff; color: #174ea6; }
 @media (max-width: 640px) { .tradelog-container { padding: 16px 12px 36px; } .filter-section { flex-direction: column; } .filter-section select { max-width: none; } }

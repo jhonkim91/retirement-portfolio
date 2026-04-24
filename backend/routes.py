@@ -32,6 +32,15 @@ def get_cash_balance(user_id):
     return balance
 
 
+def get_deposit_principal(user_id):
+    total = (
+        db.session.query(db.func.coalesce(db.func.sum(TradeLog.total_amount), 0))
+        .filter(TradeLog.user_id == user_id, TradeLog.trade_type == 'deposit')
+        .scalar()
+    )
+    return float(total or 0)
+
+
 def refresh_product_market_data(product, start_date=None):
     if product.status == 'sold':
         return False, '이미 매도 완료된 상품입니다.'
@@ -143,8 +152,9 @@ def get_portfolio_summary():
         user_id = current_user_id()
         products = Product.query.filter_by(user_id=user_id, status='holding').all()
         cash = get_cash_balance(user_id).amount
-        total_investment = sum(p.quantity * p.purchase_price for p in products)
-        total_current_value = sum(p.quantity * p.current_price for p in products)
+        total_investment = get_deposit_principal(user_id)
+        product_current_value = sum(p.quantity * p.current_price for p in products)
+        total_current_value = product_current_value + cash
         total_profit_loss = total_current_value - total_investment
         total_profit_rate = (total_profit_loss / total_investment * 100) if total_investment else 0
 
@@ -155,7 +165,7 @@ def get_portfolio_summary():
         return jsonify({
             'total_investment': round(total_investment, 2),
             'total_cash': round(cash, 2),
-            'total_current_value': round(total_current_value + cash, 2),
+            'total_current_value': round(total_current_value, 2),
             'total_profit_loss': round(total_profit_loss, 2),
             'total_profit_rate': round(total_profit_rate, 2),
             'asset_allocation': {
@@ -235,6 +245,43 @@ def update_cash():
         return jsonify({'message': '현금이 저장되었습니다.', 'cash': balance.to_dict()}), 200
     except ValueError:
         return jsonify({'error': '현금 금액 형식이 올바르지 않습니다.'}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/cash/deposits', methods=['POST'])
+@jwt_required()
+def add_cash_deposit():
+    try:
+        data = request.get_json() or {}
+        amount = float(data.get('amount', 0))
+        if amount <= 0:
+            return jsonify({'error': '입금액은 0원보다 크게 입력하세요.'}), 400
+
+        deposit_date = datetime.strptime(data.get('deposit_date') or date.today().isoformat(), '%Y-%m-%d').date()
+        user_id = current_user_id()
+
+        log = TradeLog(
+            user_id=user_id,
+            product_id=None,
+            product_name='회사 현금입금',
+            trade_type='deposit',
+            quantity=1,
+            price=amount,
+            total_amount=amount,
+            trade_date=deposit_date,
+            asset_type='cash',
+            notes=data.get('notes', '')
+        )
+        db.session.add(log)
+        db.session.commit()
+        return jsonify({
+            'message': '회사 현금입금이 원금과 매매일지에 기록되었습니다.',
+            'log': log.to_dict()
+        }), 201
+    except ValueError:
+        return jsonify({'error': '입금액 또는 입금일 형식이 올바르지 않습니다.'}), 400
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
@@ -330,6 +377,28 @@ def sell_product(product_id):
     except ValueError as e:
         db.session.rollback()
         return jsonify({'error': f'입력 형식 오류: {str(e)}'}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/products/<int:product_id>', methods=['DELETE'])
+@jwt_required()
+def delete_product(product_id):
+    try:
+        user_id = current_user_id()
+        product = Product.query.filter_by(id=product_id, user_id=user_id).first()
+        if not product:
+            return jsonify({'error': '상품을 찾을 수 없습니다.'}), 404
+
+        deleted_logs = TradeLog.query.filter_by(user_id=user_id, product_id=product.id).delete(synchronize_session=False)
+        PriceHistory.query.filter_by(product_id=product.id).delete(synchronize_session=False)
+        db.session.delete(product)
+        db.session.commit()
+        return jsonify({
+            'message': '상품과 관련 매매일지, 가격 이력을 삭제했습니다.',
+            'deleted_trade_logs': deleted_logs
+        }), 200
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
