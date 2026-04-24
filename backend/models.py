@@ -68,6 +68,22 @@ class Product(db.Model):
             'created_at': self.created_at.isoformat()
         }
 
+class CashBalance(db.Model):
+    __tablename__ = 'cash_balances'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), unique=True, nullable=False)
+    amount = db.Column(db.Float, default=0, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'amount': self.amount,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
 class PriceHistory(db.Model):
     __tablename__ = 'price_histories'
     

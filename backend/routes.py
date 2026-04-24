@@ -5,7 +5,7 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
 
 from api_client import StockAPIClient
-from models import db, User, Product, PriceHistory, TradeLog
+from models import db, User, Product, PriceHistory, TradeLog, CashBalance
 
 api = Blueprint('api', __name__, url_prefix='/api')
 market_client = StockAPIClient()
@@ -23,9 +23,20 @@ def upsert_price_history(product_id, record_date, price):
         db.session.add(PriceHistory(product_id=product_id, price=price, record_date=record_date))
 
 
+def get_cash_balance(user_id):
+    balance = CashBalance.query.filter_by(user_id=user_id).first()
+    if not balance:
+        balance = CashBalance(user_id=user_id, amount=0)
+        db.session.add(balance)
+        db.session.commit()
+    return balance
+
+
 def refresh_product_market_data(product, start_date=None):
     if product.status == 'sold':
-        return False
+        return False, '이미 매도 완료된 상품입니다.'
+    if not product.product_code:
+        return False, '상품 코드가 비어 있습니다.'
 
     start_date = start_date or product.purchase_date
     histories = market_client.get_historical_prices(product.product_code, start_date, date.today())
@@ -34,15 +45,15 @@ def refresh_product_market_data(product, start_date=None):
         for row in histories:
             upsert_price_history(product.id, row['date'], row['price'])
         product.current_price = latest['price']
-        return True
+        return True, None
 
     current = market_client.get_current_price(product.product_code)
     if current:
         product.current_price = current['price']
         upsert_price_history(product.id, current.get('date') or date.today(), current['price'])
-        return True
+        return True, None
 
-    return False
+    return False, '가격 조회처에서 해당 코드를 찾지 못했습니다. 국내 주식/ETF는 6자리 코드로 입력하세요.'
 
 
 def sync_user_holdings(user_id):
@@ -59,13 +70,14 @@ def sync_user_holdings(user_id):
         )
         start_date = latest_history.record_date if latest_history else product.purchase_date
         before_price = product.current_price
-        ok = refresh_product_market_data(product, start_date)
+        ok, reason = refresh_product_market_data(product, start_date)
         changed = ok or changed
         result.append({
             'product_id': product.id,
             'product_name': product.product_name,
             'product_code': product.product_code,
             'success': ok,
+            'reason': reason,
             'before_price': before_price,
             'current_price': product.current_price
         })
@@ -126,18 +138,20 @@ def get_portfolio_summary():
     try:
         user_id = current_user_id()
         products = Product.query.filter_by(user_id=user_id, status='holding').all()
+        cash = get_cash_balance(user_id).amount
         total_investment = sum(p.quantity * p.purchase_price for p in products)
         total_current_value = sum(p.quantity * p.current_price for p in products)
         total_profit_loss = total_current_value - total_investment
         total_profit_rate = (total_profit_loss / total_investment * 100) if total_investment else 0
 
         risk_value = sum(p.quantity * p.current_price for p in products if p.asset_type == 'risk')
-        safe_value = sum(p.quantity * p.current_price for p in products if p.asset_type == 'safe')
+        safe_value = sum(p.quantity * p.current_price for p in products if p.asset_type == 'safe') + cash
         total_value = risk_value + safe_value
 
         return jsonify({
             'total_investment': round(total_investment, 2),
-            'total_current_value': round(total_current_value, 2),
+            'total_cash': round(cash, 2),
+            'total_current_value': round(total_current_value + cash, 2),
             'total_profit_loss': round(total_profit_loss, 2),
             'total_profit_rate': round(total_profit_rate, 2),
             'asset_allocation': {
@@ -176,6 +190,35 @@ def sync_prices():
             'message': f'{success_count}개 상품 가격을 동기화했습니다.',
             'items': result
         }), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/cash', methods=['GET'])
+@jwt_required()
+def get_cash():
+    try:
+        return jsonify(get_cash_balance(current_user_id()).to_dict()), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/cash', methods=['PUT'])
+@jwt_required()
+def update_cash():
+    try:
+        data = request.get_json() or {}
+        amount = float(data.get('amount', 0))
+        if amount < 0:
+            return jsonify({'error': '현금은 0원 이상으로 입력하세요.'}), 400
+
+        balance = get_cash_balance(current_user_id())
+        balance.amount = amount
+        db.session.commit()
+        return jsonify({'message': '현금이 저장되었습니다.', 'cash': balance.to_dict()}), 200
+    except ValueError:
+        return jsonify({'error': '현금 금액 형식이 올바르지 않습니다.'}), 400
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500

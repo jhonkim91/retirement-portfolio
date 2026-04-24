@@ -36,7 +36,7 @@ function Dashboard() {
 
   const allocation = useMemo(() => ([
     { name: '위험자산', value: summary?.asset_allocation?.risk?.percentage || 0, amount: summary?.asset_allocation?.risk?.value || 0, key: 'risk' },
-    { name: '안전자산', value: summary?.asset_allocation?.safe?.percentage || 0, amount: summary?.asset_allocation?.safe?.value || 0, key: 'safe' }
+    { name: '안전자산+현금', value: summary?.asset_allocation?.safe?.percentage || 0, amount: summary?.asset_allocation?.safe?.value || 0, key: 'safe' }
   ]), [summary]);
 
   const profitData = products.map((product) => ({
@@ -58,7 +58,7 @@ function Dashboard() {
       await fetchDashboardData();
       const failed = result.items.filter((item) => !item.success);
       if (failed.length > 0) {
-        setError(`가격 조회 실패: ${failed.map((item) => item.product_code).join(', ')}`);
+        setError(failed.map((item) => `${item.product_code}: ${item.reason || '가격 조회 실패'}`).join(' / '));
       }
     } catch (err) {
       setError(err.message || '가격 동기화에 실패했습니다.');
@@ -75,7 +75,7 @@ function Dashboard() {
         <div className="header">
           <div>
             <h1>퇴직연금 현황</h1>
-            <p>보유 상품의 현재 기준가를 기준으로 원금 대비 수익률을 계산합니다.</p>
+            <p>저장된 기준가와 현금을 기준으로 현재 평가액을 계산합니다.</p>
           </div>
           <div className="header-actions">
             <button type="button" onClick={syncPrices} className="refresh-btn" disabled={syncing}>
@@ -87,6 +87,7 @@ function Dashboard() {
         {error && <div className="error-container">{error}</div>}
         <div className="summary-cards">
           <div className="card"><h3>퇴직금 원금</h3><p className="amount">{formatCurrency(summary?.total_investment)}</p></div>
+          <div className="card"><h3>현금</h3><p className="amount">{formatCurrency(summary?.total_cash)}</p></div>
           <div className="card"><h3>현재 평가액</h3><p className="amount">{formatCurrency(summary?.total_current_value)}</p></div>
           <div className="card"><h3>평가손익</h3><p className={`amount ${(summary?.total_profit_loss || 0) >= 0 ? 'profit' : 'loss'}`}>{formatCurrency(summary?.total_profit_loss)}</p></div>
           <div className="card"><h3>원금 대비 수익률</h3><p className={`amount ${(summary?.total_profit_rate || 0) >= 0 ? 'profit' : 'loss'}`}>{Number(summary?.total_profit_rate || 0).toFixed(2)}%</p></div>

@@ -8,6 +8,12 @@
 .form-group label { display: block; margin-bottom: 6px; font-size: 14px; font-weight: 700; }
 .form-group input, .form-group select, .form-group textarea, .inline-actions input, .filter-section select { width: 100%; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 11px; }
 .holding-panel { margin-top: 20px; }
+.cash-panel { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: end; border-top: 1px solid #e5eaf0; margin-top: 18px; padding-top: 18px; }
+.cash-panel h3 { margin: 0 0 6px; }
+.cash-panel p { margin: 0; color: #697586; font-size: 13px; line-height: 1.5; }
+.cash-actions { display: grid; grid-template-columns: minmax(160px, 220px) auto; gap: 8px; }
+.cash-actions input { border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 11px; }
+.cash-actions button { border: 0; background: #33658a; color: #fff; border-radius: 6px; padding: 9px 12px; font-weight: 800; }
 .product-list { display: grid; gap: 12px; }
 .product-row { display: grid; grid-template-columns: 1.3fr .8fr 1fr 1.4fr; gap: 12px; align-items: center; padding: 14px; border: 1px solid #e5eaf0; border-radius: 8px; }
 .product-main span { display: block; color: #697586; font-size: 13px; margin-top: 4px; }
@@ -15,4 +21,4 @@
 .inline-actions:has(input + input) { grid-template-columns: 1fr 1fr auto; }
 .inline-actions button { border: 0; background: #33658a; color: #fff; border-radius: 6px; padding: 9px 12px; font-weight: 800; }
 @media (max-width: 980px) { .portfolio-grid, .product-row { grid-template-columns: 1fr; } }
-@media (max-width: 640px) { .portfolio-container { padding: 16px 12px 36px; } .form-row, .inline-actions, .inline-actions:has(input + input) { grid-template-columns: 1fr; } }
+@media (max-width: 640px) { .portfolio-container { padding: 16px 12px 36px; } .form-row, .inline-actions, .inline-actions:has(input + input), .cash-panel, .cash-actions { grid-template-columns: 1fr; } }

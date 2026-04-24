@@ -14,20 +14,24 @@ function Portfolio() {
     asset_type: 'risk',
     notes: ''
   });
+  const [cashAmount, setCashAmount] = useState('');
   const [products, setProducts] = useState([]);
   const [trends, setTrends] = useState([]);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
+  const [cashLoading, setCashLoading] = useState(false);
   const [priceInputs, setPriceInputs] = useState({});
   const [sellInputs, setSellInputs] = useState({});
 
   const loadData = async () => {
-    const [productData, trendData] = await Promise.all([
+    const [productData, trendData, cashData] = await Promise.all([
       portfolioAPI.getAllProducts(),
-      portfolioAPI.getTrends()
+      portfolioAPI.getTrends(),
+      portfolioAPI.getCash()
     ]);
     setProducts(productData);
     setTrends(trendData);
+    setCashAmount(String(cashData.amount || 0));
   };
 
   useEffect(() => {
@@ -76,6 +80,20 @@ function Portfolio() {
       setMessage(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const saveCash = async () => {
+    setCashLoading(true);
+    setMessage('');
+    try {
+      await portfolioAPI.updateCash(cashAmount);
+      setMessage('현금이 저장되었습니다. 매매일지에는 기록되지 않습니다.');
+      await loadData();
+    } catch (err) {
+      setMessage(err.message);
+    } finally {
+      setCashLoading(false);
     }
   };
 
@@ -160,6 +178,16 @@ function Portfolio() {
               ))}
             </LineChart>
           </ResponsiveContainer>
+          <div className="cash-panel">
+            <div>
+              <h3>현금</h3>
+              <p>현금은 현황과 상품/추이 화면에만 표시되며 매매일지와 가격 이력에는 기록되지 않습니다.</p>
+            </div>
+            <div className="cash-actions">
+              <input type="number" min="0" value={cashAmount} onChange={(event) => setCashAmount(event.target.value)} />
+              <button type="button" onClick={saveCash} disabled={cashLoading}>{cashLoading ? '저장 중...' : '현금 저장'}</button>
+            </div>
+          </div>
         </div>
       </section>
 
