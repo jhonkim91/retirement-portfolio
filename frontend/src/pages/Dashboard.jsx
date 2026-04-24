@@ -10,6 +10,7 @@ function Dashboard() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [syncing, setSyncing] = useState(false);
 
   const fetchDashboardData = async () => {
     try {
@@ -49,6 +50,23 @@ function Dashboard() {
     maximumFractionDigits: 0
   }).format(value || 0);
 
+  const syncPrices = async () => {
+    try {
+      setSyncing(true);
+      setError('');
+      const result = await portfolioAPI.syncPrices();
+      await fetchDashboardData();
+      const failed = result.items.filter((item) => !item.success);
+      if (failed.length > 0) {
+        setError(`가격 조회 실패: ${failed.map((item) => item.product_code).join(', ')}`);
+      }
+    } catch (err) {
+      setError(err.message || '가격 동기화에 실패했습니다.');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   if (loading) return <div className="loading">현황을 불러오는 중...</div>;
 
   return (
@@ -59,7 +77,12 @@ function Dashboard() {
             <h1>퇴직연금 현황</h1>
             <p>보유 상품의 현재 기준가를 기준으로 원금 대비 수익률을 계산합니다.</p>
           </div>
-          <button type="button" onClick={fetchDashboardData} className="refresh-btn">새로고침</button>
+          <div className="header-actions">
+            <button type="button" onClick={syncPrices} className="refresh-btn" disabled={syncing}>
+              {syncing ? '가격 동기화 중...' : '가격 동기화'}
+            </button>
+            <button type="button" onClick={fetchDashboardData} className="refresh-btn">새로고침</button>
+          </div>
         </div>
         {error && <div className="error-container">{error}</div>}
         <div className="summary-cards">

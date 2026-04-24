@@ -35,6 +35,7 @@ export const portfolioAPI = {
   getProducts: () => apiCall('/portfolio/products'),
   getAllProducts: () => apiCall('/portfolio/all-products'),
   getTrends: () => apiCall('/portfolio/trends'),
+  syncPrices: () => apiCall('/portfolio/sync-prices', 'POST'),
   addProduct: (productData) => apiCall('/products', 'POST', productData),
   sellProduct: (productId, saleData) => apiCall(`/products/${productId}/sell`, 'PUT', saleData),
   updatePrice: (productId, price) => apiCall(`/products/${productId}/update-price`, 'PUT', { price }),

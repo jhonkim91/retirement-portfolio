@@ -45,9 +45,11 @@ def refresh_product_market_data(product, start_date=None):
     return False
 
 
-def refresh_user_holdings(user_id):
+def sync_user_holdings(user_id):
     products = Product.query.filter_by(user_id=user_id, status='holding').all()
+    result = []
     changed = False
+
     for product in products:
         latest_history = (
             PriceHistory.query
@@ -56,9 +58,25 @@ def refresh_user_holdings(user_id):
             .first()
         )
         start_date = latest_history.record_date if latest_history else product.purchase_date
-        changed = refresh_product_market_data(product, start_date) or changed
+        before_price = product.current_price
+        ok = refresh_product_market_data(product, start_date)
+        changed = ok or changed
+        result.append({
+            'product_id': product.id,
+            'product_name': product.product_name,
+            'product_code': product.product_code,
+            'success': ok,
+            'before_price': before_price,
+            'current_price': product.current_price
+        })
+
     if changed:
         db.session.commit()
+    return result
+
+
+def refresh_user_holdings(user_id):
+    sync_user_holdings(user_id)
 
 
 @api.route('/auth/register', methods=['POST'])
@@ -147,6 +165,21 @@ def get_products():
         products = Product.query.filter_by(user_id=user_id, status='holding').order_by(Product.purchase_date.desc()).all()
         return jsonify([p.to_dict() for p in products]), 200
     except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/portfolio/sync-prices', methods=['POST'])
+@jwt_required()
+def sync_prices():
+    try:
+        result = sync_user_holdings(current_user_id())
+        success_count = sum(1 for row in result if row['success'])
+        return jsonify({
+            'message': f'{success_count}개 상품 가격을 동기화했습니다.',
+            'items': result
+        }), 200
+    except Exception as e:
+        db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
 

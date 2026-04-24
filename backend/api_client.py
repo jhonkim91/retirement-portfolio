@@ -27,6 +27,10 @@ class StockAPIClient:
         if prices:
             return prices
 
+        prices = self.get_history_from_naver(code, start_date, end_date)
+        if prices:
+            return prices
+
         current = self.get_current_price(code)
         if current:
             return [{'date': end_date, 'price': current['price']}]
@@ -85,10 +89,63 @@ class StockAPIClient:
             if response.status_code == 200:
                 data = response.json()
                 if data and len(data) > 0:
+                    parsed_date, close = self.parse_naver_row(data[-1])
                     return {
-                        'price': float(data[0][0]),
-                        'date': date.today()
+                        'price': close,
+                        'date': parsed_date or date.today()
                     }
         except Exception as e:
             print(f'naver price error ({stock_code}): {e}')
         return None
+
+    def get_history_from_naver(self, stock_code, start_date, end_date):
+        try:
+            if not str(stock_code).isdigit():
+                return []
+
+            days = max((end_date - start_date).days + 10, 30)
+            url = f'https://finance.naver.com/api/sise/chartlog.nhn?code={stock_code}&type=day&count={days}'
+            response = requests.get(url, headers=self.naver_headers, timeout=12)
+            if response.status_code != 200:
+                return []
+
+            rows = []
+            for row in response.json():
+                row_date, close = self.parse_naver_row(row)
+                if not row_date or close is None:
+                    continue
+                if start_date <= row_date <= end_date:
+                    rows.append({'date': row_date, 'price': close})
+            return rows
+        except Exception as e:
+            print(f'naver history error ({stock_code}): {e}')
+            return []
+
+    def parse_naver_row(self, row):
+        row_date = None
+        close = None
+
+        for value in row:
+            text = str(value)
+            if len(text) == 8 and text.isdigit():
+                row_date = date(int(text[0:4]), int(text[4:6]), int(text[6:8]))
+                break
+
+        numeric_values = []
+        for value in row:
+            try:
+                numeric_values.append(float(str(value).replace(',', '')))
+            except ValueError:
+                pass
+
+        # Naver chartlog rows usually contain date first and close next.
+        if len(row) >= 2:
+            try:
+                close = float(str(row[1]).replace(',', ''))
+            except ValueError:
+                close = None
+
+        if close is None and numeric_values:
+            close = numeric_values[1] if len(numeric_values) > 1 else numeric_values[0]
+
+        return row_date, close
