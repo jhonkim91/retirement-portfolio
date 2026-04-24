@@ -41,11 +41,19 @@ def get_deposit_principal(user_id):
     return float(total or 0)
 
 
+def is_manual_price_product(code):
+    code_text = str(code or '').strip()
+    return code_text.isdigit() and len(code_text) != 6
+
+
 def refresh_product_market_data(product, start_date=None):
     if product.status == 'sold':
         return False, '이미 매도 완료된 상품입니다.'
     if not product.product_code:
         return False, '상품 코드가 비어 있습니다.'
+
+    if is_manual_price_product(product.product_code):
+        return False, '공개 시세 코드가 아닙니다. 상품/추이 > 상품 관리 > 새 기준가에 직접 입력하세요.'
 
     start_date = start_date or product.purchase_date
     histories = market_client.get_historical_prices(product.product_code, start_date, date.today())
@@ -387,7 +395,32 @@ def delete_user_product(user_id, product_id):
     if not product:
         return None, 0
 
-    deleted_logs = TradeLog.query.filter_by(user_id=user_id, product_id=product.id).delete(synchronize_session=False)
+    fallback_log_filters = [
+        db.and_(
+            TradeLog.product_id.is_(None),
+            TradeLog.product_name == product.product_name,
+            TradeLog.trade_type == 'buy',
+            TradeLog.trade_date == product.purchase_date,
+            TradeLog.quantity == product.quantity
+        )
+    ]
+    if product.sale_date:
+        fallback_log_filters.append(
+            db.and_(
+                TradeLog.product_id.is_(None),
+                TradeLog.product_name == product.product_name,
+                TradeLog.trade_type == 'sell',
+                TradeLog.trade_date == product.sale_date,
+                TradeLog.quantity == product.quantity
+            )
+        )
+
+    deleted_logs = (
+        TradeLog.query
+        .filter(TradeLog.user_id == user_id)
+        .filter(db.or_(TradeLog.product_id == product.id, *fallback_log_filters))
+        .delete(synchronize_session=False)
+    )
     PriceHistory.query.filter_by(product_id=product.id).delete(synchronize_session=False)
     db.session.delete(product)
     return product, deleted_logs

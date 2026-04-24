@@ -22,6 +22,11 @@ class PriceUpdater:
                 logger.info('price update started: %s products', len(products))
 
                 for product in products:
+                    code_text = str(product.product_code or '').strip()
+                    if code_text.isdigit() and len(code_text) != 6:
+                        logger.info('manual price product skipped: %s', product.product_code)
+                        continue
+
                     price_data = self.api_client.get_current_price(product.product_code)
                     if not price_data:
                         logger.warning('price lookup failed: %s', product.product_code)
