@@ -56,8 +56,8 @@ def refresh_product_market_data(product, start_date=None):
     code_text = str(product.product_code).strip()
     if code_text.isdigit() and len(code_text) < 6:
         padded = code_text.zfill(6)
-        return False, f'공개 시세에서 {padded} 코드를 찾지 못했습니다. 퇴직연금/펀드 내부 상품은 상품 관리의 새 기준가에 직접 입력하세요.'
-    return False, '공개 시세에서 해당 코드를 찾지 못했습니다. 국내 상장 주식/ETF는 6자리 코드, 퇴직연금/펀드 내부 상품은 상품 관리의 새 기준가에 직접 입력하세요.'
+        return False, f'{padded} 자동조회 불가. 상품/추이 > 상품 관리 > 새 기준가에 직접 입력하세요.'
+    return False, '자동조회 불가. 국내 상장 주식/ETF는 6자리 코드로, 퇴직연금/펀드 내부 상품은 새 기준가에 직접 입력하세요.'
 
 
 def sync_user_holdings(user_id):

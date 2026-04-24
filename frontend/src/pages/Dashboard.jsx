@@ -10,6 +10,7 @@ function Dashboard() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [syncing, setSyncing] = useState(false);
 
   const fetchDashboardData = async () => {
@@ -54,11 +55,14 @@ function Dashboard() {
     try {
       setSyncing(true);
       setError('');
+      setNotice('');
       const result = await portfolioAPI.syncPrices();
       await fetchDashboardData();
       const failed = result.items.filter((item) => !item.success);
       if (failed.length > 0) {
-        setError(failed.map((item) => `${item.product_code}: ${item.reason || '가격 조회 실패'}`).join(' / '));
+        setNotice(failed.map((item) => `${item.product_code}: ${item.reason || '수동 기준가 입력이 필요합니다.'}`).join(' / '));
+      } else {
+        setNotice(result.message || '가격 동기화가 완료되었습니다.');
       }
     } catch (err) {
       setError(err.message || '가격 동기화에 실패했습니다.');
@@ -85,6 +89,7 @@ function Dashboard() {
           </div>
         </div>
         {error && <div className="error-container">{error}</div>}
+        {notice && <div className="notice-container">{notice}</div>}
         <div className="summary-cards">
           <div className="card"><h3>퇴직금 원금</h3><p className="amount">{formatCurrency(summary?.total_investment)}</p></div>
           <div className="card"><h3>현금</h3><p className="amount">{formatCurrency(summary?.total_cash)}</p></div>
