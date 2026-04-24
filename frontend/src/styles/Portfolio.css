@@ -1,8 +1,9 @@
 .portfolio-container { max-width: 1240px; margin: 0 auto; padding: 24px 20px 48px; }
-.portfolio-grid { display: grid; grid-template-columns: minmax(320px, 440px) 1fr; gap: 20px; align-items: start; }
+.portfolio-workspace { display: grid; grid-template-columns: minmax(300px, 380px) minmax(0, 1fr) 280px; gap: 20px; align-items: start; }
+.portfolio-left { display: grid; gap: 16px; }
 .portfolio-container h1, .portfolio-container h2 { margin: 0 0 8px; }
 .subtitle { color: #697586; margin: 0 0 18px; }
-.product-form, .trend-panel, .holding-panel { background: #fff; border: 1px solid #d9e2ec; border-radius: 8px; padding: 18px; box-shadow: 0 4px 14px rgba(15, 23, 42, .05); }
+.product-form, .trend-panel, .holding-panel, .trend-selector { background: #fff; border: 1px solid #d9e2ec; border-radius: 8px; padding: 18px; box-shadow: 0 4px 14px rgba(15, 23, 42, .05); }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .form-group { margin-bottom: 14px; }
 .form-group label { display: block; margin-bottom: 6px; font-size: 14px; font-weight: 700; }
@@ -16,13 +17,12 @@
 .product-search-item:hover { background: #f4f7fb; }
 .product-search-item strong { display: block; color: #102a43; font-size: 14px; line-height: 1.35; }
 .product-search-item span { display: block; margin-top: 3px; color: #697586; font-size: 12px; line-height: 1.35; }
-.holding-panel { margin-top: 20px; }
+.holding-panel { margin-top: 0; }
 .cash-panel, .deposit-panel { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: end; border-top: 1px solid #e5eaf0; margin-top: 18px; padding-top: 18px; }
 .cash-panel h3, .deposit-panel h3 { margin: 0 0 6px; }
 .cash-panel p, .deposit-panel p { margin: 0; color: #697586; font-size: 13px; line-height: 1.5; }
-.trend-view { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 16px; align-items: start; }
+.trend-view { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
 .trend-chart { min-width: 0; }
-.trend-selector { border: 1px solid #e5eaf0; border-radius: 8px; padding: 12px; background: #fbfdff; }
 .trend-selector-header { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin-bottom: 10px; }
 .trend-selector-header h3 { margin: 0; font-size: 15px; }
 .trend-selector-header div { display: flex; gap: 6px; }
@@ -48,6 +48,18 @@
 .cash-actions input, .deposit-actions input, .deposit-panel textarea { border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 11px; }
 .deposit-panel textarea { grid-column: 1 / -1; resize: vertical; }
 .cash-actions button, .deposit-actions button { border: 0; background: #33658a; color: #fff; border-radius: 6px; padding: 9px 12px; font-weight: 800; }
+.holding-card-list { display: grid; gap: 10px; }
+.holding-card { border: 1px solid #d9e2ec; border-radius: 8px; background: #fff; overflow: hidden; }
+.holding-card.expanded { border-color: #33658a; box-shadow: inset 3px 0 0 #33658a; }
+.holding-card-summary { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) 92px 78px 100px; gap: 8px; align-items: center; border: 0; background: #fff; padding: 12px; text-align: left; cursor: pointer; }
+.holding-title strong { display: block; color: #102a43; font-size: 14px; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.holding-title small { display: block; color: #697586; font-size: 12px; line-height: 1.35; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.holding-stat small { display: block; color: #697586; font-size: 11px; margin-bottom: 3px; }
+.holding-stat strong { display: block; color: #102a43; font-size: 13px; white-space: nowrap; }
+.holding-card-panel { display: grid; gap: 12px; border-top: 1px solid #e5eaf0; padding: 12px; }
+.card-actions { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.card-actions button { border: 1px solid #cbd5e1; background: #fff; color: #17324d; border-radius: 6px; padding: 9px 8px; font-weight: 800; }
+.holding-card-panel .action-panel { grid-column: auto; }
 .product-list { display: grid; gap: 12px; }
 .product-row { display: grid; grid-template-columns: minmax(260px, 1.6fr) repeat(3, minmax(120px, .7fr)) minmax(320px, auto); gap: 12px; align-items: center; padding: 14px; border: 1px solid #e5eaf0; border-radius: 8px; }
 .product-main span { display: block; color: #697586; font-size: 13px; margin-top: 4px; }
@@ -72,5 +84,6 @@
 .panel-fields input { width: 100%; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 11px; }
 .panel-fields button { border: 0; background: #33658a; color: #fff; border-radius: 6px; padding: 10px 13px; font-weight: 800; }
 .edit-panel input, .edit-panel select { width: 100%; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 11px; }
-@media (max-width: 980px) { .portfolio-grid, .product-row, .trend-view { grid-template-columns: 1fr; } .trend-holding-cards { max-height: none; } }
-@media (max-width: 640px) { .portfolio-container { padding: 16px 12px 36px; } .form-row, .inline-actions, .inline-actions:has(input + input), .buy-actions, .sell-actions, .price-fields, .buy-fields, .sell-fields, .cash-panel, .deposit-panel, .cash-actions, .deposit-actions { grid-template-columns: 1fr; } .trend-selector-header { align-items: flex-start; } .panel-heading { display: block; } .panel-heading span { display: block; margin-top: 4px; } .delete-action { justify-self: stretch; } .delete-btn, .row-actions button, .panel-fields button { width: 100%; } }
+@media (max-width: 1180px) { .portfolio-workspace { grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); } .trend-selector { grid-column: 1 / -1; } .trend-holding-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: none; } }
+@media (max-width: 980px) { .portfolio-workspace, .product-row, .trend-view { grid-template-columns: 1fr; } .trend-holding-cards { grid-template-columns: 1fr; } }
+@media (max-width: 640px) { .portfolio-container { padding: 16px 12px 36px; } .form-row, .holding-card-summary, .card-actions, .inline-actions, .inline-actions:has(input + input), .buy-actions, .sell-actions, .price-fields, .buy-fields, .sell-fields, .cash-panel, .deposit-panel, .cash-actions, .deposit-actions { grid-template-columns: 1fr; } .trend-selector-header { align-items: flex-start; } .panel-heading { display: block; } .panel-heading span { display: block; margin-top: 4px; } .delete-action { justify-self: stretch; } .delete-btn, .row-actions button, .panel-fields button, .card-actions button { width: 100%; } }

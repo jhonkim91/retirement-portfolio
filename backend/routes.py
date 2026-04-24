@@ -9,7 +9,7 @@ from models import db, User, Product, PriceHistory, TradeLog, CashBalance
 
 api = Blueprint('api', __name__, url_prefix='/api')
 market_client = StockAPIClient()
-API_VERSION = '2026-04-24-trend-profit-detail-v1'
+API_VERSION = '2026-04-24-card-layout-tradelog-edit-v1'
 
 
 def current_user_id():
@@ -778,6 +778,53 @@ def get_trade_logs():
         logs = query.order_by(TradeLog.trade_date.desc(), TradeLog.id.desc()).all()
         return jsonify([log.to_dict() for log in logs]), 200
     except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/trade-logs/<int:log_id>', methods=['PUT'])
+@jwt_required()
+def update_trade_log(log_id):
+    try:
+        data = request.get_json() or {}
+        log = TradeLog.query.filter_by(id=log_id, user_id=current_user_id()).first()
+        if not log:
+            return jsonify({'error': '매매일지 기록을 찾을 수 없습니다.'}), 404
+
+        if data.get('product_name'):
+            log.product_name = data.get('product_name')
+        if data.get('trade_date'):
+            log.trade_date = parse_trade_date(data.get('trade_date'))
+        if data.get('notes') is not None:
+            log.notes = data.get('notes')
+
+        if log.trade_type == 'deposit':
+            amount_value = data.get('total_amount')
+            if amount_value in (None, ''):
+                amount_value = data.get('price')
+            if amount_value not in (None, ''):
+                amount = parse_positive_float(amount_value, '입금액')
+                log.quantity = 1
+                log.unit_type = 'share'
+                log.price = amount
+                log.total_amount = amount
+            log.asset_type = 'cash'
+        else:
+            if data.get('asset_type'):
+                log.asset_type = data.get('asset_type')
+            log.unit_type = normalize_unit_type(data.get('unit_type', log.unit_type))
+            if data.get('quantity') not in (None, ''):
+                log.quantity = parse_positive_float(data.get('quantity'), '수량/좌수')
+            if data.get('price') not in (None, ''):
+                log.price = parse_positive_float(data.get('price'), '가격/기준가')
+            log.total_amount = trade_amount(log.quantity, log.price, log.unit_type)
+
+        db.session.commit()
+        return jsonify({'message': '매매일지 기록이 수정되었습니다.', 'log': log.to_dict()}), 200
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
 

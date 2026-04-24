@@ -322,6 +322,16 @@ function Portfolio() {
     setActivePanel({ productId: product.id, mode });
   };
 
+  const toggleProductCard = (product) => {
+    if (activePanel.productId === product.id) {
+      setActivePanel({ productId: null, mode: null });
+      setEditingId(null);
+      return;
+    }
+    setEditingId(null);
+    setActivePanel({ productId: product.id, mode: 'manage' });
+  };
+
   const toggleTrendProduct = (productId) => {
     const id = String(productId);
     setSelectedTrendProductIds((prev) => (
@@ -339,8 +349,8 @@ function Portfolio() {
 
   return (
     <main className="portfolio-container">
-      <section className="portfolio-grid">
-        <div>
+      <section className="portfolio-workspace">
+        <aside className="portfolio-left">
           <h1>상품 등록</h1>
           <p className="subtitle">매입가, 수량/좌수, 매입일을 입력하면 현황과 매매일지에 반영합니다.</p>
           {message && <div className="message">{message}</div>}
@@ -422,7 +432,131 @@ function Portfolio() {
             </div>
             <button type="submit" className="btn-submit" disabled={loading}>{loading ? '추가 중...' : '상품 추가'}</button>
           </form>
-        </div>
+
+          <section className="holding-panel">
+            <h2>상품 관리</h2>
+            <div className="holding-card-list">
+              {products.map((product) => {
+                const edit = editForms[product.id] || {};
+                const buyInput = buyInputs[product.id] || {};
+                const sellInput = sellInputs[product.id] || {};
+                const expanded = activePanel.productId === product.id;
+
+                return (
+                  <article className={`holding-card ${expanded ? 'expanded' : ''}`} key={product.id}>
+                    <button type="button" className="holding-card-summary" onClick={() => toggleProductCard(product)}>
+                      <span className="holding-title">
+                        <strong>{product.product_name}</strong>
+                        <small>{product.product_code} · {product.asset_type === 'risk' ? '위험자산' : '안전자산'} · {formatQuantity(product.quantity)}{unitLabel(product.unit_type)}</small>
+                      </span>
+                      <span className="holding-stat">
+                        <small>현재가</small>
+                        <strong>{formatCurrency(product.current_price)}</strong>
+                      </span>
+                      <span className={`holding-stat ${(product.profit_rate || 0) >= 0 ? 'profit-text' : 'loss-text'}`}>
+                        <small>수익률</small>
+                        <strong>{Number(product.profit_rate || 0).toFixed(2)}%</strong>
+                      </span>
+                      <span className="holding-stat">
+                        <small>평가액</small>
+                        <strong>{formatCurrency(product.current_value)}</strong>
+                      </span>
+                    </button>
+
+                    {expanded && (
+                      <div className="holding-card-panel">
+                        <div className="card-actions">
+                          <button type="button" onClick={() => openProductPanel(product, 'price')}>기준가</button>
+                          <button type="button" onClick={() => openProductPanel(product, 'buy')}>추가매수</button>
+                          <button type="button" onClick={() => openProductPanel(product, 'sell')}>매도</button>
+                          <button type="button" onClick={() => openProductPanel(product, 'edit')}>수정</button>
+                          <button type="button" className="delete-btn" onClick={() => deleteProduct(product)}>삭제</button>
+                        </div>
+
+                        {activePanel.mode === 'price' && (
+                          <div className="action-panel">
+                            <div className="panel-heading">
+                              <strong>기준가 갱신</strong>
+                            </div>
+                            <div className="panel-fields price-fields">
+                              <input type="number" min="0" step="0.01" placeholder="새 기준가" value={priceInputs[product.id] || ''} onChange={(e) => setPriceInputs((prev) => ({ ...prev, [product.id]: e.target.value }))} />
+                              <button type="button" onClick={() => updatePrice(product.id)}>갱신</button>
+                            </div>
+                          </div>
+                        )}
+
+                        {activePanel.mode === 'buy' && (
+                          <div className="action-panel">
+                            <div className="panel-heading">
+                              <strong>추가매수</strong>
+                            </div>
+                            <div className="panel-fields buy-fields">
+                              <input type="date" value={buyInput.purchase_date || today} onChange={(e) => setBuyInputs((prev) => ({ ...prev, [product.id]: { ...(prev[product.id] || {}), purchase_date: e.target.value } }))} />
+                              <input type="number" min="0" step="0.01" placeholder="추가 기준가" value={buyInput.purchase_price || ''} onChange={(e) => setBuyInputs((prev) => ({ ...prev, [product.id]: { ...(prev[product.id] || {}), purchase_price: e.target.value } }))} />
+                              <input type="number" min="0" step="0.0001" placeholder={`추가 ${unitLabel(product.unit_type)}`} value={buyInput.quantity || ''} onChange={(e) => setBuyInputs((prev) => ({ ...prev, [product.id]: { ...(prev[product.id] || {}), quantity: e.target.value } }))} />
+                              <button type="button" onClick={() => addBuy(product)}>추가매수</button>
+                            </div>
+                          </div>
+                        )}
+
+                        {activePanel.mode === 'sell' && (
+                          <div className="action-panel">
+                            <div className="panel-heading">
+                              <strong>매도 처리</strong>
+                            </div>
+                            <div className="panel-fields sell-fields">
+                              <input type="date" value={sellInput.sale_date || today} onChange={(e) => setSellInputs((prev) => ({ ...prev, [product.id]: { ...(prev[product.id] || {}), sale_date: e.target.value } }))} />
+                              <input type="number" min="0" step="0.01" placeholder="매도가/기준가" value={sellInput.sale_price || ''} onChange={(e) => setSellInputs((prev) => ({ ...prev, [product.id]: { ...(prev[product.id] || {}), sale_price: e.target.value } }))} />
+                              <button type="button" onClick={() => sellProduct(product)}>매도완료</button>
+                            </div>
+                          </div>
+                        )}
+
+                        {editingId === product.id && activePanel.mode === 'edit' && (
+                          <div className="action-panel edit-panel">
+                            <div className="panel-heading">
+                              <strong>상품 정보 수정</strong>
+                            </div>
+                            <div className="form-row">
+                              <input placeholder="상품명" value={edit.product_name || ''} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, product_name: e.target.value } }))} />
+                              <input placeholder="상품 코드" value={edit.product_code || ''} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, product_code: e.target.value } }))} />
+                            </div>
+                            <div className="form-row">
+                              <input aria-label="평균 기준가" type="number" min="0" step="0.01" value={edit.purchase_price || ''} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, purchase_price: e.target.value } }))} />
+                              <input aria-label="현재 기준가" type="number" min="0" step="0.01" value={edit.current_price || ''} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, current_price: e.target.value } }))} />
+                            </div>
+                            <div className="form-row">
+                              <input aria-label="수량 또는 좌수" type="number" min="0" step="0.0001" value={edit.quantity || ''} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, quantity: e.target.value } }))} />
+                              <input aria-label="매입일" type="date" value={edit.purchase_date || today} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, purchase_date: e.target.value } }))} />
+                            </div>
+                            <div className="form-row">
+                              <select aria-label="단위" value={edit.unit_type || 'share'} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, unit_type: e.target.value } }))}>
+                                <option value="share">수</option>
+                                <option value="unit">좌</option>
+                              </select>
+                              <select aria-label="자산 구분" value={edit.asset_type || 'risk'} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, asset_type: e.target.value } }))}>
+                                <option value="risk">위험자산</option>
+                                <option value="safe">안전자산</option>
+                              </select>
+                            </div>
+                            <div className="row-actions">
+                              <button type="button" onClick={() => saveEdit(product)}>저장</button>
+                              <button type="button" onClick={() => {
+                                setEditingId(null);
+                                setActivePanel({ productId: null, mode: null });
+                              }}>취소</button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+              {products.length === 0 && <p className="no-data">등록된 보유 상품이 없습니다.</p>}
+            </div>
+          </section>
+        </aside>
 
         <div className="trend-panel">
           <h2>퇴직연금 추이</h2>
@@ -441,35 +575,6 @@ function Portfolio() {
                 </LineChart>
               </ResponsiveContainer>
             </div>
-            <aside className="trend-selector">
-              <div className="trend-selector-header">
-                <h3>현재 보유종목</h3>
-                <div>
-                  <button type="button" onClick={selectAllTrendProducts}>전체</button>
-                  <button type="button" onClick={clearTrendProducts}>해제</button>
-                </div>
-              </div>
-              <div className="trend-holding-cards">
-                {products.map((product) => {
-                  const checked = selectedTrendProductSet.has(String(product.id));
-                  return (
-                    <label className={`trend-holding-card ${checked ? 'selected' : ''}`} key={product.id}>
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggleTrendProduct(product.id)}
-                      />
-                      <span>
-                        <strong>{product.product_name}</strong>
-                        <small>{product.product_code} · {product.asset_type === 'risk' ? '위험자산' : '안전자산'}</small>
-                        <small>{formatQuantity(product.quantity)}{unitLabel(product.unit_type)} · {formatCurrency(product.current_value)}</small>
-                      </span>
-                    </label>
-                  );
-                })}
-                {products.length === 0 && <p className="no-data">선택할 보유종목이 없습니다.</p>}
-              </div>
-            </aside>
           </div>
           <div className="trend-detail">
             <h3>상품 추이 상세</h3>
@@ -531,130 +636,36 @@ function Portfolio() {
             <textarea rows="2" placeholder="메모 선택 입력" value={depositForm.notes} onChange={(event) => setDepositForm((prev) => ({ ...prev, notes: event.target.value }))} />
           </form>
         </div>
-      </section>
 
-      <section className="holding-panel">
-        <h2>상품 관리</h2>
-        <div className="product-list">
-          {products.map((product) => {
-            const edit = editForms[product.id] || {};
-            const buyInput = buyInputs[product.id] || {};
-            const sellInput = sellInputs[product.id] || {};
-
-            return (
-              <div className="product-row" key={product.id}>
-                <div className="product-main">
-                  <strong>{product.product_name}</strong>
-                  <span>{product.product_code} · {product.asset_type === 'risk' ? '위험자산' : '안전자산'} · {formatQuantity(product.quantity)}{unitLabel(product.unit_type)}</span>
-                </div>
-
-                <div className="product-metric">
-                  <span>평균 기준가</span>
-                  <strong>{formatCurrency(product.purchase_price)}</strong>
-                </div>
-
-                <div className="product-metric">
-                  <span>현재 기준가</span>
-                  <strong>{formatCurrency(product.current_price)}</strong>
-                </div>
-
-                <div className="product-metric">
-                  <span>평가액</span>
-                  <strong>{formatCurrency(product.current_value)}</strong>
-                </div>
-
-                <div className="row-actions">
-                  <button type="button" onClick={() => openProductPanel(product, 'price')}>기준가</button>
-                  <button type="button" onClick={() => openProductPanel(product, 'buy')}>추가매수</button>
-                  <button type="button" onClick={() => openProductPanel(product, 'sell')}>매도</button>
-                  <button type="button" onClick={() => openProductPanel(product, 'edit')}>수정</button>
-                  <button type="button" className="delete-btn" onClick={() => deleteProduct(product)}>삭제</button>
-                </div>
-
-                {activePanel.productId === product.id && activePanel.mode === 'price' && (
-                  <div className="action-panel">
-                    <div className="panel-heading">
-                      <strong>기준가 갱신</strong>
-                      <span>오늘 기준가를 저장하면 추이 그래프에도 반영됩니다.</span>
-                    </div>
-                    <div className="panel-fields price-fields">
-                      <input type="number" min="0" step="0.01" placeholder="새 기준가" value={priceInputs[product.id] || ''} onChange={(e) => setPriceInputs((prev) => ({ ...prev, [product.id]: e.target.value }))} />
-                      <button type="button" onClick={() => updatePrice(product.id)}>갱신</button>
-                    </div>
-                  </div>
-                )}
-
-                {activePanel.productId === product.id && activePanel.mode === 'buy' && (
-                  <div className="action-panel">
-                    <div className="panel-heading">
-                      <strong>추가매수</strong>
-                      <span>입력한 매수 금액은 평균 기준가에 반영되고 매매일지에 남습니다.</span>
-                    </div>
-                    <div className="panel-fields buy-fields">
-                      <input type="date" value={buyInput.purchase_date || today} onChange={(e) => setBuyInputs((prev) => ({ ...prev, [product.id]: { ...(prev[product.id] || {}), purchase_date: e.target.value } }))} />
-                      <input type="number" min="0" step="0.01" placeholder="추가 기준가" value={buyInput.purchase_price || ''} onChange={(e) => setBuyInputs((prev) => ({ ...prev, [product.id]: { ...(prev[product.id] || {}), purchase_price: e.target.value } }))} />
-                      <input type="number" min="0" step="0.0001" placeholder={`추가 ${unitLabel(product.unit_type)}`} value={buyInput.quantity || ''} onChange={(e) => setBuyInputs((prev) => ({ ...prev, [product.id]: { ...(prev[product.id] || {}), quantity: e.target.value } }))} />
-                      <button type="button" onClick={() => addBuy(product)}>추가매수</button>
-                    </div>
-                  </div>
-                )}
-
-                {activePanel.productId === product.id && activePanel.mode === 'sell' && (
-                  <div className="action-panel">
-                    <div className="panel-heading">
-                      <strong>매도 처리</strong>
-                      <span>매도 완료 후 현황과 추이에서는 제외되고 매매일지에만 기록됩니다.</span>
-                    </div>
-                    <div className="panel-fields sell-fields">
-                      <input type="date" value={sellInput.sale_date || today} onChange={(e) => setSellInputs((prev) => ({ ...prev, [product.id]: { ...(prev[product.id] || {}), sale_date: e.target.value } }))} />
-                      <input type="number" min="0" step="0.01" placeholder="매도가/기준가" value={sellInput.sale_price || ''} onChange={(e) => setSellInputs((prev) => ({ ...prev, [product.id]: { ...(prev[product.id] || {}), sale_price: e.target.value } }))} />
-                      <button type="button" onClick={() => sellProduct(product)}>매도완료</button>
-                    </div>
-                  </div>
-                )}
-
-                {editingId === product.id && activePanel.mode === 'edit' && (
-                  <div className="action-panel edit-panel">
-                    <div className="panel-heading">
-                      <strong>상품 정보 수정</strong>
-                      <span>기존 입력값을 바로 고칠 때 사용합니다. 추가 매수는 별도 버튼을 사용하세요.</span>
-                    </div>
-                    <div className="form-row">
-                      <input placeholder="상품명" value={edit.product_name || ''} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, product_name: e.target.value } }))} />
-                      <input placeholder="상품 코드" value={edit.product_code || ''} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, product_code: e.target.value } }))} />
-                    </div>
-                    <div className="form-row">
-                      <input aria-label="평균 기준가" type="number" min="0" step="0.01" value={edit.purchase_price || ''} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, purchase_price: e.target.value } }))} />
-                      <input aria-label="현재 기준가" type="number" min="0" step="0.01" value={edit.current_price || ''} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, current_price: e.target.value } }))} />
-                    </div>
-                    <div className="form-row">
-                      <input aria-label="수량 또는 좌수" type="number" min="0" step="0.0001" value={edit.quantity || ''} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, quantity: e.target.value } }))} />
-                      <input aria-label="매입일" type="date" value={edit.purchase_date || today} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, purchase_date: e.target.value } }))} />
-                    </div>
-                    <div className="form-row">
-                      <select aria-label="단위" value={edit.unit_type || 'share'} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, unit_type: e.target.value } }))}>
-                        <option value="share">수</option>
-                        <option value="unit">좌</option>
-                      </select>
-                      <select aria-label="자산 구분" value={edit.asset_type || 'risk'} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, asset_type: e.target.value } }))}>
-                        <option value="risk">위험자산</option>
-                        <option value="safe">안전자산</option>
-                      </select>
-                    </div>
-                    <div className="row-actions">
-                      <button type="button" onClick={() => saveEdit(product)}>저장</button>
-                      <button type="button" onClick={() => {
-                        setEditingId(null);
-                        setActivePanel({ productId: null, mode: null });
-                      }}>취소</button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-          {products.length === 0 && <p className="no-data">등록된 보유 상품이 없습니다.</p>}
-        </div>
+        <aside className="trend-selector">
+          <div className="trend-selector-header">
+            <h3>현재 보유종목</h3>
+            <div>
+              <button type="button" onClick={selectAllTrendProducts}>전체</button>
+              <button type="button" onClick={clearTrendProducts}>해제</button>
+            </div>
+          </div>
+          <div className="trend-holding-cards">
+            {products.map((product) => {
+              const checked = selectedTrendProductSet.has(String(product.id));
+              return (
+                <label className={`trend-holding-card ${checked ? 'selected' : ''}`} key={product.id}>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleTrendProduct(product.id)}
+                  />
+                  <span>
+                    <strong>{product.product_name}</strong>
+                    <small>{product.product_code} · {product.asset_type === 'risk' ? '위험자산' : '안전자산'}</small>
+                    <small>{formatQuantity(product.quantity)}{unitLabel(product.unit_type)} · {formatCurrency(product.current_value)}</small>
+                  </span>
+                </label>
+              );
+            })}
+            {products.length === 0 && <p className="no-data">선택할 보유종목이 없습니다.</p>}
+          </div>
+        </aside>
       </section>
     </main>
   );
