@@ -9,7 +9,7 @@ from models import db, User, Product, PriceHistory, TradeLog, CashBalance
 
 api = Blueprint('api', __name__, url_prefix='/api')
 market_client = StockAPIClient()
-API_VERSION = '2026-04-24-krx-alphanumeric-price-v1'
+API_VERSION = '2026-04-24-fund-nav-price-v1'
 
 
 def current_user_id():
@@ -74,8 +74,8 @@ def refresh_product_market_data(product, start_date=None):
     code_text = str(product.product_code).strip()
     if code_text.isdigit() and len(code_text) < 6:
         padded = code_text.zfill(6)
-        return False, f'{padded} 자동조회 불가. 실제 KRX 공개 코드가 있으면 예: 0177N0 형태로 입력하고, 내부 상품은 새 기준가에 직접 입력하세요.'
-    return False, '자동조회 불가. 국내 상장 주식/ETF는 6자리 공개 코드(예: 069500, 0177N0)로, 퇴직연금/펀드 내부 상품은 새 기준가에 직접 입력하세요.'
+        return False, f'{padded} 자동조회 불가. 실제 KRX 공개 코드가 있으면 예: 0177N0 형태로, 펀드는 K55207BU0715 같은 표준코드로 입력하세요.'
+    return False, '자동조회 불가. ETF는 6자리 공개 코드(예: 069500, 0177N0), 펀드는 표준코드(예: K55207BU0715)로 입력하세요.'
 
 
 def sync_user_holdings(user_id):

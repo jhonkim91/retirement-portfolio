@@ -29,7 +29,12 @@ class StockAPIClient:
     def is_krx_code(self, code):
         return bool(re.fullmatch(r'[0-9A-Z]{6}', str(code or '').strip().upper()))
 
+    def is_fund_code(self, code):
+        return bool(re.fullmatch(r'(?:K[0-9A-Z]{11}|KR[0-9A-Z]{10})', str(code or '').strip().upper()))
+
     def get_current_price(self, code):
+        if self.is_fund_code(code):
+            return self.get_price_from_funetf(code)
         return self.get_price_from_yfinance(code) or self.get_price_from_naver(code)
 
     def search_products(self, query, limit=12):
@@ -77,6 +82,12 @@ class StockAPIClient:
                 add_result(item)
                 return sorted(results, key=rank)[:limit]
 
+        if self.is_fund_code(query):
+            item = self.get_funetf_product_by_code(query)
+            if item:
+                add_result(item)
+                return sorted(results, key=rank)[:limit]
+
         if query.isdigit():
             for item in self.search_products_from_yfinance(query, limit):
                 add_result(item)
@@ -84,6 +95,11 @@ class StockAPIClient:
                 return sorted(results, key=rank)[:limit]
 
         for item in self.search_products_from_naver_search(query, limit):
+            add_result(item)
+        if self.has_exact_search_match(results, query) or len(results) >= limit:
+            return sorted(results, key=rank)[:limit]
+
+        for item in self.search_funds_from_funetf(query, limit):
             add_result(item)
         if self.has_exact_search_match(results, query) or len(results) >= limit:
             return sorted(results, key=rank)[:limit]
@@ -206,6 +222,144 @@ class StockAPIClient:
             print(f'naver profile error ({code}): {e}')
             return None
 
+    def search_funds_from_funetf(self, query, limit):
+        query = str(query or '').strip()
+        if len(query) < 2:
+            return []
+        try:
+            response = requests.get(
+                'https://www.funetf.co.kr/api/public/main/search/all',
+                params={
+                    'schVal': query,
+                    'reSchVal': '',
+                    'reSchChk': '',
+                    'schKeyword': ''
+                },
+                headers=self.naver_headers,
+                timeout=8
+            )
+            if response.status_code != 200:
+                return []
+            data = response.json()
+            funds = ((data.get('fundList') or {}).get('content') or [])
+            rows = []
+            for item in funds[:limit]:
+                code = str(item.get('fundCd') or '').strip().upper()
+                name = str(item.get('fundFnm') or item.get('repFundNm') or '').strip()
+                if not code or not name:
+                    continue
+                rows.append({
+                    'name': name,
+                    'code': code,
+                    'symbol': code,
+                    'exchange': 'Fund',
+                    'type': 'fund',
+                    'source': 'FunETF'
+                })
+            return rows
+        except Exception as e:
+            print(f'funetf search error ({query}): {e}')
+            return []
+
+    def get_funetf_product_by_code(self, code):
+        code = str(code or '').strip().upper()
+        if not self.is_fund_code(code):
+            return None
+        try:
+            response = requests.get(
+                f'https://www.funetf.co.kr/product/fund/view/{code}',
+                headers=self.naver_headers,
+                timeout=8
+            )
+            if response.status_code != 200:
+                return None
+            response.encoding = 'utf-8'
+            title_match = re.search(r'<title>\s*(.*?)\s*\|\s*FunETF', response.text, flags=re.DOTALL)
+            name = html.unescape(re.sub(r'<[^>]+>', '', title_match.group(1))).strip() if title_match else ''
+            if not name:
+                og_match = re.search(r'<meta property="og:title" content="([^"]+)"', response.text)
+                name = html.unescape(og_match.group(1).split('|')[0]).strip() if og_match else ''
+            if not name:
+                return None
+            return {
+                'name': name,
+                'code': code,
+                'symbol': code,
+                'exchange': 'Fund',
+                'type': 'fund',
+                'source': 'FunETF'
+            }
+        except Exception as e:
+            print(f'funetf profile error ({code}): {e}')
+            return None
+
+    def get_price_from_funetf(self, fund_code):
+        rows = self.get_history_from_funetf(fund_code, date.today() - timedelta(days=14), date.today())
+        if not rows:
+            return None
+        latest = rows[-1]
+        return {'price': latest['price'], 'date': latest['date']}
+
+    def get_history_from_funetf(self, fund_code, start_date, end_date):
+        fund_code = str(fund_code or '').strip().upper()
+        if not self.is_fund_code(fund_code):
+            return []
+
+        try:
+            session = requests.Session()
+            detail = session.get(
+                f'https://www.funetf.co.kr/product/fund/view/{fund_code}',
+                headers=self.naver_headers,
+                timeout=10
+            )
+            if detail.status_code != 200:
+                return []
+            detail.encoding = 'utf-8'
+            params = self.extract_funetf_form_values(detail.text)
+            params['fundCd'] = fund_code
+            if not params.get('schNavMode'):
+                params['schNavMode'] = '1'
+
+            response = session.get(
+                'https://www.funetf.co.kr/api/public/product/view/fundnav',
+                params=params,
+                headers={
+                    **self.naver_headers,
+                    'Referer': f'https://www.funetf.co.kr/product/fund/view/{fund_code}',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                timeout=12
+            )
+            if response.status_code != 200:
+                return []
+
+            rows = []
+            for item in response.json():
+                row_date = self.parse_compact_date(item.get('gijunYmd'))
+                price = item.get('gijunGa')
+                if not row_date or price is None:
+                    continue
+                if start_date <= row_date <= end_date:
+                    rows.append({'date': row_date, 'price': float(price)})
+            return sorted(rows, key=lambda row: row['date'])
+        except Exception as e:
+            print(f'funetf history error ({fund_code}): {e}')
+            return []
+
+    def extract_funetf_form_values(self, text):
+        params = {}
+        for match in re.finditer(r'<input[^>]+>', text):
+            tag = match.group(0)
+            name_match = re.search(r'name="([^"]+)"', tag)
+            value_match = re.search(r'value="([^"]*)"', tag)
+            if not name_match:
+                continue
+            name = name_match.group(1)
+            value = html.unescape(value_match.group(1)) if value_match else ''
+            if name not in params or (not params[name] and value):
+                params[name] = value
+        return params
+
     def search_products_from_naver(self, query, limit, max_pages=1):
         normalized_query = self.normalize_search_text(query)
         matched = []
@@ -285,6 +439,9 @@ class StockAPIClient:
         end_date = end_date or date.today()
         if start_date > end_date:
             return []
+
+        if self.is_fund_code(code):
+            return self.get_history_from_funetf(code, start_date, end_date)
 
         prices = self.get_history_from_yfinance(code, start_date, end_date)
         if prices:
@@ -452,6 +609,15 @@ class StockAPIClient:
             year, month, day = str(value).split('.')
             return date(int(year), int(month), int(day))
         except Exception:
+            return None
+
+    def parse_compact_date(self, value):
+        text = str(value or '')
+        if len(text) != 8 or not text.isdigit():
+            return None
+        try:
+            return date(int(text[0:4]), int(text[4:6]), int(text[6:8]))
+        except ValueError:
             return None
 
     def parse_naver_row(self, row):
