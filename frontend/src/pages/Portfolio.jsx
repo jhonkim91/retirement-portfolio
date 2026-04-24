@@ -426,6 +426,29 @@ function Portfolio() {
             <button type="submit" className="btn-submit" disabled={loading}>{loading ? '추가 중...' : '상품 추가'}</button>
           </form>
 
+          <div className="cash-panel">
+            <div>
+              <h3>보유 현금</h3>
+              <p>현재 계좌에 남아 있는 현금입니다. 매매일지에는 기록하지 않습니다.</p>
+            </div>
+            <div className="cash-actions">
+              <input type="number" min="0" value={cashAmount} onChange={(event) => setCashAmount(event.target.value)} />
+              <button type="button" onClick={saveCash} disabled={cashLoading}>{cashLoading ? '저장 중...' : '현금 저장'}</button>
+            </div>
+          </div>
+          <form className="deposit-panel" onSubmit={saveDeposit}>
+            <div>
+              <h3>회사 현금입금</h3>
+              <p>입금액을 퇴직금 원금으로 계산하고 매매일지에 기록합니다.</p>
+            </div>
+            <div className="deposit-actions">
+              <input type="date" value={depositForm.deposit_date} onChange={(event) => setDepositForm((prev) => ({ ...prev, deposit_date: event.target.value }))} required />
+              <input type="number" min="1" step="1" placeholder="입금액" value={depositForm.amount} onChange={(event) => setDepositForm((prev) => ({ ...prev, amount: event.target.value }))} required />
+              <button type="submit" disabled={depositLoading}>{depositLoading ? '기록 중...' : '입금 기록'}</button>
+            </div>
+            <textarea rows="2" placeholder="메모 선택 입력" value={depositForm.notes} onChange={(event) => setDepositForm((prev) => ({ ...prev, notes: event.target.value }))} />
+          </form>
+
           <section className="holding-panel">
             <h2>상품 관리</h2>
             <div className="holding-card-list">
@@ -619,28 +642,6 @@ function Portfolio() {
               </div>
             )}
           </div>
-          <div className="cash-panel">
-            <div>
-              <h3>보유 현금</h3>
-              <p>현재 계좌에 남아 있는 현금입니다. 매매일지에는 기록하지 않습니다.</p>
-            </div>
-            <div className="cash-actions">
-              <input type="number" min="0" value={cashAmount} onChange={(event) => setCashAmount(event.target.value)} />
-              <button type="button" onClick={saveCash} disabled={cashLoading}>{cashLoading ? '저장 중...' : '현금 저장'}</button>
-            </div>
-          </div>
-          <form className="deposit-panel" onSubmit={saveDeposit}>
-            <div>
-              <h3>회사 현금입금</h3>
-              <p>입금액을 퇴직금 원금으로 계산하고 매매일지에 기록합니다.</p>
-            </div>
-            <div className="deposit-actions">
-              <input type="date" value={depositForm.deposit_date} onChange={(event) => setDepositForm((prev) => ({ ...prev, deposit_date: event.target.value }))} required />
-              <input type="number" min="1" step="1" placeholder="입금액" value={depositForm.amount} onChange={(event) => setDepositForm((prev) => ({ ...prev, amount: event.target.value }))} required />
-              <button type="submit" disabled={depositLoading}>{depositLoading ? '기록 중...' : '입금 기록'}</button>
-            </div>
-            <textarea rows="2" placeholder="메모 선택 입력" value={depositForm.notes} onChange={(event) => setDepositForm((prev) => ({ ...prev, notes: event.target.value }))} />
-          </form>
         </div>
       </section>
     </main>

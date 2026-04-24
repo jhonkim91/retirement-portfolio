@@ -1,9 +1,9 @@
-.portfolio-container { max-width: 1240px; margin: 0 auto; padding: 24px 20px 48px; }
-.portfolio-workspace { display: grid; grid-template-columns: minmax(420px, .92fr) minmax(0, 1.35fr); gap: 22px; align-items: start; }
+.portfolio-container { max-width: 1560px; margin: 0 auto; padding: 24px 24px 48px; }
+.portfolio-workspace { display: grid; grid-template-columns: minmax(500px, .98fr) minmax(720px, 1.42fr); gap: 24px; align-items: start; }
 .portfolio-left { display: grid; gap: 16px; }
 .portfolio-container h1, .portfolio-container h2 { margin: 0 0 8px; }
 .subtitle { color: #697586; margin: 0 0 18px; }
-.product-form, .trend-panel, .holding-panel { background: #fff; border: 1px solid #d9e2ec; border-radius: 8px; padding: 18px; box-shadow: 0 4px 14px rgba(15, 23, 42, .05); }
+.product-form, .trend-panel, .holding-panel, .cash-panel, .deposit-panel { background: #fff; border: 1px solid #d9e2ec; border-radius: 8px; padding: 18px; box-shadow: 0 4px 14px rgba(15, 23, 42, .05); }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .form-group { margin-bottom: 14px; }
 .form-group label { display: block; margin-bottom: 6px; font-size: 14px; font-weight: 700; }
@@ -18,7 +18,7 @@
 .product-search-item strong { display: block; color: #102a43; font-size: 14px; line-height: 1.35; }
 .product-search-item span { display: block; margin-top: 3px; color: #697586; font-size: 12px; line-height: 1.35; }
 .holding-panel { margin-top: 0; }
-.cash-panel, .deposit-panel { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: end; border-top: 1px solid #e5eaf0; margin-top: 18px; padding-top: 18px; }
+.cash-panel, .deposit-panel { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; align-items: end; }
 .cash-panel h3, .deposit-panel h3 { margin: 0 0 6px; }
 .cash-panel p, .deposit-panel p { margin: 0; color: #697586; font-size: 13px; line-height: 1.5; }
 .trend-view { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
@@ -33,8 +33,8 @@
 .trend-code { display: block; color: #7b8794; font-size: 12px; margin-top: 2px; }
 .profit-text { color: #b42318; font-weight: 800; }
 .loss-text { color: #177245; font-weight: 800; }
-.cash-actions { display: grid; grid-template-columns: minmax(160px, 220px) auto; gap: 8px; }
-.deposit-actions { display: grid; grid-template-columns: 150px minmax(150px, 220px) auto; gap: 8px; }
+.cash-actions { display: grid; grid-template-columns: minmax(180px, 240px) auto; gap: 8px; }
+.deposit-actions { display: grid; grid-template-columns: 150px minmax(170px, 240px) auto; gap: 8px; }
 .cash-actions input, .deposit-actions input, .deposit-panel textarea { border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 11px; }
 .deposit-panel textarea { grid-column: 1 / -1; resize: vertical; }
 .cash-actions button, .deposit-actions button { border: 0; background: #33658a; color: #fff; border-radius: 6px; padding: 9px 12px; font-weight: 800; }
