@@ -17,12 +17,17 @@ class StockAPIClient:
         }
 
     def normalize_symbol(self, code):
-        code = str(code).strip()
+        code = str(code or '').strip().upper()
+        if re.fullmatch(r'[0-9A-Z]{6}\.(KS|KQ)', code):
+            return code
         if code.isdigit() and len(code) < 6:
             code = code.zfill(6)
-        if code.isdigit() and len(code) == 6:
+        if re.fullmatch(r'[0-9A-Z]{6}', code):
             return f'{code}.KS'
         return code
+
+    def is_krx_code(self, code):
+        return bool(re.fullmatch(r'[0-9A-Z]{6}', str(code or '').strip().upper()))
 
     def get_current_price(self, code):
         return self.get_price_from_yfinance(code) or self.get_price_from_naver(code)
@@ -37,14 +42,13 @@ class StockAPIClient:
         normalized_query = self.normalize_search_text(query)
 
         def add_result(item):
-            code = str(item.get('code') or '').strip()
+            code = str(item.get('code') or '').strip().upper()
             name = str(item.get('name') or '').strip()
             if not code or not name:
                 return
-            key = code
-            if key in seen:
+            if code in seen:
                 return
-            seen.add(key)
+            seen.add(code)
             results.append({
                 'name': name,
                 'code': code,
@@ -57,7 +61,7 @@ class StockAPIClient:
         def rank(item):
             code = item['code']
             name = self.normalize_search_text(item['name'])
-            if code == query:
+            if code == query.upper():
                 return (0, name)
             if query.isdigit() and code.startswith(query):
                 return (1, name)
@@ -67,11 +71,22 @@ class StockAPIClient:
                 return (3, name)
             return (4, name)
 
+        if self.is_krx_code(query):
+            item = self.get_naver_product_by_code(query)
+            if item:
+                add_result(item)
+                return sorted(results, key=rank)[:limit]
+
         if query.isdigit():
             for item in self.search_products_from_yfinance(query, limit):
                 add_result(item)
             if self.has_exact_search_match(results, query):
                 return sorted(results, key=rank)[:limit]
+
+        for item in self.search_products_from_naver_search(query, limit):
+            add_result(item)
+        if self.has_exact_search_match(results, query) or len(results) >= limit:
+            return sorted(results, key=rank)[:limit]
 
         for item in self.search_products_from_naver(query, limit, max_pages=1):
             add_result(item)
@@ -94,8 +109,8 @@ class StockAPIClient:
             search = yf.Search(query, max_results=max(limit * 2, 10))
             rows = []
             for quote in search.quotes:
-                symbol = str(quote.get('symbol') or '').strip()
-                match = re.match(r'^(\d{6})\.(KS|KQ)$', symbol)
+                symbol = str(quote.get('symbol') or '').strip().upper()
+                match = re.match(r'^([0-9A-Z]{6})\.(KS|KQ)$', symbol)
                 if not match:
                     continue
                 name = quote.get('shortname') or quote.get('longname')
@@ -114,6 +129,83 @@ class StockAPIClient:
             print(f'yfinance search error ({query}): {e}')
             return []
 
+    def search_products_from_naver_search(self, query, limit):
+        try:
+            response = requests.get(
+                'https://finance.naver.com/search/search.naver',
+                params={'query': query},
+                headers=self.naver_headers,
+                timeout=6
+            )
+            if response.status_code != 200:
+                return []
+            response.encoding = response.apparent_encoding or 'EUC-KR'
+            text = response.text
+
+            redirect = re.search(r'code=([0-9A-Z]{6})', text)
+            if redirect and len(text) < 500:
+                item = self.get_naver_product_by_code(redirect.group(1))
+                return [item] if item else []
+
+            rows = []
+            seen = set()
+            pattern = r'href="/item/main\.naver\?code=([0-9A-Z]{6})"[^>]*>(.*?)</a>'
+            for code, raw_name in re.findall(pattern, text, flags=re.IGNORECASE | re.DOTALL):
+                name = re.sub(r'<[^>]+>', '', raw_name)
+                name = html.unescape(name).strip()
+                code = code.upper()
+                if not name or code in seen:
+                    continue
+                seen.add(code)
+                rows.append({
+                    'name': name,
+                    'code': code,
+                    'symbol': f'{code}.KS',
+                    'exchange': 'KRX',
+                    'type': 'stock/ETF',
+                    'source': 'Naver'
+                })
+                if len(rows) >= limit:
+                    break
+            return rows
+        except Exception as e:
+            print(f'naver search error ({query}): {e}')
+            return []
+
+    def get_naver_product_by_code(self, code):
+        try:
+            code = str(code or '').strip().upper()
+            if not self.is_krx_code(code):
+                return None
+            response = requests.get(
+                'https://finance.naver.com/item/main.naver',
+                params={'code': code},
+                headers=self.naver_headers,
+                timeout=6
+            )
+            if response.status_code != 200:
+                return None
+            response.encoding = 'utf-8'
+            text = response.text
+            title_match = re.search(r'<title>\s*(.*?)\s*[:|-]\s*Npay', text, flags=re.DOTALL)
+            name = html.unescape(re.sub(r'<[^>]+>', '', title_match.group(1))).strip() if title_match else ''
+            if not name:
+                name_match = re.search(r'item\.naver\?code=' + re.escape(code) + r'.*?>([^<]+)</a>', text, flags=re.DOTALL)
+                name = html.unescape(name_match.group(1)).strip() if name_match else ''
+            if not name:
+                return None
+            return {
+                'name': name,
+                'code': code,
+                'symbol': f'{code}.KS',
+                'exchange': 'KRX',
+                'type': 'stock/ETF',
+                'source': 'Naver'
+            }
+        except Exception as e:
+            print(f'naver profile error ({code}): {e}')
+            return None
+
     def search_products_from_naver(self, query, limit, max_pages=1):
         normalized_query = self.normalize_search_text(query)
         matched = []
@@ -128,7 +220,7 @@ class StockAPIClient:
                     code = item['code']
                     if item['code'] in seen:
                         continue
-                    if normalized_query in name or query in code:
+                    if normalized_query in name or query.upper() in code:
                         seen.add(item['code'])
                         matched.append(item)
                     if self.has_exact_search_match(matched, query) or len(matched) >= limit:
@@ -159,15 +251,16 @@ class StockAPIClient:
 
     def parse_naver_market_page(self, text, market):
         rows = []
-        pattern = r'href="/item/main\.naver\?code=(\d{6})"[^>]*>([^<]+)</a>'
+        pattern = r'href="/item/main\.naver\?code=([0-9A-Z]{6})"[^>]*>([^<]+)</a>'
         for match in re.finditer(pattern, text):
             name = html.unescape(match.group(2)).strip()
             if not name:
                 continue
+            code = match.group(1).upper()
             rows.append({
                 'name': name,
-                'code': match.group(1),
-                'symbol': f'{match.group(1)}.KS',
+                'code': code,
+                'symbol': f'{code}.KS',
                 'exchange': market,
                 'type': 'stock/ETF',
                 'source': 'Naver'
@@ -178,12 +271,13 @@ class StockAPIClient:
         return re.sub(r'\s+', '', str(value or '')).lower()
 
     def contains_hangul(self, value):
-        return re.search(r'[가-힣]', str(value or '')) is not None
+        return re.search(r'[\uac00-\ud7a3]', str(value or '')) is not None
 
     def has_exact_search_match(self, items, query):
         normalized_query = self.normalize_search_text(query)
+        normalized_code = str(query or '').strip().upper()
         return any(
-            item.get('code') == query or self.normalize_search_text(item.get('name')) == normalized_query
+            item.get('code') == normalized_code or self.normalize_search_text(item.get('name')) == normalized_query
             for item in items
         )
 
@@ -211,7 +305,6 @@ class StockAPIClient:
 
             symbol = self.normalize_symbol(code)
             ticker = yf.Ticker(symbol)
-            # yfinance end is exclusive, so add one day.
             data = ticker.history(
                 start=start_date.isoformat(),
                 end=(end_date + timedelta(days=1)).isoformat(),
@@ -251,50 +344,115 @@ class StockAPIClient:
 
     def get_price_from_naver(self, stock_code):
         try:
-            stock_code = str(stock_code).strip()
+            stock_code = str(stock_code or '').strip().upper()
             if stock_code.isdigit() and len(stock_code) < 6:
                 stock_code = stock_code.zfill(6)
-            if not str(stock_code).isdigit():
+            if not self.is_krx_code(stock_code):
                 return None
-            url = f'https://finance.naver.com/api/sise/chartlog.nhn?code={stock_code}&type=day&count=1'
-            response = requests.get(url, headers=self.naver_headers, timeout=8)
-            if response.status_code == 200:
-                data = response.json()
-                if data and len(data) > 0:
-                    parsed_date, close = self.parse_naver_row(data[-1])
-                    return {
-                        'price': close,
-                        'date': parsed_date or date.today()
-                    }
+
+            if stock_code.isdigit():
+                url = f'https://finance.naver.com/api/sise/chartlog.nhn?code={stock_code}&type=day&count=1'
+                response = requests.get(url, headers=self.naver_headers, timeout=8)
+                if response.status_code == 200:
+                    data = response.json()
+                    if data and len(data) > 0:
+                        parsed_date, close = self.parse_naver_row(data[-1])
+                        return {
+                            'price': close,
+                            'date': parsed_date or date.today()
+                        }
+
+            rows = self.get_history_from_naver_sise_day(
+                stock_code,
+                date.today() - timedelta(days=14),
+                date.today(),
+                max_pages=2
+            )
+            if rows:
+                latest = rows[-1]
+                return {'price': latest['price'], 'date': latest['date']}
         except Exception as e:
             print(f'naver price error ({stock_code}): {e}')
         return None
 
     def get_history_from_naver(self, stock_code, start_date, end_date):
         try:
-            stock_code = str(stock_code).strip()
+            stock_code = str(stock_code or '').strip().upper()
             if stock_code.isdigit() and len(stock_code) < 6:
                 stock_code = stock_code.zfill(6)
-            if not str(stock_code).isdigit():
+            if not self.is_krx_code(stock_code):
                 return []
 
-            days = max((end_date - start_date).days + 10, 30)
-            url = f'https://finance.naver.com/api/sise/chartlog.nhn?code={stock_code}&type=day&count={days}'
-            response = requests.get(url, headers=self.naver_headers, timeout=12)
-            if response.status_code != 200:
-                return []
+            if stock_code.isdigit():
+                days = max((end_date - start_date).days + 10, 30)
+                url = f'https://finance.naver.com/api/sise/chartlog.nhn?code={stock_code}&type=day&count={days}'
+                response = requests.get(url, headers=self.naver_headers, timeout=12)
+                if response.status_code == 200:
+                    rows = []
+                    for row in response.json():
+                        row_date, close = self.parse_naver_row(row)
+                        if not row_date or close is None:
+                            continue
+                        if start_date <= row_date <= end_date:
+                            rows.append({'date': row_date, 'price': close})
+                    if rows:
+                        return rows
 
-            rows = []
-            for row in response.json():
-                row_date, close = self.parse_naver_row(row)
-                if not row_date or close is None:
-                    continue
-                if start_date <= row_date <= end_date:
-                    rows.append({'date': row_date, 'price': close})
-            return rows
+            days = max((end_date - start_date).days, 10)
+            max_pages = min(max((days // 7) + 2, 2), 30)
+            return self.get_history_from_naver_sise_day(stock_code, start_date, end_date, max_pages=max_pages)
         except Exception as e:
             print(f'naver history error ({stock_code}): {e}')
             return []
+
+    def get_history_from_naver_sise_day(self, stock_code, start_date, end_date, max_pages=10):
+        stock_code = str(stock_code or '').strip().upper()
+        if not self.is_krx_code(stock_code):
+            return []
+
+        rows = []
+        seen = set()
+        row_pattern = re.compile(
+            r'<tr[^>]*>.*?<td[^>]*align="center"[^>]*>\s*<span[^>]*>'
+            r'(\d{4}\.\d{2}\.\d{2})</span>\s*</td>\s*'
+            r'<td class="num">\s*<span[^>]*>([\d,]+)</span>',
+            re.DOTALL
+        )
+
+        for page in range(1, max_pages + 1):
+            response = requests.get(
+                'https://finance.naver.com/item/sise_day.naver',
+                params={'code': stock_code, 'page': page},
+                headers=self.naver_headers,
+                timeout=8
+            )
+            if response.status_code != 200:
+                break
+            response.encoding = 'EUC-KR'
+            page_rows = 0
+            for date_text, close_text in row_pattern.findall(response.text):
+                row_date = self.parse_naver_date(date_text)
+                if not row_date or row_date in seen:
+                    continue
+                seen.add(row_date)
+                page_rows += 1
+                if start_date <= row_date <= end_date:
+                    rows.append({
+                        'date': row_date,
+                        'price': float(close_text.replace(',', ''))
+                    })
+            if page_rows == 0:
+                break
+            if rows and min(seen) < start_date:
+                break
+        return sorted(rows, key=lambda item: item['date'])
+
+    def parse_naver_date(self, value):
+        try:
+            year, month, day = str(value).split('.')
+            return date(int(year), int(month), int(day))
+        except Exception:
+            return None
 
     def parse_naver_row(self, row):
         row_date = None
@@ -313,7 +471,6 @@ class StockAPIClient:
             except ValueError:
                 pass
 
-        # Naver chartlog rows usually contain date first and close next.
         if len(row) >= 2:
             try:
                 close = float(str(row[1]).replace(',', ''))
