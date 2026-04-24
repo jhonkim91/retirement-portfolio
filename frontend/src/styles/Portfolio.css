@@ -20,6 +20,19 @@
 .cash-panel, .deposit-panel { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: end; border-top: 1px solid #e5eaf0; margin-top: 18px; padding-top: 18px; }
 .cash-panel h3, .deposit-panel h3 { margin: 0 0 6px; }
 .cash-panel p, .deposit-panel p { margin: 0; color: #697586; font-size: 13px; line-height: 1.5; }
+.trend-view { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 16px; align-items: start; }
+.trend-chart { min-width: 0; }
+.trend-selector { border: 1px solid #e5eaf0; border-radius: 8px; padding: 12px; background: #fbfdff; }
+.trend-selector-header { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin-bottom: 10px; }
+.trend-selector-header h3 { margin: 0; font-size: 15px; }
+.trend-selector-header div { display: flex; gap: 6px; }
+.trend-selector-header button { border: 1px solid #cbd5e1; background: #fff; color: #17324d; border-radius: 6px; padding: 6px 8px; font-size: 12px; font-weight: 800; }
+.trend-holding-cards { display: grid; gap: 8px; max-height: 320px; overflow-y: auto; padding-right: 2px; }
+.trend-holding-card { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 9px; align-items: start; border: 1px solid #d9e2ec; border-radius: 8px; background: #fff; padding: 10px; cursor: pointer; }
+.trend-holding-card.selected { border-color: #33658a; box-shadow: inset 3px 0 0 #33658a; }
+.trend-holding-card input { margin-top: 3px; }
+.trend-holding-card strong { display: block; color: #102a43; font-size: 13px; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trend-holding-card small { display: block; color: #697586; font-size: 12px; line-height: 1.45; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .trend-detail { border-top: 1px solid #e5eaf0; margin-top: 18px; padding-top: 18px; }
 .trend-detail h3 { margin: 0 0 10px; }
 .trend-table-wrapper { overflow-x: auto; border: 1px solid #e5eaf0; border-radius: 8px; }
@@ -59,5 +72,5 @@
 .panel-fields input { width: 100%; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 11px; }
 .panel-fields button { border: 0; background: #33658a; color: #fff; border-radius: 6px; padding: 10px 13px; font-weight: 800; }
 .edit-panel input, .edit-panel select { width: 100%; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 11px; }
-@media (max-width: 980px) { .portfolio-grid, .product-row { grid-template-columns: 1fr; } }
-@media (max-width: 640px) { .portfolio-container { padding: 16px 12px 36px; } .form-row, .inline-actions, .inline-actions:has(input + input), .buy-actions, .sell-actions, .price-fields, .buy-fields, .sell-fields, .cash-panel, .deposit-panel, .cash-actions, .deposit-actions { grid-template-columns: 1fr; } .panel-heading { display: block; } .panel-heading span { display: block; margin-top: 4px; } .delete-action { justify-self: stretch; } .delete-btn, .row-actions button, .panel-fields button { width: 100%; } }
+@media (max-width: 980px) { .portfolio-grid, .product-row, .trend-view { grid-template-columns: 1fr; } .trend-holding-cards { max-height: none; } }
+@media (max-width: 640px) { .portfolio-container { padding: 16px 12px 36px; } .form-row, .inline-actions, .inline-actions:has(input + input), .buy-actions, .sell-actions, .price-fields, .buy-fields, .sell-fields, .cash-panel, .deposit-panel, .cash-actions, .deposit-actions { grid-template-columns: 1fr; } .trend-selector-header { align-items: flex-start; } .panel-heading { display: block; } .panel-heading span { display: block; margin-top: 4px; } .delete-action { justify-self: stretch; } .delete-btn, .row-actions button, .panel-fields button { width: 100%; } }

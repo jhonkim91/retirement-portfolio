@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { portfolioAPI } from '../utils/api';
 import '../styles/Portfolio.css';
@@ -35,6 +35,9 @@ function Portfolio() {
   const [productSearchLoading, setProductSearchLoading] = useState(false);
   const [showProductSearch, setShowProductSearch] = useState(false);
   const [selectedProductName, setSelectedProductName] = useState('');
+  const [selectedTrendProductIds, setSelectedTrendProductIds] = useState([]);
+  const trendSelectionInitialized = useRef(false);
+  const previousTrendProductIds = useRef([]);
 
   const loadData = async () => {
     const [productData, trendData, cashData] = await Promise.all([
@@ -50,6 +53,23 @@ function Portfolio() {
   useEffect(() => {
     loadData().catch((err) => setMessage(err.message));
   }, []);
+
+  useEffect(() => {
+    const productIds = products.map((product) => String(product.id));
+    const knownIds = previousTrendProductIds.current;
+
+    setSelectedTrendProductIds((prev) => {
+      if (!trendSelectionInitialized.current) {
+        return productIds;
+      }
+      const kept = prev.filter((id) => productIds.includes(id));
+      const added = productIds.filter((id) => !knownIds.includes(id));
+      return [...kept, ...added];
+    });
+
+    trendSelectionInitialized.current = true;
+    previousTrendProductIds.current = productIds;
+  }, [products]);
 
   useEffect(() => {
     const query = formData.product_name.trim();
@@ -81,23 +101,29 @@ function Portfolio() {
     };
   }, [formData.product_name, selectedProductName]);
 
+  const selectedTrendProductSet = useMemo(() => new Set(selectedTrendProductIds), [selectedTrendProductIds]);
+  const filteredTrends = useMemo(
+    () => trends.filter((row) => selectedTrendProductSet.has(String(row.product_id))),
+    [trends, selectedTrendProductSet]
+  );
+
   const chartData = useMemo(() => {
     const byDate = {};
-    trends.forEach((row) => {
+    filteredTrends.forEach((row) => {
       byDate[row.record_date] = byDate[row.record_date] || { date: row.record_date };
       byDate[row.record_date][row.product_name] = row.price;
     });
     return Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
-  }, [trends]);
+  }, [filteredTrends]);
 
-  const productNames = [...new Set(trends.map((row) => row.product_name))];
+  const productNames = [...new Set(filteredTrends.map((row) => row.product_name))];
   const trendRows = useMemo(() => (
-    [...trends].sort((a, b) => {
+    [...filteredTrends].sort((a, b) => {
       const dateOrder = b.record_date.localeCompare(a.record_date);
       if (dateOrder !== 0) return dateOrder;
       return a.product_name.localeCompare(b.product_name);
     })
-  ), [trends]);
+  ), [filteredTrends]);
   const colors = ['#33658a', '#d94841', '#256f68', '#f6ae2d', '#7f4f24', '#6a4c93'];
   const formatCurrency = (value) => new Intl.NumberFormat('ko-KR', {
     style: 'currency',
@@ -296,6 +322,21 @@ function Portfolio() {
     setActivePanel({ productId: product.id, mode });
   };
 
+  const toggleTrendProduct = (productId) => {
+    const id = String(productId);
+    setSelectedTrendProductIds((prev) => (
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    ));
+  };
+
+  const selectAllTrendProducts = () => {
+    setSelectedTrendProductIds(products.map((product) => String(product.id)));
+  };
+
+  const clearTrendProducts = () => {
+    setSelectedTrendProductIds([]);
+  };
+
   return (
     <main className="portfolio-container">
       <section className="portfolio-grid">
@@ -385,18 +426,51 @@ function Portfolio() {
 
         <div className="trend-panel">
           <h2>퇴직연금 추이</h2>
-          <ResponsiveContainer width="100%" height={320}>
-            <LineChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="date" />
-              <YAxis tickFormatter={(value) => value.toLocaleString()} />
-              <Tooltip formatter={(value) => formatCurrency(value)} />
-              <Legend />
-              {productNames.map((name, index) => (
-                <Line key={name} type="monotone" dataKey={name} stroke={colors[index % colors.length]} connectNulls={false} />
-              ))}
-            </LineChart>
-          </ResponsiveContainer>
+          <div className="trend-view">
+            <div className="trend-chart">
+              <ResponsiveContainer width="100%" height={320}>
+                <LineChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="date" />
+                  <YAxis tickFormatter={(value) => value.toLocaleString()} />
+                  <Tooltip formatter={(value) => formatCurrency(value)} />
+                  <Legend />
+                  {productNames.map((name, index) => (
+                    <Line key={name} type="monotone" dataKey={name} stroke={colors[index % colors.length]} connectNulls={false} />
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+            <aside className="trend-selector">
+              <div className="trend-selector-header">
+                <h3>현재 보유종목</h3>
+                <div>
+                  <button type="button" onClick={selectAllTrendProducts}>전체</button>
+                  <button type="button" onClick={clearTrendProducts}>해제</button>
+                </div>
+              </div>
+              <div className="trend-holding-cards">
+                {products.map((product) => {
+                  const checked = selectedTrendProductSet.has(String(product.id));
+                  return (
+                    <label className={`trend-holding-card ${checked ? 'selected' : ''}`} key={product.id}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleTrendProduct(product.id)}
+                      />
+                      <span>
+                        <strong>{product.product_name}</strong>
+                        <small>{product.product_code} · {product.asset_type === 'risk' ? '위험자산' : '안전자산'}</small>
+                        <small>{formatQuantity(product.quantity)}{unitLabel(product.unit_type)} · {formatCurrency(product.current_value)}</small>
+                      </span>
+                    </label>
+                  );
+                })}
+                {products.length === 0 && <p className="no-data">선택할 보유종목이 없습니다.</p>}
+              </div>
+            </aside>
+          </div>
           <div className="trend-detail">
             <h3>상품 추이 상세</h3>
             {trendRows.length === 0 ? <p className="no-data">표시할 추이 데이터가 없습니다.</p> : (
