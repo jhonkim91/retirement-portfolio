@@ -1,0 +1,10 @@
+.tradelog-container { max-width: 1240px; margin: 0 auto; padding: 24px 20px 48px; }
+.page-header h1 { margin: 0 0 8px; }
+.page-header p { margin: 0 0 18px; color: #697586; }
+.filter-section { display: flex; gap: 10px; margin-bottom: 16px; }
+.filter-section select { max-width: 180px; }
+.tradelog-table { background: #fff; border: 1px solid #d9e2ec; border-radius: 8px; overflow: hidden; }
+.trade-type { display: inline-block; min-width: 46px; text-align: center; padding: 4px 8px; border-radius: 999px; font-size: 12px; font-weight: 800; }
+.trade-type.buy { background: #e7f5ef; color: #17634d; }
+.trade-type.sell { background: #fde8e7; color: #9f1d18; }
+@media (max-width: 640px) { .tradelog-container { padding: 16px 12px 36px; } .filter-section { flex-direction: column; } .filter-section select { max-width: none; } }
