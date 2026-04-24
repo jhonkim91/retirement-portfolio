@@ -4,13 +4,61 @@ import hashlib
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
 
+from api_client import StockAPIClient
 from models import db, User, Product, PriceHistory, TradeLog
 
 api = Blueprint('api', __name__, url_prefix='/api')
+market_client = StockAPIClient()
 
 
 def current_user_id():
     return int(get_jwt_identity())
+
+
+def upsert_price_history(product_id, record_date, price):
+    existing = PriceHistory.query.filter_by(product_id=product_id, record_date=record_date).first()
+    if existing:
+        existing.price = price
+    else:
+        db.session.add(PriceHistory(product_id=product_id, price=price, record_date=record_date))
+
+
+def refresh_product_market_data(product, start_date=None):
+    if product.status == 'sold':
+        return False
+
+    start_date = start_date or product.purchase_date
+    histories = market_client.get_historical_prices(product.product_code, start_date, date.today())
+    if histories:
+        latest = histories[-1]
+        for row in histories:
+            upsert_price_history(product.id, row['date'], row['price'])
+        product.current_price = latest['price']
+        return True
+
+    current = market_client.get_current_price(product.product_code)
+    if current:
+        product.current_price = current['price']
+        upsert_price_history(product.id, current.get('date') or date.today(), current['price'])
+        return True
+
+    return False
+
+
+def refresh_user_holdings(user_id):
+    products = Product.query.filter_by(user_id=user_id, status='holding').all()
+    changed = False
+    for product in products:
+        latest_history = (
+            PriceHistory.query
+            .filter_by(product_id=product.id)
+            .order_by(PriceHistory.record_date.desc())
+            .first()
+        )
+        start_date = latest_history.record_date if latest_history else product.purchase_date
+        changed = refresh_product_market_data(product, start_date) or changed
+    if changed:
+        db.session.commit()
 
 
 @api.route('/auth/register', methods=['POST'])
@@ -58,7 +106,9 @@ def login():
 @jwt_required()
 def get_portfolio_summary():
     try:
-        products = Product.query.filter_by(user_id=current_user_id(), status='holding').all()
+        user_id = current_user_id()
+        refresh_user_holdings(user_id)
+        products = Product.query.filter_by(user_id=user_id, status='holding').all()
         total_investment = sum(p.quantity * p.purchase_price for p in products)
         total_current_value = sum(p.quantity * p.current_price for p in products)
         total_profit_loss = total_current_value - total_investment
@@ -92,7 +142,9 @@ def get_portfolio_summary():
 @jwt_required()
 def get_products():
     try:
-        products = Product.query.filter_by(user_id=current_user_id(), status='holding').order_by(Product.purchase_date.desc()).all()
+        user_id = current_user_id()
+        refresh_user_holdings(user_id)
+        products = Product.query.filter_by(user_id=user_id, status='holding').order_by(Product.purchase_date.desc()).all()
         return jsonify([p.to_dict() for p in products]), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -132,7 +184,9 @@ def add_product():
         db.session.add(product)
         db.session.flush()
 
-        db.session.add(PriceHistory(product_id=product.id, price=product.current_price, record_date=product.purchase_date))
+        if not refresh_product_market_data(product):
+            upsert_price_history(product.id, product.purchase_date, product.current_price)
+
         db.session.add(TradeLog(
             user_id=product.user_id,
             product_id=product.id,
@@ -236,7 +290,9 @@ def get_price_history(product_id):
 @jwt_required()
 def get_portfolio_trends():
     try:
-        products = Product.query.filter_by(user_id=current_user_id()).all()
+        user_id = current_user_id()
+        refresh_user_holdings(user_id)
+        products = Product.query.filter_by(user_id=user_id).all()
         rows = []
         for product in products:
             histories = PriceHistory.query.filter_by(product_id=product.id)
