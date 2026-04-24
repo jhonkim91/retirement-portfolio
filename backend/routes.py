@@ -9,7 +9,7 @@ from models import db, User, Product, PriceHistory, TradeLog, CashBalance
 
 api = Blueprint('api', __name__, url_prefix='/api')
 market_client = StockAPIClient()
-API_VERSION = '2026-04-24-holding-allocation-code-clean-v1'
+API_VERSION = '2026-04-24-realized-return-v1'
 
 
 def current_user_id():
@@ -72,6 +72,67 @@ def normalize_unit_type(value):
 
 def trade_amount(quantity, price, unit_type):
     return Product.amount_for(quantity, price, unit_type)
+
+
+def get_realized_positions(user_id):
+    logs = (
+        TradeLog.query
+        .filter(TradeLog.user_id == user_id, TradeLog.product_id.isnot(None))
+        .filter(TradeLog.trade_type.in_(('buy', 'sell')))
+        .order_by(TradeLog.trade_date.asc(), TradeLog.id.asc())
+        .all()
+    )
+
+    positions = {}
+    for log in logs:
+        row = positions.setdefault(log.product_id, {
+            'product_id': log.product_id,
+            'product_name': log.product_name,
+            'asset_type': log.asset_type,
+            'buy_amount': 0,
+            'sell_amount': 0,
+            'profit_loss': 0,
+            'profit_rate': 0,
+            'sell_date': None
+        })
+        row['product_name'] = log.product_name or row['product_name']
+        row['asset_type'] = log.asset_type or row['asset_type']
+        if log.trade_type == 'buy':
+            row['buy_amount'] += float(log.total_amount or 0)
+        elif log.trade_type == 'sell':
+            row['sell_amount'] += float(log.total_amount or 0)
+            row['sell_date'] = log.trade_date.isoformat()
+
+    realized = []
+    for row in positions.values():
+        if row['sell_amount'] <= 0 or row['buy_amount'] <= 0:
+            continue
+        row['profit_loss'] = row['sell_amount'] - row['buy_amount']
+        row['profit_rate'] = row['profit_loss'] / row['buy_amount'] * 100
+        realized.append(row)
+
+    total_buy = sum(row['buy_amount'] for row in realized)
+    total_sell = sum(row['sell_amount'] for row in realized)
+    total_profit = total_sell - total_buy
+    total_rate = (total_profit / total_buy * 100) if total_buy else 0
+
+    return {
+        'total_buy_amount': round(total_buy, 2),
+        'total_sell_amount': round(total_sell, 2),
+        'total_profit_loss': round(total_profit, 2),
+        'total_profit_rate': round(total_rate, 2),
+        'sold_count': len(realized),
+        'positions': [
+            {
+                **row,
+                'buy_amount': round(row['buy_amount'], 2),
+                'sell_amount': round(row['sell_amount'], 2),
+                'profit_loss': round(row['profit_loss'], 2),
+                'profit_rate': round(row['profit_rate'], 2)
+            }
+            for row in sorted(realized, key=lambda item: (item['sell_date'] or '', item['product_name']), reverse=True)
+        ]
+    }
 
 
 def normalize_product_code(product):
@@ -704,5 +765,14 @@ def get_trade_logs():
             query = query.filter_by(asset_type=asset_type)
         logs = query.order_by(TradeLog.trade_date.desc(), TradeLog.id.desc()).all()
         return jsonify([log.to_dict() for log in logs]), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/trade-logs/realized-summary', methods=['GET'])
+@jwt_required()
+def get_trade_logs_realized_summary():
+    try:
+        return jsonify(get_realized_positions(current_user_id())), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500

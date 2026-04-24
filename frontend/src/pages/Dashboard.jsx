@@ -137,7 +137,7 @@ function Dashboard() {
         <div className="header">
           <div>
             <h1>퇴직연금 현황</h1>
-            <p>회사 현금입금으로 기록한 원금과 현재 보유 상품, 보유 현금을 기준으로 평가합니다.</p>
+            <p>회사 현금입금 원금 대비 현재 보유 상품과 보유 현금을 기준으로 평가합니다.</p>
           </div>
           <div className="header-actions">
             <button type="button" onClick={syncPrices} className="refresh-btn" disabled={syncing}>
@@ -151,8 +151,8 @@ function Dashboard() {
         <div className="summary-cards">
           <div className="card"><h3>입금 원금</h3><p className="amount">{formatCurrency(summary?.total_investment)}</p></div>
           <div className="card"><h3>보유 현금</h3><p className="amount">{formatCurrency(summary?.total_cash)}</p></div>
-          <div className="card"><h3>현재 평가액</h3><p className="amount">{formatCurrency(summary?.total_current_value)}</p></div>
-          <div className="card"><h3>평가손익</h3><p className={`amount ${(summary?.total_profit_loss || 0) >= 0 ? 'profit' : 'loss'}`}>{formatCurrency(summary?.total_profit_loss)}</p></div>
+          <div className="card"><h3>현재 보유 평가액</h3><p className="amount">{formatCurrency(summary?.total_current_value)}</p></div>
+          <div className="card"><h3>원금 대비 평가손익</h3><p className={`amount ${(summary?.total_profit_loss || 0) >= 0 ? 'profit' : 'loss'}`}>{formatCurrency(summary?.total_profit_loss)}</p></div>
           <div className="card"><h3>원금 대비 수익률</h3><p className={`amount ${(summary?.total_profit_rate || 0) >= 0 ? 'profit' : 'loss'}`}>{Number(summary?.total_profit_rate || 0).toFixed(2)}%</p></div>
         </div>
       </section>

@@ -50,6 +50,7 @@ export const portfolioAPI = {
 };
 
 export const tradeLogAPI = {
+  getRealizedSummary: () => apiCall('/trade-logs/realized-summary'),
   getLogs: (filters = {}) => {
     const params = new URLSearchParams();
     if (filters.tradeType && filters.tradeType !== 'all') params.append('trade_type', filters.tradeType);

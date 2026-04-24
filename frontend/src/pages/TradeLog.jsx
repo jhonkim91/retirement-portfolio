@@ -8,13 +8,26 @@ function TradeLog() {
   const [tradeType, setTradeType] = useState('all');
   const [assetType, setAssetType] = useState('all');
   const [error, setError] = useState('');
+  const [realizedSummary, setRealizedSummary] = useState({
+    total_buy_amount: 0,
+    total_sell_amount: 0,
+    total_profit_loss: 0,
+    total_profit_rate: 0,
+    sold_count: 0,
+    positions: []
+  });
 
   useEffect(() => {
     const fetchLogs = async () => {
       try {
         setLoading(true);
         setError('');
-        setLogs(await tradeLogAPI.getLogs({ tradeType, assetType }));
+        const [logRows, summary] = await Promise.all([
+          tradeLogAPI.getLogs({ tradeType, assetType }),
+          tradeLogAPI.getRealizedSummary()
+        ]);
+        setLogs(logRows);
+        setRealizedSummary(summary);
       } catch (err) {
         setError(err.message || '매매일지를 불러오지 못했습니다.');
       } finally {
@@ -27,6 +40,7 @@ function TradeLog() {
   const formatCurrency = (value) => new Intl.NumberFormat('ko-KR', { style: 'currency', currency: 'KRW', maximumFractionDigits: 0 }).format(value || 0);
   const formatQuantity = (value) => Number(value || 0).toLocaleString('ko-KR', { maximumFractionDigits: 4 });
   const unitLabel = (log) => log.unit_label || (log.unit_type === 'unit' ? '좌' : '수');
+  const realizedByProduct = new Map((realizedSummary.positions || []).map((position) => [position.product_id, position]));
   const tradeTypeLabel = (type) => {
     if (type === 'buy') return '매수';
     if (type === 'sell') return '매도';
@@ -44,6 +58,13 @@ function TradeLog() {
     <main className="tradelog-container">
       <div className="page-header"><h1>매매일지</h1><p>상품 매수, 매도 완료, 회사 현금입금이 누적 기록됩니다.</p></div>
       {error && <div className="error-message">{error}</div>}
+      <section className="realized-summary">
+        <div className="summary-card"><span>매도 완료 상품</span><strong>{realizedSummary.sold_count || 0}개</strong></div>
+        <div className="summary-card"><span>매수 원금</span><strong>{formatCurrency(realizedSummary.total_buy_amount)}</strong></div>
+        <div className="summary-card"><span>매도 금액</span><strong>{formatCurrency(realizedSummary.total_sell_amount)}</strong></div>
+        <div className="summary-card"><span>실현손익</span><strong className={(realizedSummary.total_profit_loss || 0) >= 0 ? 'profit' : 'loss'}>{formatCurrency(realizedSummary.total_profit_loss)}</strong></div>
+        <div className="summary-card"><span>누적수익률</span><strong className={(realizedSummary.total_profit_rate || 0) >= 0 ? 'profit' : 'loss'}>{Number(realizedSummary.total_profit_rate || 0).toFixed(2)}%</strong></div>
+      </section>
       <div className="filter-section">
         <select value={tradeType} onChange={(e) => setTradeType(e.target.value)}><option value="all">전체 거래</option><option value="buy">매수</option><option value="sell">매도</option><option value="deposit">입금</option></select>
         <select value={assetType} onChange={(e) => setAssetType(e.target.value)}><option value="all">전체 자산</option><option value="risk">위험자산</option><option value="safe">안전자산</option><option value="cash">현금</option></select>
@@ -51,19 +72,25 @@ function TradeLog() {
       {loading ? <div className="loading">매매일지를 불러오는 중...</div> : logs.length === 0 ? <p className="no-data">거래 기록이 없습니다.</p> : (
         <div className="table-wrapper">
           <table className="tradelog-table">
-            <thead><tr><th>거래일</th><th>상품명</th><th>거래</th><th>자산</th><th>수량</th><th>가격</th><th>금액</th><th>메모</th></tr></thead>
-            <tbody>{logs.map((log) => (
-              <tr key={log.id}>
-                <td>{log.trade_date}</td>
-                <td>{log.product_name}</td>
-                <td><span className={`trade-type ${log.trade_type}`}>{tradeTypeLabel(log.trade_type)}</span></td>
-                <td>{assetTypeLabel(log.asset_type)}</td>
-                <td>{log.trade_type === 'deposit' ? '-' : `${formatQuantity(log.quantity)}${unitLabel(log)}`}</td>
-                <td>{log.trade_type === 'deposit' ? '-' : formatCurrency(log.price)}</td>
-                <td>{formatCurrency(log.total_amount)}</td>
-                <td>{log.notes || '-'}</td>
-              </tr>
-            ))}</tbody>
+            <thead><tr><th>거래일</th><th>상품명</th><th>거래</th><th>자산</th><th>수량</th><th>가격</th><th>금액</th><th>실현손익</th><th>메모</th></tr></thead>
+            <tbody>{logs.map((log) => {
+              const realized = log.trade_type === 'sell' ? realizedByProduct.get(log.product_id) : null;
+              return (
+                <tr key={log.id}>
+                  <td>{log.trade_date}</td>
+                  <td>{log.product_name}</td>
+                  <td><span className={`trade-type ${log.trade_type}`}>{tradeTypeLabel(log.trade_type)}</span></td>
+                  <td>{assetTypeLabel(log.asset_type)}</td>
+                  <td>{log.trade_type === 'deposit' ? '-' : `${formatQuantity(log.quantity)}${unitLabel(log)}`}</td>
+                  <td>{log.trade_type === 'deposit' ? '-' : formatCurrency(log.price)}</td>
+                  <td>{formatCurrency(log.total_amount)}</td>
+                  <td className={realized ? (realized.profit_loss >= 0 ? 'profit' : 'loss') : ''}>
+                    {realized ? `${formatCurrency(realized.profit_loss)} (${Number(realized.profit_rate || 0).toFixed(2)}%)` : '-'}
+                  </td>
+                  <td>{log.notes || '-'}</td>
+                </tr>
+              );
+            })}</tbody>
           </table>
         </div>
       )}

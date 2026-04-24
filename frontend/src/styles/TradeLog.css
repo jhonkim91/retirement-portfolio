@@ -1,6 +1,12 @@
 .tradelog-container { max-width: 1240px; margin: 0 auto; padding: 24px 20px 48px; }
 .page-header h1 { margin: 0 0 8px; }
 .page-header p { margin: 0 0 18px; color: #697586; }
+.realized-summary { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.summary-card { background: #fff; border: 1px solid #d9e2ec; border-radius: 8px; padding: 14px; box-shadow: 0 4px 14px rgba(15, 23, 42, .05); }
+.summary-card span { display: block; color: #697586; font-size: 13px; margin-bottom: 8px; }
+.summary-card strong { display: block; color: #102a43; font-size: 20px; line-height: 1.25; word-break: keep-all; }
+.profit { color: #b42318 !important; font-weight: 800; }
+.loss { color: #177245 !important; font-weight: 800; }
 .filter-section { display: flex; gap: 10px; margin-bottom: 16px; }
 .filter-section select { max-width: 180px; }
 .tradelog-table { background: #fff; border: 1px solid #d9e2ec; border-radius: 8px; overflow: hidden; }
@@ -8,4 +14,5 @@
 .trade-type.buy { background: #e7f5ef; color: #17634d; }
 .trade-type.sell { background: #fde8e7; color: #9f1d18; }
 .trade-type.deposit { background: #e8f1ff; color: #174ea6; }
-@media (max-width: 640px) { .tradelog-container { padding: 16px 12px 36px; } .filter-section { flex-direction: column; } .filter-section select { max-width: none; } }
+@media (max-width: 980px) { .realized-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .tradelog-container { padding: 16px 12px 36px; } .realized-summary { grid-template-columns: 1fr; } .filter-section { flex-direction: column; } .filter-section select { max-width: none; } }
