@@ -11,6 +11,8 @@ class StockAPIClient:
 
     def normalize_symbol(self, code):
         code = str(code).strip()
+        if code.isdigit() and len(code) < 6:
+            code = code.zfill(6)
         if code.isdigit() and len(code) == 6:
             return f'{code}.KS'
         return code
@@ -82,6 +84,9 @@ class StockAPIClient:
 
     def get_price_from_naver(self, stock_code):
         try:
+            stock_code = str(stock_code).strip()
+            if stock_code.isdigit() and len(stock_code) < 6:
+                stock_code = stock_code.zfill(6)
             if not str(stock_code).isdigit():
                 return None
             url = f'https://finance.naver.com/api/sise/chartlog.nhn?code={stock_code}&type=day&count=1'
@@ -100,6 +105,9 @@ class StockAPIClient:
 
     def get_history_from_naver(self, stock_code, start_date, end_date):
         try:
+            stock_code = str(stock_code).strip()
+            if stock_code.isdigit() and len(stock_code) < 6:
+                stock_code = stock_code.zfill(6)
             if not str(stock_code).isdigit():
                 return []
 

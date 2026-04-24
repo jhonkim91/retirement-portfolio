@@ -132,6 +132,7 @@ function Portfolio() {
             <div className="form-group">
               <label>상품 코드</label>
               <input name="product_code" value={formData.product_code} onChange={handleChange} placeholder="예: 069500" required />
+              <small className="field-help">상장 주식/ETF는 6자리 종목코드로 자동 조회됩니다. 퇴직연금/펀드 내부 상품코드는 새 기준가에서 수동 갱신하세요.</small>
             </div>
             <div className="form-row">
               <div className="form-group">

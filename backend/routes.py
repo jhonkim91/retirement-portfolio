@@ -53,7 +53,11 @@ def refresh_product_market_data(product, start_date=None):
         upsert_price_history(product.id, current.get('date') or date.today(), current['price'])
         return True, None
 
-    return False, '가격 조회처에서 해당 코드를 찾지 못했습니다. 국내 주식/ETF는 6자리 코드로 입력하세요.'
+    code_text = str(product.product_code).strip()
+    if code_text.isdigit() and len(code_text) < 6:
+        padded = code_text.zfill(6)
+        return False, f'공개 시세에서 {padded} 코드를 찾지 못했습니다. 퇴직연금/펀드 내부 상품은 상품 관리의 새 기준가에서 수동 입력하세요.'
+    return False, '공개 시세에서 해당 코드를 찾지 못했습니다. 국내 상장 주식/ETF는 6자리 코드, 연금/펀드 내부 상품은 수동 기준가를 사용하세요.'
 
 
 def sync_user_holdings(user_id):

@@ -7,6 +7,7 @@
 .form-group { margin-bottom: 14px; }
 .form-group label { display: block; margin-bottom: 6px; font-size: 14px; font-weight: 700; }
 .form-group input, .form-group select, .form-group textarea, .inline-actions input, .filter-section select { width: 100%; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 11px; }
+.field-help { display: block; margin-top: 6px; color: #697586; font-size: 12px; line-height: 1.45; }
 .holding-panel { margin-top: 20px; }
 .cash-panel { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: end; border-top: 1px solid #e5eaf0; margin-top: 18px; padding-top: 18px; }
 .cash-panel h3 { margin: 0 0 6px; }
