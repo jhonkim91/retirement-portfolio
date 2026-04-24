@@ -9,7 +9,7 @@ from models import db, User, Product, PriceHistory, TradeLog, CashBalance
 
 api = Blueprint('api', __name__, url_prefix='/api')
 market_client = StockAPIClient()
-API_VERSION = '2026-04-24-delete-sync-v2'
+API_VERSION = '2026-04-24-delete-sync-v3'
 
 
 def current_user_id():
