@@ -9,7 +9,7 @@ from models import db, User, Product, PriceHistory, TradeLog, CashBalance, DEFAU
 
 api = Blueprint('api', __name__, url_prefix='/api')
 market_client = StockAPIClient()
-API_VERSION = '2026-04-25-tradelog-fifo-realized-v1'
+API_VERSION = '2026-04-25-dashboard-search-v1'
 
 
 def current_user_id():

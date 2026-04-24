@@ -16,7 +16,6 @@ function Dashboard() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [syncing, setSyncing] = useState(false);
-  const [deletingId, setDeletingId] = useState(null);
 
   const fetchDashboardData = useCallback(async () => {
     try {
@@ -67,6 +66,8 @@ function Dashboard() {
         current_price: null,
         quantity: null,
         current_value: cash,
+        total_purchase_value: null,
+        profit_loss: null,
         profit_rate: null,
         is_cash: true
       });
@@ -99,8 +100,6 @@ function Dashboard() {
     currency: 'KRW',
     maximumFractionDigits: 0
   }).format(value || 0);
-  const formatQuantity = (value) => Number(value || 0).toLocaleString('ko-KR', { maximumFractionDigits: 4 });
-  const unitLabel = (product) => product.unit_label || (product.unit_type === 'unit' ? '좌' : '수');
 
   const syncPrices = async () => {
     try {
@@ -119,24 +118,6 @@ function Dashboard() {
       setError(err.message || '가격 동기화에 실패했습니다.');
     } finally {
       setSyncing(false);
-    }
-  };
-
-  const deleteProduct = async (product) => {
-    const ok = window.confirm(`${product.product_name} 상품을 삭제할까요?\n현황, 상품/추이, 관련 매매일지에서 함께 제거됩니다.`);
-    if (!ok) return;
-
-    try {
-      setDeletingId(product.id);
-      setError('');
-      setNotice('');
-      await portfolioAPI.deleteProduct(product.id);
-      setNotice('상품과 관련 매매일지를 삭제했습니다.');
-      await fetchDashboardData();
-    } catch (err) {
-      setError(err.message || '상품 삭제에 실패했습니다.');
-    } finally {
-      setDeletingId(null);
     }
   };
 
@@ -226,24 +207,16 @@ function Dashboard() {
         {displayProducts.length === 0 ? <p className="no-data">등록된 보유 상품이 없습니다.</p> : (
           <div className="table-wrapper">
             <table>
-              <thead><tr><th>상품명</th><th>자산 구분</th><th>매입일</th><th>매입가</th><th>기준가</th><th>수량</th><th>평가액</th><th>수익률</th><th>관리</th></tr></thead>
+              <thead><tr><th>상품명</th><th>자산 구분</th><th>매입일</th><th>구매액</th><th>평가액</th><th>수익금</th><th>수익률</th></tr></thead>
               <tbody>{displayProducts.map((product) => (
                 <tr key={product.id}>
                   <td>{product.product_name}<span className="code">{product.product_code}</span></td>
                   <td>{product.asset_type === 'risk' ? '위험자산' : '안전자산'}</td>
                   <td>{product.purchase_date}</td>
-                  <td>{product.is_cash ? '-' : formatCurrency(product.purchase_price)}</td>
-                  <td>{product.is_cash ? '-' : formatCurrency(product.current_price)}</td>
-                  <td>{product.is_cash ? '-' : `${formatQuantity(product.quantity)}${unitLabel(product)}`}</td>
+                  <td>{product.is_cash ? '-' : formatCurrency(product.total_purchase_value)}</td>
                   <td>{formatCurrency(product.current_value)}</td>
-                  <td className={product.is_cash ? '' : (product.profit_rate >= 0 ? 'profit' : 'loss')}>{product.is_cash ? '-' : `${product.profit_rate.toFixed(2)}%`}</td>
-                  <td>
-                    {product.is_cash ? '-' : (
-                      <button type="button" className="table-delete-btn" onClick={() => deleteProduct(product)} disabled={deletingId === product.id}>
-                        {deletingId === product.id ? '삭제 중...' : '삭제'}
-                      </button>
-                    )}
-                  </td>
+                  <td className={product.is_cash ? '' : ((product.profit_loss || 0) >= 0 ? 'profit' : 'loss')}>{product.is_cash ? '-' : formatCurrency(product.profit_loss)}</td>
+                  <td className={product.is_cash ? '' : ((product.profit_rate || 0) >= 0 ? 'profit' : 'loss')}>{product.is_cash ? '-' : `${Number(product.profit_rate || 0).toFixed(2)}%`}</td>
                 </tr>
               ))}</tbody>
             </table>

@@ -2,6 +2,7 @@ from datetime import date, timedelta
 import html
 import re
 import time
+import urllib.parse
 
 import requests
 
@@ -112,6 +113,11 @@ class StockAPIClient:
         if self.has_exact_search_match(results, query) or len(results) >= limit:
             return sorted(results, key=rank)[:limit]
 
+        for item in self.search_products_from_naver_etf_list(query, limit):
+            add_result(item)
+        if self.has_exact_search_match(results, query) or len(results) >= limit:
+            return sorted(results, key=rank)[:limit]
+
         for item in self.search_funds_from_funetf(query, limit):
             add_result(item)
         if self.has_exact_search_match(results, query) or len(results) >= limit:
@@ -160,15 +166,15 @@ class StockAPIClient:
 
     def search_products_from_naver_search(self, query, limit):
         try:
+            encoded_query = self.encode_naver_search_query(query)
             response = requests.get(
-                'https://finance.naver.com/search/search.naver',
-                params={'query': query},
+                f'https://finance.naver.com/search/search.naver?query={encoded_query}',
                 headers=self.naver_headers,
                 timeout=6
             )
             if response.status_code != 200:
                 return []
-            response.encoding = response.apparent_encoding or 'EUC-KR'
+            response.encoding = 'EUC-KR'
             text = response.text
 
             redirect = re.search(r'code=([0-9A-Z]{6})', text)
@@ -200,6 +206,51 @@ class StockAPIClient:
         except Exception as e:
             print(f'naver search error ({query}): {e}')
             return []
+
+    def encode_naver_search_query(self, query):
+        try:
+            return urllib.parse.quote_from_bytes(str(query or '').encode('cp949'))
+        except UnicodeEncodeError:
+            return urllib.parse.quote(str(query or ''))
+
+    def search_products_from_naver_etf_list(self, query, limit):
+        normalized_query = self.normalize_search_text(query)
+        query_code = str(query or '').strip().upper()
+        rows = []
+        seen = set()
+        sources = [
+            ('https://finance.naver.com/api/sise/etfItemList.nhn', 'etfItemList', 'ETF'),
+            ('https://finance.naver.com/api/sise/etnItemList.nhn', 'etnItemList', 'ETN')
+        ]
+
+        for url, list_key, product_type in sources:
+            try:
+                response = requests.get(url, headers=self.naver_headers, timeout=8)
+                if response.status_code != 200:
+                    continue
+                data = response.json()
+                items = ((data.get('result') or {}).get(list_key) or [])
+                for item in items:
+                    code = str(item.get('itemcode') or '').strip().upper()
+                    name = str(item.get('itemname') or '').strip()
+                    if not code or not name or code in seen:
+                        continue
+                    if normalized_query not in self.normalize_search_text(name) and query_code not in code:
+                        continue
+                    seen.add(code)
+                    rows.append({
+                        'name': name,
+                        'code': code,
+                        'symbol': f'{code}.KS',
+                        'exchange': 'KRX',
+                        'type': product_type,
+                        'source': 'Naver'
+                    })
+                    if len(rows) >= limit:
+                        return rows
+            except Exception as e:
+                print(f'naver {product_type.lower()} list error ({query}): {e}')
+        return rows
 
     def get_naver_product_by_code(self, code):
         try:
@@ -253,22 +304,32 @@ class StockAPIClient:
             )
             if response.status_code != 200:
                 return []
+            response.encoding = 'utf-8'
             data = response.json()
-            funds = ((data.get('fundList') or {}).get('content') or [])
+            groups = [
+                (((data.get('fundList') or {}).get('content') or []), 'fund'),
+                (((data.get('etfList') or {}).get('content') or []), 'ETF')
+            ]
             rows = []
-            for item in funds[:limit]:
-                code = str(item.get('fundCd') or '').strip().upper()
-                name = str(item.get('fundFnm') or item.get('repFundNm') or '').strip()
-                if not code or not name:
-                    continue
-                rows.append({
-                    'name': name,
-                    'code': code,
-                    'symbol': code,
-                    'exchange': 'Fund',
-                    'type': 'fund',
-                    'source': 'FunETF'
-                })
+            for items, product_type in groups:
+                for item in items:
+                    if product_type == 'ETF':
+                        code = str(item.get('sotCd') or item.get('shortCd') or item.get('fundCd') or '').strip().upper()
+                    else:
+                        code = str(item.get('fundCd') or item.get('repFundCd') or '').strip().upper()
+                    name = str(item.get('itemNm') or item.get('fundFnm') or item.get('repFundNm') or '').strip()
+                    if not code or not name:
+                        continue
+                    rows.append({
+                        'name': name,
+                        'code': code,
+                        'symbol': f'{code}.KS' if product_type == 'ETF' and self.is_krx_code(code) else code,
+                        'exchange': 'KRX' if product_type == 'ETF' else 'Fund',
+                        'type': product_type,
+                        'source': 'FunETF'
+                    })
+                    if len(rows) >= limit:
+                        return rows
             return rows
         except Exception as e:
             print(f'funetf search error ({query}): {e}')
