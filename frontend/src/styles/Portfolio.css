@@ -20,6 +20,16 @@
 .cash-panel, .deposit-panel { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: end; border-top: 1px solid #e5eaf0; margin-top: 18px; padding-top: 18px; }
 .cash-panel h3, .deposit-panel h3 { margin: 0 0 6px; }
 .cash-panel p, .deposit-panel p { margin: 0; color: #697586; font-size: 13px; line-height: 1.5; }
+.trend-detail { border-top: 1px solid #e5eaf0; margin-top: 18px; padding-top: 18px; }
+.trend-detail h3 { margin: 0 0 10px; }
+.trend-table-wrapper { overflow-x: auto; border: 1px solid #e5eaf0; border-radius: 8px; }
+.trend-table { width: 100%; min-width: 840px; border-collapse: collapse; background: #fff; }
+.trend-table th { text-align: left; color: #52606d; font-size: 12px; background: #f8fafc; }
+.trend-table th, .trend-table td { padding: 10px; border-bottom: 1px solid #e5eaf0; font-size: 13px; white-space: nowrap; }
+.trend-table tr:last-child td { border-bottom: 0; }
+.trend-code { display: block; color: #7b8794; font-size: 12px; margin-top: 2px; }
+.profit-text { color: #b42318; font-weight: 800; }
+.loss-text { color: #177245; font-weight: 800; }
 .cash-actions { display: grid; grid-template-columns: minmax(160px, 220px) auto; gap: 8px; }
 .deposit-actions { display: grid; grid-template-columns: 150px minmax(150px, 220px) auto; gap: 8px; }
 .cash-actions input, .deposit-actions input, .deposit-panel textarea { border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 11px; }

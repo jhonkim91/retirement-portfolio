@@ -9,7 +9,7 @@ from models import db, User, Product, PriceHistory, TradeLog, CashBalance
 
 api = Blueprint('api', __name__, url_prefix='/api')
 market_client = StockAPIClient()
-API_VERSION = '2026-04-24-realized-return-v1'
+API_VERSION = '2026-04-24-trend-profit-detail-v1'
 
 
 def current_user_id():
@@ -737,13 +737,25 @@ def get_portfolio_trends():
             if product.status == 'sold' and product.sale_date:
                 histories = histories.filter(PriceHistory.record_date <= product.sale_date)
             for history in histories.order_by(PriceHistory.record_date).all():
+                purchase_value = Product.amount_for(product.quantity, product.purchase_price, product.unit_type)
+                evaluation_value = Product.amount_for(product.quantity, history.price, product.unit_type)
+                profit_loss = evaluation_value - purchase_value
+                profit_rate = (profit_loss / purchase_value * 100) if purchase_value else 0
                 rows.append({
                     'product_id': product.id,
                     'product_name': product.product_name,
                     'product_code': product.product_code,
                     'asset_type': product.asset_type,
                     'status': product.status,
+                    'quantity': product.quantity,
+                    'unit_type': product.unit_type,
+                    'unit_label': '좌' if product.unit_type == 'unit' else '수',
+                    'purchase_price': product.purchase_price,
+                    'purchase_value': round(purchase_value, 2),
                     'price': history.price,
+                    'evaluation_value': round(evaluation_value, 2),
+                    'profit_loss': round(profit_loss, 2),
+                    'profit_rate': round(profit_rate, 2),
                     'record_date': history.record_date.isoformat()
                 })
         rows.sort(key=lambda item: (item['record_date'], item['product_name']))

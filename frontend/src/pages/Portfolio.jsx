@@ -91,6 +91,13 @@ function Portfolio() {
   }, [trends]);
 
   const productNames = [...new Set(trends.map((row) => row.product_name))];
+  const trendRows = useMemo(() => (
+    [...trends].sort((a, b) => {
+      const dateOrder = b.record_date.localeCompare(a.record_date);
+      if (dateOrder !== 0) return dateOrder;
+      return a.product_name.localeCompare(b.product_name);
+    })
+  ), [trends]);
   const colors = ['#33658a', '#d94841', '#256f68', '#f6ae2d', '#7f4f24', '#6a4c93'];
   const formatCurrency = (value) => new Intl.NumberFormat('ko-KR', {
     style: 'currency',
@@ -390,6 +397,43 @@ function Portfolio() {
               ))}
             </LineChart>
           </ResponsiveContainer>
+          <div className="trend-detail">
+            <h3>상품 추이 상세</h3>
+            {trendRows.length === 0 ? <p className="no-data">표시할 추이 데이터가 없습니다.</p> : (
+              <div className="trend-table-wrapper">
+                <table className="trend-table">
+                  <thead>
+                    <tr>
+                      <th>일자</th>
+                      <th>상품명</th>
+                      <th>매입가</th>
+                      <th>기준가</th>
+                      <th>수량</th>
+                      <th>매입금액</th>
+                      <th>평가액</th>
+                      <th>손익</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {trendRows.map((row) => (
+                      <tr key={`${row.product_id}-${row.record_date}`}>
+                        <td>{row.record_date}</td>
+                        <td>{row.product_name}<span className="trend-code">{row.product_code}</span></td>
+                        <td>{formatCurrency(row.purchase_price)}</td>
+                        <td>{formatCurrency(row.price)}</td>
+                        <td>{formatQuantity(row.quantity)}{row.unit_label || unitLabel(row.unit_type)}</td>
+                        <td>{formatCurrency(row.purchase_value)}</td>
+                        <td>{formatCurrency(row.evaluation_value)}</td>
+                        <td className={(row.profit_loss || 0) >= 0 ? 'profit-text' : 'loss-text'}>
+                          {formatCurrency(row.profit_loss)} ({Number(row.profit_rate || 0).toFixed(2)}%)
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
           <div className="cash-panel">
             <div>
               <h3>보유 현금</h3>
