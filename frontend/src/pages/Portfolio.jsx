@@ -333,18 +333,11 @@ function Portfolio() {
   };
 
   const toggleTrendProduct = (productId) => {
+    if (activePanel.productId === productId) return;
     const id = String(productId);
     setSelectedTrendProductIds((prev) => (
       prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
     ));
-  };
-
-  const selectAllTrendProducts = () => {
-    setSelectedTrendProductIds(products.map((product) => String(product.id)));
-  };
-
-  const clearTrendProducts = () => {
-    setSelectedTrendProductIds([]);
   };
 
   return (
@@ -441,10 +434,23 @@ function Portfolio() {
                 const buyInput = buyInputs[product.id] || {};
                 const sellInput = sellInputs[product.id] || {};
                 const expanded = activePanel.productId === product.id;
+                const trendChecked = selectedTrendProductSet.has(String(product.id));
 
                 return (
                   <article className={`holding-card ${expanded ? 'expanded' : ''}`} key={product.id}>
-                    <button type="button" className="holding-card-summary" onClick={() => toggleProductCard(product)}>
+                    <div className="holding-card-summary" role="button" tabIndex="0" onClick={() => toggleProductCard(product)} onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        toggleProductCard(product);
+                      }
+                    }}>
+                      <label className="trend-card-check" onClick={(event) => event.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={trendChecked}
+                          onChange={() => toggleTrendProduct(product.id)}
+                        />
+                      </label>
                       <span className="holding-title">
                         <strong>{product.product_name}</strong>
                         <small>{product.product_code} · {product.asset_type === 'risk' ? '위험자산' : '안전자산'} · {formatQuantity(product.quantity)}{unitLabel(product.unit_type)}</small>
@@ -461,7 +467,7 @@ function Portfolio() {
                         <small>평가액</small>
                         <strong>{formatCurrency(product.current_value)}</strong>
                       </span>
-                    </button>
+                    </div>
 
                     {expanded && (
                       <div className="holding-card-panel">
@@ -636,36 +642,6 @@ function Portfolio() {
             <textarea rows="2" placeholder="메모 선택 입력" value={depositForm.notes} onChange={(event) => setDepositForm((prev) => ({ ...prev, notes: event.target.value }))} />
           </form>
         </div>
-
-        <aside className="trend-selector">
-          <div className="trend-selector-header">
-            <h3>현재 보유종목</h3>
-            <div>
-              <button type="button" onClick={selectAllTrendProducts}>전체</button>
-              <button type="button" onClick={clearTrendProducts}>해제</button>
-            </div>
-          </div>
-          <div className="trend-holding-cards">
-            {products.map((product) => {
-              const checked = selectedTrendProductSet.has(String(product.id));
-              return (
-                <label className={`trend-holding-card ${checked ? 'selected' : ''}`} key={product.id}>
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => toggleTrendProduct(product.id)}
-                  />
-                  <span>
-                    <strong>{product.product_name}</strong>
-                    <small>{product.product_code} · {product.asset_type === 'risk' ? '위험자산' : '안전자산'}</small>
-                    <small>{formatQuantity(product.quantity)}{unitLabel(product.unit_type)} · {formatCurrency(product.current_value)}</small>
-                  </span>
-                </label>
-              );
-            })}
-            {products.length === 0 && <p className="no-data">선택할 보유종목이 없습니다.</p>}
-          </div>
-        </aside>
       </section>
     </main>
   );
