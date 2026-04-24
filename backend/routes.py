@@ -9,7 +9,7 @@ from models import db, User, Product, PriceHistory, TradeLog, CashBalance, DEFAU
 
 api = Blueprint('api', __name__, url_prefix='/api')
 market_client = StockAPIClient()
-API_VERSION = '2026-04-25-tradelog-summary-name-match-v1'
+API_VERSION = '2026-04-25-tradelog-fifo-realized-v1'
 
 
 def current_user_id():
@@ -106,54 +106,76 @@ def get_realized_positions(user_id, account_name=None):
         .all()
     )
 
-    positions = {}
+    lots_by_key = {}
+    realized = []
     for log in logs:
         normalized_name = str(log.product_name or '').strip().lower()
         position_key = f'account:{log.account_name}:name:{normalized_name}' if normalized_name else f'id:{log.product_id}'
-        row = positions.setdefault(position_key, {
-            'position_key': position_key,
-            'product_id': log.product_id,
-            'product_name': log.product_name,
-            'account_name': log.account_name,
-            'asset_type': log.asset_type,
-            'buy_amount': 0,
-            'sell_amount': 0,
-            'profit_loss': 0,
-            'profit_rate': 0,
-            'sell_date': None
-        })
-        row['product_name'] = log.product_name or row['product_name']
-        row['asset_type'] = log.asset_type or row['asset_type']
-        if log.trade_type == 'buy':
-            row['buy_amount'] += float(log.total_amount or 0)
-        elif log.trade_type == 'sell':
-            row['sell_amount'] += float(log.total_amount or 0)
-            row['sell_date'] = log.trade_date.isoformat()
+        lots = lots_by_key.setdefault(position_key, [])
+        quantity = float(log.quantity or 0)
+        amount = float(log.total_amount or 0)
 
-    realized = []
-    for row in positions.values():
-        if row['sell_amount'] <= 0 or row['buy_amount'] <= 0:
-            continue
-        row['profit_loss'] = row['sell_amount'] - row['buy_amount']
-        row['profit_rate'] = row['profit_loss'] / row['buy_amount'] * 100
-        realized.append(row)
+        if log.trade_type == 'buy':
+            lots.append({
+                'remaining_quantity': quantity,
+                'remaining_amount': amount,
+                'product_id': log.product_id,
+                'product_name': log.product_name,
+                'asset_type': log.asset_type,
+                'trade_date': log.trade_date
+            })
+        elif log.trade_type == 'sell':
+            remaining_quantity = quantity
+            cost_amount = 0
+            while remaining_quantity > 0 and lots:
+                lot = lots[0]
+                lot_quantity = float(lot['remaining_quantity'] or 0)
+                lot_amount = float(lot['remaining_amount'] or 0)
+                if lot_quantity <= 0:
+                    lots.pop(0)
+                    continue
+
+                matched_quantity = min(remaining_quantity, lot_quantity)
+                ratio = matched_quantity / lot_quantity
+                matched_amount = lot_amount * ratio
+                cost_amount += matched_amount
+                lot['remaining_quantity'] = lot_quantity - matched_quantity
+                lot['remaining_amount'] = lot_amount - matched_amount
+                remaining_quantity -= matched_quantity
+
+                if lot['remaining_quantity'] <= 0.0000001:
+                    lots.pop(0)
+
+            if amount <= 0 or cost_amount <= 0:
+                continue
+
+            profit_loss = amount - cost_amount
+            profit_rate = profit_loss / cost_amount * 100 if cost_amount else 0
+            realized.append({
+                'position_key': position_key,
+                'realized_log_id': log.id,
+                'product_id': log.product_id,
+                'product_name': log.product_name,
+                'account_name': log.account_name,
+                'asset_type': log.asset_type,
+                'buy_amount': cost_amount,
+                'sell_amount': amount,
+                'profit_loss': profit_loss,
+                'profit_rate': profit_rate,
+                'sell_date': log.trade_date.isoformat()
+            })
 
     total_buy = sum(row['buy_amount'] for row in realized)
     total_sell = sum(row['sell_amount'] for row in realized)
     total_profit = total_sell - total_buy
     total_rate = (total_profit / total_buy * 100) if total_buy else 0
-    if not realized:
-        total_buy = sum(float(log.total_amount or 0) for log in logs if log.trade_type == 'buy')
-        total_sell = sum(float(log.total_amount or 0) for log in logs if log.trade_type == 'sell')
-        total_profit = total_sell - total_buy
-        total_rate = (total_profit / total_buy * 100) if total_buy else 0
 
     return {
         'total_buy_amount': round(total_buy, 2),
         'total_sell_amount': round(total_sell, 2),
         'total_profit_loss': round(total_profit, 2),
         'total_profit_rate': round(total_rate, 2),
-        'sold_count': len(realized) or len({row['position_key'] for row in positions.values() if row['sell_amount'] > 0}),
+        'sold_count': len(realized),
         'positions': [
             {
                 **row,
