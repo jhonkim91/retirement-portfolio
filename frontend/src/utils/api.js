@@ -1,4 +1,8 @@
-const API_BASE_URL = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname || 'localhost'}:5000/api`;
+const isDevelopment = process.env.NODE_ENV === 'development';
+const currentHost = window.location.hostname || 'localhost';
+const currentPort = isDevelopment ? 5000 : window.location.port;
+const baseUrlPort = currentPort ? `:${currentPort}` : '';
+const API_BASE_URL = process.env.REACT_APP_API_URL || `${window.location.protocol}//${currentHost}${baseUrlPort}/api`;
 export const DEFAULT_ACCOUNT_NAME = '퇴직연금';
 export const ACCOUNT_OPTIONS = ['퇴직연금', 'IRP'];
 export const ACCOUNT_STORAGE_KEY = 'selected_account_name';
