@@ -12,7 +12,7 @@ from models import db, User, Product, PriceHistory, TradeLog, CashBalance, DEFAU
 
 api = Blueprint('api', __name__, url_prefix='/api')
 market_client = StockAPIClient()
-API_VERSION = '2026-04-26-crawl-report-v1'
+API_VERSION = '2026-04-26-quote-metrics-v1'
 
 POSITIVE_NEWS_KEYWORDS = (
     '성장', '확대', '개선', '호조', '반등', '수혜', '강세', '증가', '흑자', '상향',
@@ -286,10 +286,13 @@ def build_quote_snapshot(code):
     if not cleaned_code:
         raise ValueError('종목 코드가 필요합니다.')
 
+    cached = market_client.get_cached_value('quote_snapshot', cleaned_code, 60 * 15)
+    if cached is not None:
+        return cached
+
     today = date.today()
     history_start = today - timedelta(days=370)
-    histories = []
-    current = None
+    histories = market_client.get_historical_prices(cleaned_code, history_start, today)
 
     if market_client.is_fund_code(cleaned_code):
         current = market_client.get_price_from_funetf(cleaned_code)
@@ -298,23 +301,6 @@ def build_quote_snapshot(code):
     else:
         current = market_client.get_current_price(cleaned_code)
 
-    if current:
-        latest_price = current.get('price')
-        price_date = current.get('date') or today
-        return {
-            'code': cleaned_code,
-            'price': round(float(latest_price), 4) if latest_price is not None else None,
-            'price_date': price_date.isoformat() if price_date else None,
-            'high_52w': None,
-            'low_52w': None,
-            'one_year_return_rate': None,
-            'history_points': 0,
-            'lookback_start': history_start.isoformat(),
-            'lookback_end': today.isoformat()
-        }
-
-    histories = market_client.get_historical_prices(cleaned_code, history_start, today)
-
     if histories:
         latest = histories[-1]
         latest_price = latest.get('price')
@@ -322,6 +308,10 @@ def build_quote_snapshot(code):
     else:
         latest_price = None
         price_date = None
+
+    if current and current.get('price') is not None:
+        latest_price = current.get('price')
+        price_date = current.get('date') or price_date or today
 
     prices = [float(row['price']) for row in histories if row.get('price') is not None]
     high_52w = max(prices) if prices else None
@@ -333,7 +323,7 @@ def build_quote_snapshot(code):
         else None
     )
 
-    return {
+    snapshot = {
         'code': cleaned_code,
         'price': round(float(latest_price), 4) if latest_price is not None else None,
         'price_date': price_date.isoformat() if price_date else None,
@@ -344,6 +334,8 @@ def build_quote_snapshot(code):
         'lookback_start': history_start.isoformat(),
         'lookback_end': today.isoformat()
     }
+    market_client.set_cached_value('quote_snapshot', cleaned_code, snapshot)
+    return snapshot
 
 
 def get_openai_api_key():
