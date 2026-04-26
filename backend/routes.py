@@ -277,13 +277,34 @@ def build_quote_snapshot(code):
 
     today = date.today()
     history_start = today - timedelta(days=370)
-    histories = market_client.get_historical_prices(cleaned_code, history_start, today)
-    current = market_client.get_current_price(cleaned_code)
+    histories = []
+    current = None
+
+    if market_client.is_fund_code(cleaned_code):
+        current = market_client.get_price_from_funetf(cleaned_code)
+    elif market_client.is_krx_code(cleaned_code):
+        current = market_client.get_price_from_naver(cleaned_code)
+    else:
+        current = market_client.get_current_price(cleaned_code)
 
     if current:
         latest_price = current.get('price')
         price_date = current.get('date') or today
-    elif histories:
+        return {
+            'code': cleaned_code,
+            'price': round(float(latest_price), 4) if latest_price is not None else None,
+            'price_date': price_date.isoformat() if price_date else None,
+            'high_52w': None,
+            'low_52w': None,
+            'one_year_return_rate': None,
+            'history_points': 0,
+            'lookback_start': history_start.isoformat(),
+            'lookback_end': today.isoformat()
+        }
+
+    histories = market_client.get_historical_prices(cleaned_code, history_start, today)
+
+    if histories:
         latest = histories[-1]
         latest_price = latest.get('price')
         price_date = latest.get('date') or today
