@@ -499,10 +499,11 @@ function Portfolio() {
       <AccountSelector value={accountName} onChange={changeAccountName} />
       <section className="portfolio-workspace">
         <aside className="portfolio-left">
-          <h1>상품 등록</h1>
-          <p className="subtitle">매입가, 수량/좌수, 매입일을 입력하면 현황과 매매일지에 반영합니다.</p>
-          {message && <div className="message">{message}</div>}
-          <form onSubmit={handleSubmit} className="product-form">
+          <section className="product-entry-panel">
+            <h1>상품 등록</h1>
+            <p className="subtitle">매입가, 수량/좌수, 매입일을 입력하면 현황과 매매일지에 반영합니다.</p>
+            {message && <div className="message">{message}</div>}
+            <form onSubmit={handleSubmit} className="product-form">
             <div className="form-group">
               <label>상품명 또는 코드</label>
               <div className="product-search-field">
@@ -578,8 +579,9 @@ function Portfolio() {
                 <input name="notes" value={formData.notes} onChange={handleChange} placeholder="선택 입력" />
               </div>
             </div>
-            <button type="submit" className="btn-submit" disabled={loading}>{loading ? '추가 중...' : '상품 추가'}</button>
-          </form>
+              <button type="submit" className="btn-submit" disabled={loading}>{loading ? '추가 중...' : '상품 추가'}</button>
+            </form>
+          </section>
 
           <div className="cash-panel">
             <div>
