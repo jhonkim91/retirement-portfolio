@@ -5,7 +5,20 @@ button { cursor: pointer; }
 .app-loading, .loading { display: flex; justify-content: center; align-items: center; min-height: 180px; color: #52606d; }
 .table-wrapper { overflow-x: auto; }
 .no-data { color: #7b8794; text-align: center; padding: 32px 12px; }
-.account-switcher { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-bottom: 14px; }
+.account-switcher-wrap { display: grid; justify-items: end; gap: 8px; margin-bottom: 14px; }
+.account-switcher { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .account-switcher label { color: #52606d; font-size: 13px; font-weight: 800; }
-.account-switcher select { min-width: 150px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; padding: 9px 10px; font-weight: 800; color: #17324d; }
-@media (max-width: 640px) { .account-switcher { justify-content: stretch; } .account-switcher select { flex: 1; min-width: 0; } }
+.account-switcher select, .account-create-form input { min-width: 150px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; padding: 9px 10px; font-weight: 800; color: #17324d; }
+.account-switcher select { min-height: 42px; }
+.account-add-button, .account-create-form button { min-height: 42px; border-radius: 6px; padding: 9px 12px; font-weight: 800; }
+.account-add-button { border: 1px solid #cbd5e1; background: #fff; color: #17324d; }
+.account-create-form { display: grid; grid-template-columns: minmax(220px, 280px) auto; gap: 8px; }
+.account-create-form button { border: 0; background: #17324d; color: #fff; }
+.account-create-form button:disabled { opacity: .65; cursor: not-allowed; }
+.account-switcher-message { margin: 0; color: #697586; font-size: 12px; }
+@media (max-width: 640px) {
+  .account-switcher-wrap { justify-items: stretch; }
+  .account-switcher, .account-create-form { grid-template-columns: 1fr; justify-content: stretch; }
+  .account-switcher { display: grid; }
+  .account-switcher select, .account-create-form input { min-width: 0; width: 100%; }
+}

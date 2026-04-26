@@ -3,12 +3,12 @@ const currentHost = window.location.hostname || 'localhost';
 const currentPort = isDevelopment ? 5000 : window.location.port;
 const baseUrlPort = currentPort ? `:${currentPort}` : '';
 const API_BASE_URL = process.env.REACT_APP_API_URL || `${window.location.protocol}//${currentHost}${baseUrlPort}/api`;
+
 export const DEFAULT_ACCOUNT_NAME = '퇴직연금';
-export const ACCOUNT_OPTIONS = ['퇴직연금', 'IRP'];
 export const ACCOUNT_STORAGE_KEY = 'selected_account_name';
 
 const getToken = () => localStorage.getItem('access_token');
-const accountNameOrDefault = (accountName) => accountName || localStorage.getItem(ACCOUNT_STORAGE_KEY) || DEFAULT_ACCOUNT_NAME;
+export const accountNameOrDefault = (accountName) => accountName || localStorage.getItem(ACCOUNT_STORAGE_KEY) || DEFAULT_ACCOUNT_NAME;
 const accountQuery = (accountName) => `account_name=${encodeURIComponent(accountNameOrDefault(accountName))}`;
 
 const apiCall = async (endpoint, method = 'GET', body = null) => {
@@ -40,6 +40,8 @@ export const authAPI = {
 };
 
 export const portfolioAPI = {
+  getAccounts: () => apiCall('/accounts'),
+  addAccount: (accountName) => apiCall('/accounts', 'POST', { account_name: accountName }),
   getSummary: (accountName) => apiCall(`/portfolio/summary?${accountQuery(accountName)}`),
   getProducts: (accountName) => apiCall(`/portfolio/products?${accountQuery(accountName)}`),
   getAllProducts: (accountName) => apiCall(`/portfolio/all-products?${accountQuery(accountName)}`),

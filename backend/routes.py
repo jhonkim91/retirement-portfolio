@@ -12,7 +12,7 @@ from models import db, User, Product, PriceHistory, TradeLog, CashBalance, DEFAU
 
 api = Blueprint('api', __name__, url_prefix='/api')
 market_client = StockAPIClient()
-API_VERSION = '2026-04-26-quote-metrics-v1'
+API_VERSION = '2026-04-27-accounts-v1'
 
 POSITIVE_NEWS_KEYWORDS = (
     '성장', '확대', '개선', '호조', '반등', '수혜', '강세', '증가', '흑자', '상향',
@@ -42,6 +42,31 @@ def current_account_name():
         or data.get('account_name')
         or DEFAULT_ACCOUNT_NAME
     )
+
+
+def list_user_accounts(user_id):
+    account_names = {DEFAULT_ACCOUNT_NAME}
+    sources = (
+        (Product, Product.account_name),
+        (TradeLog, TradeLog.account_name),
+        (CashBalance, CashBalance.account_name)
+    )
+
+    for model, column in sources:
+        rows = (
+            db.session.query(column)
+            .select_from(model)
+            .filter(model.user_id == user_id)
+            .filter(column.isnot(None))
+            .distinct()
+            .all()
+        )
+        for (account_name,) in rows:
+            normalized = normalize_account_name(account_name)
+            if normalized:
+                account_names.add(normalized)
+
+    return [DEFAULT_ACCOUNT_NAME, *sorted(name for name in account_names if name != DEFAULT_ACCOUNT_NAME)]
 
 
 def upsert_price_history(product_id, record_date, price):
@@ -902,6 +927,49 @@ def get_portfolio_summary():
             }
         }), 200
     except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/accounts', methods=['GET'])
+@jwt_required()
+def get_accounts():
+    try:
+        user_id = current_user_id()
+        account_names = list_user_accounts(user_id)
+        return jsonify({
+            'default_account_name': DEFAULT_ACCOUNT_NAME,
+            'accounts': account_names
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/accounts', methods=['POST'])
+@jwt_required()
+def add_account():
+    try:
+        data = request.get_json() or {}
+        raw_name = str(data.get('account_name') or '').strip()
+        if not raw_name:
+            return jsonify({'error': '통장 이름을 입력하세요.'}), 400
+
+        account_name = normalize_account_name(raw_name)
+        user_id = current_user_id()
+        existing_names = set(list_user_accounts(user_id))
+        created = account_name not in existing_names
+        balance = get_cash_balance(user_id, account_name)
+
+        if created:
+            db.session.refresh(balance)
+
+        return jsonify({
+            'message': '통장이 추가되었습니다.' if created else '이미 등록된 통장입니다.',
+            'created': created,
+            'account_name': account_name,
+            'accounts': list_user_accounts(user_id)
+        }), 201 if created else 200
+    except Exception as e:
+        db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
 
