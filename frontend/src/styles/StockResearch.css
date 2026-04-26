@@ -66,6 +66,13 @@
 .analysis-primary-button { background: #0f4c81; }
 .analysis-primary-button:disabled { opacity: .7; cursor: wait; }
 .analysis-ai-empty, .analysis-ai-meta { margin: 0; color: #52606d; font-size: 13px; line-height: 1.55; }
+.analysis-ai-meta { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.analysis-sentiment-row { display: grid; grid-template-columns: minmax(0, 1.3fr) auto; gap: 10px; align-items: stretch; }
+.analysis-sentiment-badge { display: grid; gap: 4px; border: 1px solid #d9e2ec; border-radius: 8px; padding: 11px 12px; background: #fff; }
+.analysis-sentiment-badge strong { color: #102a43; font-size: 14px; line-height: 1.35; }
+.analysis-sentiment-badge span { color: #52606d; font-size: 13px; line-height: 1.5; }
+.analysis-sentiment-stats { display: grid; grid-template-columns: repeat(3, auto); gap: 8px; align-content: center; justify-content: end; }
+.analysis-sentiment-stats span { min-width: 72px; border: 1px solid #d9e2ec; border-radius: 999px; padding: 7px 10px; background: #fff; color: #17324d; font-size: 12px; font-weight: 700; text-align: center; }
 .analysis-ai-body { display: grid; gap: 8px; padding: 12px; border: 1px solid #d9e2ec; border-radius: 8px; background: #fff; }
 .analysis-ai-body p { margin: 0; color: #102a43; font-size: 14px; line-height: 1.65; white-space: pre-wrap; }
 .analysis-ai-sources { border-top: 1px solid #d9e2ec; padding-top: 12px; }
@@ -73,6 +80,9 @@
 .analysis-ai-sources ul { margin: 0; padding-left: 18px; }
 .analysis-ai-sources a { color: #0f4c81; text-decoration: none; }
 .analysis-ai-sources a:hover { text-decoration: underline; }
+.analysis-news-list { display: grid; gap: 10px; padding-left: 0 !important; list-style: none; }
+.analysis-news-list li { display: grid; gap: 3px; border: 1px solid #e5eaf0; border-radius: 8px; padding: 10px 12px; background: #fff; }
+.analysis-news-list li span { color: #697586; font-size: 12px; line-height: 1.4; }
 .analysis-prompt-box { width: 100%; min-height: 260px; resize: vertical; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; font: 13px/1.55 ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace; color: #102a43; background: #fbfdff; }
 .analysis-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
@@ -85,6 +95,7 @@
   .stock-research-panel { padding: 14px; }
   .stock-search-form, .stock-result-item, .stock-snapshot-grid, .analysis-mode-row, .analysis-report-grid, .held-stock-grid { grid-template-columns: 1fr; }
   .analysis-actions, .analysis-report-header, .analysis-ai-header { display: grid; }
+  .analysis-sentiment-row, .analysis-sentiment-stats { grid-template-columns: 1fr; justify-content: stretch; }
   .stock-search-form button, .stock-use-button, .analysis-actions button, .analysis-secondary-button, .analysis-primary-button { width: 100%; }
   .held-stock-meta, .held-stock-stats { display: grid; }
 }

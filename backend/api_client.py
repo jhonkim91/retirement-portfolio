@@ -1,10 +1,12 @@
 from datetime import date, timedelta
 import html
+import json
 import re
 import time
 import urllib.parse
 
 import requests
+from bs4 import BeautifulSoup
 
 
 class StockAPIClient:
@@ -16,6 +18,207 @@ class StockAPIClient:
             'loaded_at': 0,
             'pages': {}
         }
+        self._response_cache = {}
+
+    def get_cached_value(self, namespace, key, ttl_seconds):
+        bucket = self._response_cache.setdefault(namespace, {})
+        entry = bucket.get(key)
+        if not entry:
+            return None
+        if time.time() - entry['saved_at'] > ttl_seconds:
+            bucket.pop(key, None)
+            return None
+        return entry['value']
+
+    def set_cached_value(self, namespace, key, value):
+        bucket = self._response_cache.setdefault(namespace, {})
+        bucket[key] = {
+            'saved_at': time.time(),
+            'value': value
+        }
+
+    def decode_embedded_json_text(self, value):
+        raw = str(value or '')
+        if not raw:
+            return ''
+        try:
+            text = json.loads(f'"{raw}"')
+        except Exception:
+            text = raw.replace('\\"', '"').replace('\\/', '/')
+        text = html.unescape(text)
+        text = re.sub(r'</?mark>', '', text, flags=re.IGNORECASE)
+        return re.sub(r'\s+', ' ', text).strip()
+
+    def build_naver_article_url(self, href):
+        href = str(href or '').strip()
+        if not href:
+            return ''
+        if href.startswith('http://') or href.startswith('https://'):
+            return href
+
+        absolute_url = urllib.parse.urljoin('https://finance.naver.com', href)
+        parsed = urllib.parse.urlparse(absolute_url)
+        if parsed.path.endswith('/news_read.naver') or parsed.path.endswith('/newsRead.naver'):
+            params = urllib.parse.parse_qs(parsed.query)
+            office_id = (params.get('office_id') or params.get('officeId') or [''])[0]
+            article_id = (params.get('article_id') or params.get('articleId') or [''])[0]
+            if office_id and article_id:
+                return f'https://n.news.naver.com/mnews/article/{office_id}/{article_id}'
+        return absolute_url
+
+    def get_recent_news(self, product_name, code=None, limit=8):
+        clean_name = str(product_name or '').strip()
+        clean_code = self.clean_code(code)
+        cache_key = f'{clean_name}:{clean_code}:{int(limit)}'
+        cached = self.get_cached_value('recent_news', cache_key, 60 * 30)
+        if cached is not None:
+            return cached
+
+        items = []
+        if self.is_krx_code(clean_code):
+            items.extend(self.get_news_from_naver_finance(clean_code, limit=limit))
+
+        search_queries = []
+        if clean_name:
+            search_queries.append(clean_name)
+        if clean_code and clean_code not in search_queries:
+            search_queries.append(clean_code)
+        if clean_name and clean_code:
+            combined = f'{clean_name} {clean_code}'
+            if combined not in search_queries:
+                search_queries.append(combined)
+
+        if len(items) < min(limit, 4):
+            for query in search_queries:
+                items.extend(self.search_news_from_naver(query, limit=max(limit, 8)))
+                if len(items) >= limit * 2:
+                    break
+
+        deduped = []
+        seen = set()
+        for item in items:
+            title = str(item.get('title') or '').strip()
+            url = str(item.get('url') or '').strip()
+            if not title or not url:
+                continue
+            key = f'{title}|{url}'
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append({
+                'title': title,
+                'url': url,
+                'source': str(item.get('source') or '').strip(),
+                'published_at': str(item.get('published_at') or '').strip()
+            })
+            if len(deduped) >= limit:
+                break
+
+        self.set_cached_value('recent_news', cache_key, deduped)
+        return deduped
+
+    def get_news_from_naver_finance(self, code, limit=8, max_pages=2):
+        code = self.clean_code(code)
+        if not self.is_krx_code(code):
+            return []
+
+        rows = []
+        seen = set()
+        for page in range(1, max_pages + 1):
+            try:
+                response = requests.get(
+                    'https://finance.naver.com/item/news_news.naver',
+                    params={'code': code, 'page': page},
+                    headers=self.naver_headers,
+                    timeout=8
+                )
+                if response.status_code != 200:
+                    break
+                response.encoding = 'EUC-KR'
+                soup = BeautifulSoup(response.text, 'html.parser')
+                for tr in soup.select('table.type5 tbody tr'):
+                    link = tr.select_one('td.title a')
+                    if not link:
+                        continue
+                    title = re.sub(r'\s+', ' ', link.get_text(' ', strip=True))
+                    url = self.build_naver_article_url(link.get('href'))
+                    source = re.sub(r'\s+', ' ', (tr.select_one('td.info') or tr.select_one('td:nth-of-type(2)')).get_text(' ', strip=True)) if (tr.select_one('td.info') or tr.select_one('td:nth-of-type(2)')) else ''
+                    published_at = re.sub(r'\s+', ' ', (tr.select_one('td.date') or tr.select_one('td:nth-of-type(3)')).get_text(' ', strip=True)) if (tr.select_one('td.date') or tr.select_one('td:nth-of-type(3)')) else ''
+                    if not title or not url:
+                        continue
+                    key = f'{title}|{url}'
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    rows.append({
+                        'title': title,
+                        'url': url,
+                        'source': source,
+                        'published_at': published_at
+                    })
+                    if len(rows) >= limit:
+                        return rows
+            except Exception as e:
+                print(f'naver finance news error ({code} page {page}): {e}')
+                break
+        return rows
+
+    def search_news_from_naver(self, query, limit=8):
+        query = str(query or '').strip()
+        if len(query) < 2:
+            return []
+
+        try:
+            response = requests.get(
+                'https://search.naver.com/search.naver',
+                params={'where': 'news', 'query': query},
+                headers=self.naver_headers,
+                timeout=10
+            )
+            if response.status_code != 200:
+                return []
+            response.encoding = 'utf-8'
+            text = response.text
+
+            rows = []
+            seen = set()
+            item_pattern = re.compile(
+                r'\{"props":\{(?P<props>.*?)\},"templateId":"newsItem"\}',
+                re.DOTALL
+            )
+            title_pattern = re.compile(r'"title":"((?:\\.|[^"\\])*)"')
+            href_pattern = re.compile(r'"titleHref":"(https?://[^"\\]+)"')
+            source_pattern = re.compile(r'"sourceProfile":\{.*?"title":"((?:\\.|[^"\\])*)"', re.DOTALL)
+            published_pattern = re.compile(r'"subTexts":\[\{"text":"((?:\\.|[^"\\])*)"')
+
+            for match in item_pattern.finditer(text):
+                props_text = match.group('props')
+                title_match = title_pattern.search(props_text)
+                href_match = href_pattern.search(props_text)
+                if not title_match or not href_match:
+                    continue
+                title = self.decode_embedded_json_text(title_match.group(1))
+                url = self.decode_embedded_json_text(href_match.group(1))
+                source_match = source_pattern.search(props_text)
+                published_match = published_pattern.search(props_text)
+                source = self.decode_embedded_json_text(source_match.group(1)) if source_match else ''
+                published_at = self.decode_embedded_json_text(published_match.group(1)) if published_match else ''
+                key = f'{title}|{url}'
+                if not title or not url or key in seen:
+                    continue
+                seen.add(key)
+                rows.append({
+                    'title': title,
+                    'url': url,
+                    'source': source,
+                    'published_at': published_at
+                })
+                if len(rows) >= limit:
+                    break
+            return rows
+        except Exception as e:
+            print(f'naver news search error ({query}): {e}')
+            return []
 
     def clean_code(self, code):
         code = str(code or '').strip().upper()

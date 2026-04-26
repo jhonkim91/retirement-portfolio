@@ -12,7 +12,16 @@ from models import db, User, Product, PriceHistory, TradeLog, CashBalance, DEFAU
 
 api = Blueprint('api', __name__, url_prefix='/api')
 market_client = StockAPIClient()
-API_VERSION = '2026-04-26-stock-ai-report-v1'
+API_VERSION = '2026-04-26-crawl-report-v1'
+
+POSITIVE_NEWS_KEYWORDS = (
+    '성장', '확대', '개선', '호조', '반등', '수혜', '강세', '증가', '흑자', '상향',
+    '돌파', '신고가', '매수', '수주', '협력', '안정', '유입', '기대', '효율', '회복'
+)
+NEGATIVE_NEWS_KEYWORDS = (
+    '하락', '부진', '적자', '둔화', '약세', '축소', '우려', '급락', '하향', '감소',
+    '리스크', '제재', '소송', '경고', '불확실', '악화', '충격', '매도', '변동성', '부담'
+)
 
 
 def current_user_id():
@@ -502,6 +511,323 @@ def generate_openai_stock_report(product, quote, holding, mode):
     }
 
 
+def coerce_float(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def enrich_quote_snapshot(code, quote):
+    snapshot = dict(quote or {})
+    cleaned_code = market_client.clean_code(code)
+    today = date.today()
+    history_start = today - timedelta(days=370)
+
+    needs_history = any(
+        snapshot.get(field) in (None, '')
+        for field in ('high_52w', 'low_52w', 'one_year_return_rate')
+    )
+    if not cleaned_code or not needs_history:
+        return snapshot
+
+    histories = market_client.get_historical_prices(cleaned_code, history_start, today)
+    if not histories:
+        return snapshot
+
+    prices = [coerce_float(row.get('price')) for row in histories]
+    prices = [price for price in prices if price is not None]
+    latest = histories[-1]
+    first_price = prices[0] if prices else None
+    latest_price = coerce_float(snapshot.get('price')) or coerce_float(latest.get('price'))
+    return_rate = (
+        (latest_price - first_price) / first_price * 100
+        if latest_price is not None and first_price
+        else None
+    )
+
+    if snapshot.get('price') in (None, '') and latest_price is not None:
+        snapshot['price'] = round(latest_price, 4)
+    if not snapshot.get('price_date') and latest.get('date'):
+        snapshot['price_date'] = latest['date'].isoformat()
+    if snapshot.get('high_52w') in (None, '') and prices:
+        snapshot['high_52w'] = round(max(prices), 4)
+    if snapshot.get('low_52w') in (None, '') and prices:
+        snapshot['low_52w'] = round(min(prices), 4)
+    if snapshot.get('one_year_return_rate') in (None, '') and return_rate is not None:
+        snapshot['one_year_return_rate'] = round(return_rate, 2)
+    snapshot['history_points'] = len(histories)
+    snapshot['lookback_start'] = history_start.isoformat()
+    snapshot['lookback_end'] = today.isoformat()
+    return snapshot
+
+
+def classify_news_title(title):
+    normalized = str(title or '').strip().lower()
+    positive_hits = [keyword for keyword in POSITIVE_NEWS_KEYWORDS if keyword in normalized]
+    negative_hits = [keyword for keyword in NEGATIVE_NEWS_KEYWORDS if keyword in normalized]
+    score = len(positive_hits) - len(negative_hits)
+    if score > 0:
+        tone = 'positive'
+    elif score < 0:
+        tone = 'negative'
+    else:
+        tone = 'neutral'
+    return {
+        'tone': tone,
+        'score': score,
+        'positive_hits': positive_hits,
+        'negative_hits': negative_hits
+    }
+
+
+def summarize_news_items(news_items):
+    positive_count = 0
+    negative_count = 0
+    neutral_count = 0
+    annotated = []
+
+    for item in news_items:
+        analysis = classify_news_title(item.get('title'))
+        tone = analysis['tone']
+        if tone == 'positive':
+            positive_count += 1
+        elif tone == 'negative':
+            negative_count += 1
+        else:
+            neutral_count += 1
+        annotated.append({
+            **item,
+            'tone': tone,
+            'keywords': analysis['positive_hits'] + analysis['negative_hits']
+        })
+
+    if positive_count > negative_count + 1:
+        label = '긍정 우세'
+        summary = '최근 기사 제목 톤은 우호적인 재료가 조금 더 많습니다.'
+    elif negative_count > positive_count + 1:
+        label = '부정 우세'
+        summary = '최근 기사 제목 톤은 변동성이나 우려 재료가 조금 더 많습니다.'
+    else:
+        label = '중립'
+        summary = '최근 기사 제목 톤은 방향성이 한쪽으로 크게 기울지 않았습니다.'
+
+    return {
+        'label': label,
+        'summary': summary,
+        'positive_count': positive_count,
+        'negative_count': negative_count,
+        'neutral_count': neutral_count,
+        'items': annotated
+    }
+
+
+def format_money_text(value):
+    number = coerce_float(value)
+    if number is None:
+        return '미확인'
+    return f'{round(number):,}원'
+
+
+def format_number_text(value, digits=2):
+    number = coerce_float(value)
+    if number is None:
+        return '미확인'
+    return f'{number:,.{digits}f}'
+
+
+def format_percent_text(value):
+    number = coerce_float(value)
+    if number is None:
+        return '미확인'
+    return f'{number:.2f}%'
+
+
+def build_non_api_stock_report(product, quote, holding, mode):
+    product_name = str((product or {}).get('name') or '').strip()
+    product_code = str((product or {}).get('code') or '').strip()
+    if not product_name and not product_code:
+        raise ValueError('분석할 종목명 또는 코드가 필요합니다.')
+
+    snapshot = enrich_quote_snapshot(product_code, quote)
+    news_items = market_client.get_recent_news(product_name, product_code, limit=8)
+    news_summary = summarize_news_items(news_items)
+    current_price = coerce_float(snapshot.get('price'))
+    high_52w = coerce_float(snapshot.get('high_52w'))
+    low_52w = coerce_float(snapshot.get('low_52w'))
+    one_year_return = coerce_float(snapshot.get('one_year_return_rate'))
+    holding_rate = coerce_float((holding or {}).get('profit_rate'))
+    purchase_price = coerce_float((holding or {}).get('purchase_price'))
+    current_holding_price = coerce_float((holding or {}).get('current_price'))
+    quantity = coerce_float((holding or {}).get('quantity'))
+    unit_type = (holding or {}).get('unit_type') or 'share'
+    mode_label = str((mode or {}).get('label') or '핵심 점검').strip()
+    mode_focus = [
+        str(item).strip()
+        for item in ((mode or {}).get('focus') or [])
+        if str(item).strip()
+    ]
+
+    range_progress = None
+    drawdown_from_high = None
+    if current_price is not None and high_52w is not None and low_52w is not None and high_52w > low_52w:
+        range_progress = (current_price - low_52w) / (high_52w - low_52w) * 100
+        if high_52w > 0:
+            drawdown_from_high = (high_52w - current_price) / high_52w * 100
+
+    summary_parts = []
+    if holding:
+        if holding_rate is not None and holding_rate >= 8:
+            summary_parts.append('계좌 기준으로 이미 의미 있는 수익 구간입니다.')
+        elif holding_rate is not None and holding_rate < 0:
+            summary_parts.append('계좌 기준으로 아직 손익 회복 확인이 더 필요합니다.')
+        else:
+            summary_parts.append('계좌 기준 성과는 중립 구간입니다.')
+    else:
+        summary_parts.append('현재 계좌에는 없는 종목이라 신규 검토 관점이 중심입니다.')
+
+    if one_year_return is not None:
+        if one_year_return >= 20:
+            summary_parts.append('최근 1년 상승폭이 커서 추격 매수보다 진입 기준 점검이 중요합니다.')
+        elif one_year_return <= -15:
+            summary_parts.append('최근 1년 약세 구간이라 반등 근거 확인이 우선입니다.')
+        else:
+            summary_parts.append('최근 1년 흐름은 급한 방향성보다 균형 점검에 가깝습니다.')
+
+    summary_parts.append(news_summary['summary'])
+    summary = ' '.join(summary_parts)
+
+    market_points = [
+        f'현재가 {format_money_text(current_price)} / 기준일 {snapshot.get("price_date") or "미확인"}',
+        f'52주 범위 {format_money_text(low_52w)} ~ {format_money_text(high_52w)}',
+        f'최근 1년 수익률 {format_percent_text(one_year_return)}'
+    ]
+    if range_progress is not None:
+        market_points.append(f'52주 밴드 위치 {format_percent_text(range_progress)}')
+
+    account_points = []
+    if holding:
+        quantity_text = f'{format_number_text(quantity, 0)}{"좌" if unit_type == "unit" else "주"}'
+        account_points = [
+            f'평균 매입가/기준가 {format_money_text(purchase_price)}',
+            f'현재 대장 기준가 {format_money_text(current_holding_price)}',
+            f'평가 수익률 {format_percent_text(holding_rate)}',
+            f'보유 수량 {quantity_text}'
+        ]
+    else:
+        account_points = ['현재 계좌 보유 종목은 아닙니다. 신규 편입 기준과 기존 위험자산 중복도를 먼저 보세요.']
+
+    investment_points = []
+    if news_summary['positive_count'] > 0:
+        investment_points.append(f'최근 기사 {news_summary["positive_count"]}건에서 성장/수혜 성격의 제목이 포착됐습니다.')
+    if one_year_return is not None and one_year_return > 0:
+        investment_points.append(f'최근 1년 가격 흐름이 {format_percent_text(one_year_return)}로 우상향입니다.')
+    if drawdown_from_high is not None and drawdown_from_high >= 8:
+        investment_points.append(f'52주 고점 대비 {format_percent_text(drawdown_from_high)} 낮아 추격 부담은 다소 줄었습니다.')
+    if holding and holding_rate is not None and holding_rate > 0:
+        investment_points.append('기존 보유 수익 구간이라 추가 매수보다 기준 재점검과 분할 대응이 수월합니다.')
+    if not investment_points:
+        investment_points.append('강한 호재 신호보다는 기본 시세와 보유 비중을 함께 점검하는 쪽이 더 적절합니다.')
+
+    risk_points = []
+    if news_summary['negative_count'] > 0:
+        risk_points.append(f'최근 기사 {news_summary["negative_count"]}건에서 우려/변동성 성격의 제목이 보입니다.')
+    if one_year_return is not None and one_year_return >= 25:
+        risk_points.append('최근 1년 급등 폭이 커서 단기 과열 뒤 되돌림 가능성을 열어둬야 합니다.')
+    if one_year_return is not None and one_year_return <= -15:
+        risk_points.append('최근 1년 약세가 깊어 반등 실패 시 체감 손실이 커질 수 있습니다.')
+    if holding and holding_rate is not None and holding_rate < 0:
+        risk_points.append('현재 계좌 기준 손실 구간이라 추가 매수 전에 손실 확대 조건을 먼저 정해야 합니다.')
+    if not risk_points:
+        risk_points.append('기사 톤과 가격 흐름이 한쪽으로 치우치지 않아, 개별 악재보다는 분산과 비중 관리가 핵심입니다.')
+
+    action_points = []
+    if holding:
+        if holding_rate is not None and holding_rate >= 8:
+            action_points.append('보유 중이라면 추가 매수보다 목표 비중과 차익 관리 기준을 먼저 정하는 편이 낫습니다.')
+        elif holding_rate is not None and holding_rate < 0:
+            action_points.append('보유 중이라면 반등 확인 전 무리한 물타기보다 손실 허용 범위와 추가 진입 조건을 먼저 세우세요.')
+        else:
+            action_points.append('보유 중이라면 비중 유지 또는 소폭 조정 관점에서 뉴스 톤 변화만 추적해도 충분합니다.')
+    else:
+        if one_year_return is not None and one_year_return >= 20:
+            action_points.append('신규 검토라면 한 번에 진입하기보다 분할 접근 또는 조정 구간 대기가 더 무난합니다.')
+        elif news_summary['negative_count'] > news_summary['positive_count']:
+            action_points.append('신규 검토라면 기사 톤이 안정될 때까지 관망하고, 가격 지지 구간을 먼저 확인하세요.')
+        else:
+            action_points.append('신규 검토라면 전체 위험자산 비중 안에서 소규모로 시작하는 접근이 무난합니다.')
+
+    if mode_focus:
+        action_points.append(f'{mode_label} 기준으로는 {", ".join(mode_focus[:3])} 점검을 우선순위로 두는 편이 좋습니다.')
+    else:
+        action_points.append(f'{mode_label} 기준의 추가 점검 질문을 정리해 두면 추후 판단이 훨씬 수월합니다.')
+
+    headlines = [
+        {
+            'title': item['title'],
+            'url': item['url'],
+            'source': item.get('source'),
+            'published_at': item.get('published_at'),
+            'tone': item.get('tone')
+        }
+        for item in news_summary['items']
+    ]
+
+    sections = {
+        'market': market_points,
+        'investment_points': investment_points,
+        'risk_points': risk_points,
+        'account_view': account_points,
+        'action_points': action_points
+    }
+
+    report_lines = [
+        f'{product_name or product_code} {mode_label} 심화 분석',
+        '',
+        f'요약: {summary}',
+        '',
+        '[시장 스냅샷]',
+        *[f'- {item}' for item in market_points],
+        '',
+        '[보유 관점]',
+        *[f'- {item}' for item in account_points],
+        '',
+        '[투자 포인트]',
+        *[f'- {item}' for item in investment_points],
+        '',
+        '[리스크]',
+        *[f'- {item}' for item in risk_points],
+        '',
+        '[행동 가이드]',
+        *[f'- {item}' for item in action_points]
+    ]
+
+    return {
+        'provider': 'crawler',
+        'provider_label': '크롤링 분석',
+        'title': f'{product_name or product_code} {mode_label} 심화 분석',
+        'summary': summary,
+        'report': '\n'.join(report_lines),
+        'generated_at': datetime.now().isoformat(timespec='seconds'),
+        'sentiment': {
+            'label': news_summary['label'],
+            'summary': news_summary['summary'],
+            'positive_count': news_summary['positive_count'],
+            'negative_count': news_summary['negative_count'],
+            'neutral_count': news_summary['neutral_count']
+        },
+        'headlines': headlines,
+        'sections': sections,
+        'citations': [
+            {
+                'title': item['title'],
+                'url': item['url']
+            }
+            for item in headlines
+        ]
+    }
+
+
 @api.route('/version', methods=['GET'])
 def get_api_version():
     return jsonify({'version': API_VERSION}), 200
@@ -649,7 +975,15 @@ def get_product_analysis_report():
         quote = data.get('quote') or {}
         holding = data.get('holding') or None
         mode = data.get('mode') or {}
-        report = generate_openai_stock_report(product, quote, holding, mode)
+        engine = str(data.get('engine') or 'crawler').strip().lower()
+
+        if engine == 'openai':
+            try:
+                report = generate_openai_stock_report(product, quote, holding, mode)
+            except RuntimeError:
+                report = build_non_api_stock_report(product, quote, holding, mode)
+        else:
+            report = build_non_api_stock_report(product, quote, holding, mode)
         return jsonify(report), 200
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
