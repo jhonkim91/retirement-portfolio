@@ -5,8 +5,30 @@ import { ACCOUNT_STORAGE_KEY, DEFAULT_ACCOUNT_NAME, portfolioAPI } from '../util
 import '../styles/Dashboard.css';
 
 const COLORS = { risk: '#d94841', safe: '#256f68' };
-const HOLDING_COLORS = ['#33658a', '#d94841', '#256f68', '#f6ae2d', '#6a4c93', '#2f4858', '#9f6b2e', '#0081a7'];
+const PRODUCT_COLOR_PALETTE = [
+  '#33658a',
+  '#8d6cab',
+  '#2f7f79',
+  '#c57b57',
+  '#5271a5',
+  '#7b8f45',
+  '#b2647d',
+  '#4f86c6',
+  '#9a6f3f',
+  '#4e7d57',
+  '#7a5ea6',
+  '#5c8099'
+];
+const CASH_COLOR = '#7b8794';
 const getInitialAccountName = () => localStorage.getItem(ACCOUNT_STORAGE_KEY) || DEFAULT_ACCOUNT_NAME;
+
+const getProductColor = (index) => {
+  if (index < PRODUCT_COLOR_PALETTE.length) {
+    return PRODUCT_COLOR_PALETTE[index];
+  }
+  const hue = Math.round((index * 137.508) % 360);
+  return `hsl(${hue} 42% 48%)`;
+};
 
 const wrapChartLabel = (value, maxChars = 12) => {
   const text = String(value || '').trim();
@@ -136,19 +158,24 @@ function Dashboard() {
   }, [products, summary]);
 
   const holdingAllocation = useMemo(() => {
+    const productColorMap = new Map();
+    products.forEach((product, index) => {
+      productColorMap.set(String(product.id), getProductColor(index));
+    });
+
     const total = Number(summary?.total_current_value || 0);
     if (!total) return [];
     return displayProducts
       .filter((product) => Number(product.current_value || 0) > 0)
-      .map((product, index) => ({
+      .map((product) => ({
         key: product.id,
         name: product.product_name,
         amount: Number(product.current_value || 0),
         value: Number(product.current_value || 0) / total * 100,
         asset_type: product.asset_type,
-        fill: product.is_cash ? COLORS.safe : HOLDING_COLORS[index % HOLDING_COLORS.length]
+        fill: product.is_cash ? CASH_COLOR : (productColorMap.get(String(product.id)) || getProductColor(0))
       }));
-  }, [displayProducts, summary]);
+  }, [displayProducts, products, summary]);
 
   const profitData = useMemo(() => (
     products
@@ -156,9 +183,7 @@ function Dashboard() {
         key: product.id,
         name: product.product_name,
         수익률: Number(product.profit_rate || 0),
-        fill: product.asset_type === 'safe'
-          ? '#4f8f83'
-          : HOLDING_COLORS[index % HOLDING_COLORS.length]
+        fill: getProductColor(index)
       }))
       .sort((left, right) => right.수익률 - left.수익률)
   ), [products]);
