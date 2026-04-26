@@ -8,6 +8,60 @@ const COLORS = { risk: '#d94841', safe: '#256f68' };
 const HOLDING_COLORS = ['#33658a', '#d94841', '#256f68', '#f6ae2d', '#6a4c93', '#2f4858', '#9f6b2e', '#0081a7'];
 const getInitialAccountName = () => localStorage.getItem(ACCOUNT_STORAGE_KEY) || DEFAULT_ACCOUNT_NAME;
 
+const wrapChartLabel = (value, maxChars = 12) => {
+  const text = String(value || '').trim();
+  if (!text) return [''];
+
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length > 1) {
+    const lines = [];
+    let current = '';
+    words.forEach((word) => {
+      const next = current ? `${current} ${word}` : word;
+      if (next.length <= maxChars || !current) {
+        current = next;
+      } else {
+        lines.push(current);
+        current = word;
+      }
+    });
+    if (current) lines.push(current);
+    return lines.slice(0, 2);
+  }
+
+  const lines = [];
+  for (let index = 0; index < text.length; index += maxChars) {
+    lines.push(text.slice(index, index + maxChars));
+  }
+  return lines.slice(0, 2);
+};
+
+function ProfitYAxisTick({ x, y, payload }) {
+  const lines = wrapChartLabel(payload?.value, 10);
+  const lineHeight = 14;
+  const baseY = y - ((lines.length - 1) * lineHeight) / 2;
+
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <text
+        x={0}
+        y={0}
+        dy={4}
+        textAnchor="end"
+        fill="#102a43"
+        fontSize={12}
+        fontWeight={600}
+      >
+        {lines.map((line, index) => (
+          <tspan key={`${payload?.value}-${index}`} x={0} y={baseY + index * lineHeight}>
+            {line}
+          </tspan>
+        ))}
+      </text>
+    </g>
+  );
+}
+
 function Dashboard() {
   const [accountName, setAccountName] = useState(getInitialAccountName);
   const [summary, setSummary] = useState(null);
@@ -95,7 +149,6 @@ function Dashboard() {
       .map((product, index) => ({
         key: product.id,
         name: product.product_name,
-        shortName: product.product_name.length > 18 ? `${product.product_name.slice(0, 18)}...` : product.product_name,
         수익률: Number(product.profit_rate || 0),
         fill: product.asset_type === 'safe'
           ? '#4f8f83'
@@ -103,7 +156,7 @@ function Dashboard() {
       }))
       .sort((left, right) => right.수익률 - left.수익률)
   ), [products]);
-  const profitChartHeight = Math.max(280, profitData.length * 52);
+  const profitChartHeight = Math.max(280, profitData.length * 60);
 
   const formatCurrency = (value) => new Intl.NumberFormat('ko-KR', {
     style: 'currency',
@@ -210,17 +263,18 @@ function Dashboard() {
                     margin={{ top: 8, right: 44, left: 12, bottom: 8 }}
                   >
                     <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis
-                      type="number"
-                      tickFormatter={(value) => `${Number(value).toFixed(0)}%`}
-                    />
-                    <YAxis
-                      type="category"
-                      dataKey="shortName"
-                      width={168}
-                      tickLine={false}
-                      axisLine={false}
-                    />
+                <XAxis
+                  type="number"
+                  tickFormatter={(value) => `${Number(value).toFixed(0)}%`}
+                />
+                <YAxis
+                  type="category"
+                  dataKey="name"
+                  width={220}
+                  tickLine={false}
+                  axisLine={false}
+                  tick={<ProfitYAxisTick />}
+                />
                     <Tooltip formatter={(value) => `${Number(value).toFixed(2)}%`} />
                     <Bar dataKey="수익률" radius={[0, 6, 6, 0]}>
                       {profitData.map((entry) => (
