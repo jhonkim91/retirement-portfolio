@@ -39,21 +39,20 @@ const wrapChartLabel = (value, maxChars = 12) => {
 function ProfitYAxisTick({ x, y, payload }) {
   const lines = wrapChartLabel(payload?.value, 10);
   const lineHeight = 14;
-  const baseY = y - ((lines.length - 1) * lineHeight) / 2;
+  const baseY = -((lines.length - 1) * lineHeight) / 2;
 
   return (
     <g transform={`translate(${x},${y})`}>
       <text
         x={0}
-        y={0}
-        dy={4}
+        y={baseY + 4}
         textAnchor="end"
         fill="#102a43"
         fontSize={12}
         fontWeight={600}
       >
         {lines.map((line, index) => (
-          <tspan key={`${payload?.value}-${index}`} x={0} y={baseY + index * lineHeight}>
+          <tspan key={`${payload?.value}-${index}`} x={0} dy={index === 0 ? 0 : lineHeight}>
             {line}
           </tspan>
         ))}
