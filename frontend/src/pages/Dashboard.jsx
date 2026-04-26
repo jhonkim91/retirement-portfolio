@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Bar, BarChart, CartesianGrid, Cell, LabelList, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import AccountSelector from '../components/AccountSelector';
 import { ACCOUNT_STORAGE_KEY, DEFAULT_ACCOUNT_NAME, portfolioAPI } from '../utils/api';
 import '../styles/Dashboard.css';
@@ -90,10 +90,20 @@ function Dashboard() {
       }));
   }, [displayProducts, summary]);
 
-  const profitData = products.map((product) => ({
-    name: product.product_name.length > 10 ? `${product.product_name.slice(0, 10)}...` : product.product_name,
-    수익률: Number(product.profit_rate || 0)
-  }));
+  const profitData = useMemo(() => (
+    products
+      .map((product, index) => ({
+        key: product.id,
+        name: product.product_name,
+        shortName: product.product_name.length > 18 ? `${product.product_name.slice(0, 18)}...` : product.product_name,
+        수익률: Number(product.profit_rate || 0),
+        fill: product.asset_type === 'safe'
+          ? '#4f8f83'
+          : HOLDING_COLORS[index % HOLDING_COLORS.length]
+      }))
+      .sort((left, right) => right.수익률 - left.수익률)
+  ), [products]);
+  const profitChartHeight = Math.max(280, profitData.length * 52);
 
   const formatCurrency = (value) => new Intl.NumberFormat('ko-KR', {
     style: 'currency',
@@ -190,15 +200,40 @@ function Dashboard() {
         </div>
         <div className="chart-container chart-wide">
           <h2>상품별 수익률</h2>
-          <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={profitData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" />
-              <YAxis tickFormatter={(value) => `${value}%`} />
-              <Tooltip formatter={(value) => `${Number(value).toFixed(2)}%`} />
-              <Bar dataKey="수익률" fill="#33658a" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          {profitData.length === 0 ? <p className="no-data">등록된 보유 상품이 없습니다.</p> : (
+            <ResponsiveContainer width="100%" height={profitChartHeight}>
+              <BarChart
+                data={profitData}
+                layout="vertical"
+                margin={{ top: 8, right: 32, left: 4, bottom: 8 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis
+                  type="number"
+                  tickFormatter={(value) => `${Number(value).toFixed(0)}%`}
+                />
+                <YAxis
+                  type="category"
+                  dataKey="shortName"
+                  width={132}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <Tooltip formatter={(value) => `${Number(value).toFixed(2)}%`} />
+                <Bar dataKey="수익률" radius={[0, 6, 6, 0]}>
+                  {profitData.map((entry) => (
+                    <Cell key={entry.key} fill={entry.fill} />
+                  ))}
+                  <LabelList
+                    dataKey="수익률"
+                    position="right"
+                    formatter={(value) => `${Number(value).toFixed(1)}%`}
+                    className="profit-bar-label"
+                  />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </div>
       </section>
 

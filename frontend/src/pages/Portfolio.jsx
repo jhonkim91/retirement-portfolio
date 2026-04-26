@@ -102,6 +102,30 @@ const getEarlierDate = (first, second) => (
   first.getTime() <= second.getTime() ? first : second
 );
 
+const getMonthsBetween = (startDate, endDate) => {
+  const start = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+  const end = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+  let months = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
+  if (addDateUnits(start, months, 'month').getTime() < end.getTime()) {
+    months += 1;
+  }
+  return Math.max(months, 1);
+};
+
+const getSuggestedTrendRange = (startDate, endDate) => {
+  const daySpan = Math.max(differenceInDays(endDate, startDate), 1);
+  if (daySpan < 45) {
+    return { amount: String(daySpan), unit: 'day' };
+  }
+
+  const monthSpan = getMonthsBetween(startDate, endDate);
+  if (monthSpan < 24) {
+    return { amount: String(monthSpan), unit: 'month' };
+  }
+
+  return { amount: String(Math.ceil(monthSpan / 12)), unit: 'year' };
+};
+
 function Portfolio() {
   const today = getLocalTodayKey();
   const [accountName, setAccountName] = useState(getInitialAccountName);
@@ -148,6 +172,21 @@ function Portfolio() {
     const productIds = products.map((product) => String(product.id));
     setSelectedTrendProductIds((prev) => prev.filter((id) => productIds.includes(id)));
   }, [products]);
+
+  useEffect(() => {
+    if (selectedTrendProductIds.length === 0) return;
+    const purchaseDates = products
+      .filter((product) => selectedTrendProductIds.includes(String(product.id)))
+      .map((product) => parseRecordDate(product.purchase_date))
+      .filter(Boolean);
+    if (purchaseDates.length === 0) return;
+
+    const earliestDate = purchaseDates.reduce((earliest, current) => (current < earliest ? current : earliest), purchaseDates[0]);
+    const todayDate = getLocalToday();
+    const suggested = getSuggestedTrendRange(earliestDate, todayDate);
+    setTrendRangeAmount(suggested.amount);
+    setTrendRangeUnit(suggested.unit);
+  }, [products, selectedTrendProductIds]);
 
   const changeAccountName = (value) => {
     localStorage.setItem(ACCOUNT_STORAGE_KEY, value);

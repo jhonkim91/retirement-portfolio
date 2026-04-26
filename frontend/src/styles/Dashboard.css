@@ -20,6 +20,7 @@
 .holding-allocation-item .dot { width: 10px; height: 10px; border-radius: 999px; }
 .holding-name { color: #102a43; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .holding-allocation-item strong { color: #102a43; text-align: right; }
+.profit-bar-label { fill: #102a43; font-size: 12px; font-weight: 700; }
 table { width: 100%; border-collapse: collapse; min-width: 700px; }
 th { text-align: left; color: #52606d; font-size: 13px; background: #f8fafc; }
 th, td { padding: 12px; border-bottom: 1px solid #e5eaf0; }
@@ -27,6 +28,7 @@ td { font-size: 14px; }
 .code { display: block; color: #7b8794; font-size: 12px; margin-top: 2px; }
 .error-container { background: #fde8e7; color: #9f1d18; border-radius: 6px; padding: 12px; }
 .notice-container { background: #fff7ed; color: #9a3412; border: 1px solid #fed7aa; border-radius: 6px; padding: 12px; margin-bottom: 14px; line-height: 1.6; }
+.no-data { margin: 0; color: #697586; line-height: 1.6; }
 @media (max-width: 1100px) { .summary-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 900px) { .summary-cards, .charts-section { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 640px) { .dashboard { padding: 16px 12px 36px; } .summary-section .header { flex-direction: column; } .header-actions { width: 100%; justify-content: stretch; } .header-actions button { flex: 1; } .summary-cards, .charts-section { grid-template-columns: 1fr; } .amount { font-size: 21px; } }
