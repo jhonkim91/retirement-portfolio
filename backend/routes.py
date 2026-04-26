@@ -1,5 +1,6 @@
 ﻿from datetime import datetime, date
 import hashlib
+from datetime import timedelta
 
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
@@ -9,7 +10,7 @@ from models import db, User, Product, PriceHistory, TradeLog, CashBalance, DEFAU
 
 api = Blueprint('api', __name__, url_prefix='/api')
 market_client = StockAPIClient()
-API_VERSION = '2026-04-26-trend-sheet-date-grid-v1'
+API_VERSION = '2026-04-26-stock-research-panel-v1'
 
 
 def current_user_id():
@@ -269,6 +270,50 @@ def refresh_user_holdings(user_id):
     sync_user_holdings(user_id)
 
 
+def build_quote_snapshot(code):
+    cleaned_code = market_client.clean_code(code)
+    if not cleaned_code:
+        raise ValueError('종목 코드가 필요합니다.')
+
+    today = date.today()
+    history_start = today - timedelta(days=370)
+    histories = market_client.get_historical_prices(cleaned_code, history_start, today)
+    current = market_client.get_current_price(cleaned_code)
+
+    if current:
+        latest_price = current.get('price')
+        price_date = current.get('date') or today
+    elif histories:
+        latest = histories[-1]
+        latest_price = latest.get('price')
+        price_date = latest.get('date') or today
+    else:
+        latest_price = None
+        price_date = None
+
+    prices = [float(row['price']) for row in histories if row.get('price') is not None]
+    high_52w = max(prices) if prices else None
+    low_52w = min(prices) if prices else None
+    first_price = prices[0] if prices else None
+    return_rate = (
+        (float(latest_price) - first_price) / first_price * 100
+        if latest_price is not None and first_price
+        else None
+    )
+
+    return {
+        'code': cleaned_code,
+        'price': round(float(latest_price), 4) if latest_price is not None else None,
+        'price_date': price_date.isoformat() if price_date else None,
+        'high_52w': round(high_52w, 4) if high_52w is not None else None,
+        'low_52w': round(low_52w, 4) if low_52w is not None else None,
+        'one_year_return_rate': round(return_rate, 2) if return_rate is not None else None,
+        'history_points': len(histories),
+        'lookback_start': history_start.isoformat(),
+        'lookback_end': today.isoformat()
+    }
+
+
 @api.route('/version', methods=['GET'])
 def get_api_version():
     return jsonify({'version': API_VERSION}), 200
@@ -389,6 +434,20 @@ def search_products():
         if len(query) < 2:
             return jsonify([]), 200
         return jsonify(market_client.search_products(query)), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/products/quote', methods=['GET'])
+@jwt_required()
+def get_product_quote():
+    try:
+        code = request.args.get('code', '').strip()
+        if not code:
+            return jsonify({'error': '종목 코드를 입력하세요.'}), 400
+        return jsonify(build_quote_snapshot(code)), 200
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

@@ -1,4 +1,7 @@
 import os
+import importlib.util
+import pkgutil
+import sys
 
 from dotenv import load_dotenv
 from flask import Flask
@@ -11,6 +14,19 @@ from routes import api
 from scheduler import start_scheduler
 
 load_dotenv()
+
+if not hasattr(pkgutil, 'get_loader'):
+    def _get_loader(name):
+        module = sys.modules.get(name)
+        if module and getattr(module, '__loader__', None):
+            return module.__loader__
+        try:
+            spec = importlib.util.find_spec(name)
+        except ValueError:
+            return None
+        return spec.loader if spec else None
+
+    pkgutil.get_loader = _get_loader
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'sqlite:///retirement.db')

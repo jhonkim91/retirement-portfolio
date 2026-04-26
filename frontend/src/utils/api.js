@@ -42,6 +42,7 @@ export const portfolioAPI = {
   getTrends: (accountName) => apiCall(`/portfolio/trends?${accountQuery(accountName)}`),
   syncPrices: (accountName) => apiCall(`/portfolio/sync-prices?${accountQuery(accountName)}`, 'POST'),
   searchProducts: (query) => apiCall(`/products/search?q=${encodeURIComponent(query)}`),
+  getProductQuote: (code) => apiCall(`/products/quote?code=${encodeURIComponent(code)}`),
   getCash: (accountName) => apiCall(`/cash?${accountQuery(accountName)}`),
   updateCash: (amount, accountName) => apiCall('/cash', 'PUT', { amount, account_name: accountNameOrDefault(accountName) }),
   addCashDeposit: (depositData, accountName) => apiCall('/cash/deposits', 'POST', { ...depositData, account_name: accountNameOrDefault(accountName) }),

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import AccountSelector from '../components/AccountSelector';
+import StockResearchPanel from '../components/StockResearchPanel';
 import { ACCOUNT_STORAGE_KEY, DEFAULT_ACCOUNT_NAME, portfolioAPI } from '../utils/api';
 import '../styles/Portfolio.css';
 
@@ -593,6 +594,8 @@ function Portfolio() {
               <button type="submit" className="btn-submit" disabled={loading}>{loading ? '추가 중...' : '상품 추가'}</button>
             </form>
           </section>
+
+          <StockResearchPanel products={products} onUseProduct={selectSearchProduct} />
 
           <div className="cash-panel">
             <div>
