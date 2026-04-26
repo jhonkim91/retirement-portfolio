@@ -786,10 +786,15 @@ function Portfolio() {
                 <p className="no-data">선택한 기간에 표시할 추이 데이터가 없습니다.</p>
               ) : (
                 <ResponsiveContainer width="100%" height={320}>
-                  <LineChart data={chartData}>
+                  <LineChart data={chartData} margin={{ top: 12, right: 16, left: 18, bottom: 18 }}>
                     <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="date" />
-                    <YAxis tickFormatter={formatPercent} label={{ value: '기준가 수익률', angle: -90, position: 'insideLeft', dx: -10, dy: 52 }} />
+                    <XAxis dataKey="date" tickMargin={8} minTickGap={24} />
+                    <YAxis
+                      width={82}
+                      tickFormatter={formatPercent}
+                      tickMargin={8}
+                      label={{ value: '기준가 수익률', angle: -90, position: 'insideLeft', dx: -4, dy: 52 }}
+                    />
                     <Tooltip content={<TrendTooltip />} />
                     <Legend />
                     {trendSeries.map((series, index) => (
