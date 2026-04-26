@@ -131,12 +131,10 @@ function Portfolio() {
   const [accountName, setAccountName] = useState(getInitialAccountName);
   const [formData, setFormData] = useState(emptyProductForm(today));
   const [depositForm, setDepositForm] = useState({ amount: '', deposit_date: today, notes: '' });
-  const [cashAmount, setCashAmount] = useState('');
   const [products, setProducts] = useState([]);
   const [trends, setTrends] = useState([]);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
-  const [cashLoading, setCashLoading] = useState(false);
   const [depositLoading, setDepositLoading] = useState(false);
   const [priceInputs, setPriceInputs] = useState({});
   const [sellInputs, setSellInputs] = useState({});
@@ -154,14 +152,12 @@ function Portfolio() {
   const [trendIntervalAmount, setTrendIntervalAmount] = useState('1');
 
   const loadData = useCallback(async () => {
-    const [productData, trendData, cashData] = await Promise.all([
+    const [productData, trendData] = await Promise.all([
       portfolioAPI.getProducts(accountName),
-      portfolioAPI.getTrends(accountName),
-      portfolioAPI.getCash(accountName)
+      portfolioAPI.getTrends(accountName)
     ]);
     setProducts(productData);
     setTrends(trendData);
-    setCashAmount(String(cashData.amount || 0));
   }, [accountName]);
 
   useEffect(() => {
@@ -375,20 +371,6 @@ function Portfolio() {
       setMessage(err.message);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const saveCash = async () => {
-    setCashLoading(true);
-    setMessage('');
-    try {
-      await portfolioAPI.updateCash(cashAmount, accountName);
-      setMessage('보유 현금을 저장했습니다. 매매일지에는 기록하지 않습니다.');
-      await loadData();
-    } catch (err) {
-      setMessage(err.message);
-    } finally {
-      setCashLoading(false);
     }
   };
 
@@ -633,16 +615,6 @@ function Portfolio() {
             </form>
           </section>
 
-          <div className="cash-panel">
-            <div>
-              <h3>보유 현금</h3>
-              <p>현재 계좌에 남아 있는 현금입니다. 매매일지에는 기록하지 않습니다.</p>
-            </div>
-            <div className="cash-actions">
-              <input type="number" min="0" value={cashAmount} onChange={(event) => setCashAmount(event.target.value)} />
-              <button type="button" onClick={saveCash} disabled={cashLoading}>{cashLoading ? '저장 중...' : '현금 저장'}</button>
-            </div>
-          </div>
           <form className="deposit-panel" onSubmit={saveDeposit}>
             <div>
               <h3>회사 현금입금</h3>

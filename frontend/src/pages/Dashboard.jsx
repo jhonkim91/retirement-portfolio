@@ -69,6 +69,9 @@ function Dashboard() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [syncing, setSyncing] = useState(false);
+  const [cashEditing, setCashEditing] = useState(false);
+  const [cashAmount, setCashAmount] = useState('');
+  const [cashLoading, setCashLoading] = useState(false);
 
   const fetchDashboardData = useCallback(async () => {
     try {
@@ -91,6 +94,10 @@ function Dashboard() {
     const interval = setInterval(fetchDashboardData, 60000);
     return () => clearInterval(interval);
   }, [fetchDashboardData]);
+
+  useEffect(() => {
+    setCashAmount(String(summary?.total_cash ?? 0));
+  }, [summary?.total_cash, accountName]);
 
   const changeAccountName = (value) => {
     localStorage.setItem(ACCOUNT_STORAGE_KEY, value);
@@ -183,6 +190,34 @@ function Dashboard() {
     }
   };
 
+  const openCashEditor = () => {
+    setCashAmount(String(summary?.total_cash ?? 0));
+    setCashEditing(true);
+    setNotice('');
+    setError('');
+  };
+
+  const cancelCashEditor = () => {
+    setCashAmount(String(summary?.total_cash ?? 0));
+    setCashEditing(false);
+  };
+
+  const saveCash = async () => {
+    try {
+      setCashLoading(true);
+      setError('');
+      setNotice('');
+      await portfolioAPI.updateCash(cashAmount, accountName);
+      await fetchDashboardData();
+      setCashEditing(false);
+      setNotice('보유 현금을 업데이트했습니다.');
+    } catch (err) {
+      setError(err.message || '보유 현금 업데이트에 실패했습니다.');
+    } finally {
+      setCashLoading(false);
+    }
+  };
+
   if (loading) return <div className="loading">현황을 불러오는 중...</div>;
 
   return (
@@ -205,7 +240,45 @@ function Dashboard() {
         {notice && <div className="notice-container">{notice}</div>}
         <div className="summary-cards">
           <div className="card"><h3>입금 원금</h3><p className="amount">{formatCurrency(summary?.total_investment)}</p></div>
-          <div className="card"><h3>보유 현금</h3><p className="amount">{formatCurrency(summary?.total_cash)}</p></div>
+          <div
+            className={`card cash-card ${cashEditing ? 'editing' : ''}`}
+            role="button"
+            tabIndex={cashEditing ? -1 : 0}
+            onClick={() => { if (!cashEditing) openCashEditor(); }}
+            onKeyDown={(event) => {
+              if (!cashEditing && (event.key === 'Enter' || event.key === ' ')) {
+                event.preventDefault();
+                openCashEditor();
+              }
+            }}
+          >
+            <h3>보유 현금</h3>
+            {cashEditing ? (
+              <div className="cash-card-editor" onClick={(event) => event.stopPropagation()}>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={cashAmount}
+                  onChange={(event) => setCashAmount(event.target.value)}
+                  aria-label="보유 현금"
+                />
+                <div className="cash-card-actions">
+                  <button type="button" className="cash-card-save" onClick={saveCash} disabled={cashLoading}>
+                    {cashLoading ? '저장 중...' : '저장'}
+                  </button>
+                  <button type="button" className="cash-card-cancel" onClick={cancelCashEditor} disabled={cashLoading}>
+                    취소
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <p className="amount">{formatCurrency(summary?.total_cash)}</p>
+                <span className="cash-card-hint">클릭해서 수정</span>
+              </>
+            )}
+          </div>
           <div className="card"><h3>현재 보유 평가액</h3><p className="amount">{formatCurrency(summary?.total_current_value)}</p></div>
           <div className="card"><h3>원금 대비 평가손익</h3><p className={`amount ${(summary?.total_profit_loss || 0) >= 0 ? 'profit' : 'loss'}`}>{formatCurrency(summary?.total_profit_loss)}</p></div>
           <div className="card"><h3>원금 대비 수익률</h3><p className={`amount ${(summary?.total_profit_rate || 0) >= 0 ? 'profit' : 'loss'}`}>{Number(summary?.total_profit_rate || 0).toFixed(2)}%</p></div>

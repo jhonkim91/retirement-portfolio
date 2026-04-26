@@ -9,6 +9,16 @@
 .card, .chart-container, .products-table { background: #fff; border: 1px solid #d9e2ec; border-radius: 8px; box-shadow: 0 4px 14px rgba(15, 23, 42, .05); }
 .card { padding: 18px; }
 .card h3 { margin: 0 0 10px; color: #697586; font-size: 14px; }
+.cash-card { width: 100%; border: 1px solid #d9e2ec; text-align: left; cursor: pointer; }
+.cash-card:hover { border-color: #b8c9d9; background: #fbfdff; }
+.cash-card.editing { cursor: default; }
+.cash-card-hint { display: block; margin-top: 8px; color: #697586; font-size: 12px; font-weight: 700; }
+.cash-card-editor { display: grid; gap: 10px; }
+.cash-card-editor input { width: 100%; height: 44px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 11px; font: inherit; }
+.cash-card-actions { display: flex; gap: 8px; }
+.cash-card-save, .cash-card-cancel { border-radius: 6px; padding: 9px 12px; font-weight: 800; }
+.cash-card-save { border: 0; background: #17324d; color: #fff; }
+.cash-card-cancel { border: 1px solid #cbd5e1; background: #fff; color: #17324d; }
 .amount { margin: 0; font-size: 24px; font-weight: 850; word-break: keep-all; }
 .profit { color: #b42318; font-weight: 800; }
 .loss { color: #177245; font-weight: 800; }
@@ -33,4 +43,4 @@ td { font-size: 14px; }
 .no-data { margin: 0; color: #697586; line-height: 1.6; }
 @media (max-width: 1100px) { .summary-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 900px) { .summary-cards, .charts-section { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 640px) { .dashboard { padding: 16px 12px 36px; } .summary-section .header { flex-direction: column; } .header-actions { width: 100%; justify-content: stretch; } .header-actions button { flex: 1; } .summary-cards, .charts-section { grid-template-columns: 1fr; } .amount { font-size: 21px; } .profit-chart-inner { min-width: 620px; } }
+@media (max-width: 640px) { .dashboard { padding: 16px 12px 36px; } .summary-section .header { flex-direction: column; } .header-actions { width: 100%; justify-content: stretch; } .header-actions button { flex: 1; } .summary-cards, .charts-section { grid-template-columns: 1fr; } .amount { font-size: 21px; } .profit-chart-inner { min-width: 620px; } .cash-card-actions { display: grid; grid-template-columns: 1fr 1fr; } }
