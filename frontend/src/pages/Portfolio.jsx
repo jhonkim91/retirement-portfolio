@@ -98,6 +98,10 @@ const findLatestRowOnOrBefore = (rows, targetDate) => {
   return latest;
 };
 
+const getEarlierDate = (first, second) => (
+  first.getTime() <= second.getTime() ? first : second
+);
+
 function Portfolio() {
   const today = getLocalTodayKey();
   const [accountName, setAccountName] = useState(getInitialAccountName);
@@ -122,8 +126,8 @@ function Portfolio() {
   const [selectedProductName, setSelectedProductName] = useState('');
   const [selectedTrendProductIds, setSelectedTrendProductIds] = useState([]);
   const [trendRangeAmount, setTrendRangeAmount] = useState('1');
-  const [trendRangeUnit, setTrendRangeUnit] = useState('year');
-  const [trendIntervalAmount, setTrendIntervalAmount] = useState('30');
+  const [trendRangeUnit, setTrendRangeUnit] = useState('month');
+  const [trendIntervalAmount, setTrendIntervalAmount] = useState('1');
 
   const loadData = useCallback(async () => {
     const [productData, trendData, cashData] = await Promise.all([
@@ -190,12 +194,19 @@ function Portfolio() {
     [trends, selectedTrendProductSet]
   );
   const safeTrendRangeAmount = useMemo(() => toPositiveInteger(trendRangeAmount), [trendRangeAmount]);
-  const safeTrendIntervalAmount = useMemo(() => toPositiveInteger(trendIntervalAmount, 30), [trendIntervalAmount]);
+  const safeTrendIntervalAmount = useMemo(() => toPositiveInteger(trendIntervalAmount, 1), [trendIntervalAmount]);
   const trendDateWindow = useMemo(() => {
-    const endDate = getLocalToday();
-    const startDate = addDateUnits(endDate, -safeTrendRangeAmount, trendRangeUnit);
+    const purchaseDates = products
+      .filter((product) => selectedTrendProductSet.has(String(product.id)))
+      .map((product) => parseRecordDate(product.purchase_date))
+      .filter(Boolean);
+    const todayDate = getLocalToday();
+    const startDate = purchaseDates.length > 0
+      ? purchaseDates.reduce((earliest, date) => (date < earliest ? date : earliest), purchaseDates[0])
+      : todayDate;
+    const endDate = getEarlierDate(addDateUnits(startDate, safeTrendRangeAmount, trendRangeUnit), todayDate);
     return { startDate, endDate };
-  }, [safeTrendRangeAmount, trendRangeUnit]);
+  }, [products, selectedTrendProductSet, safeTrendRangeAmount, trendRangeUnit]);
   const windowedTrends = useMemo(() => (
     filteredTrends.filter((row) => {
       const rowDate = parseRecordDate(row.record_date);
