@@ -26,6 +26,8 @@
 .trend-control-group { display: grid; gap: 6px; color: #334155; font-size: 13px; font-weight: 700; }
 .trend-control-row { display: grid; grid-template-columns: minmax(72px, 100px) minmax(92px, 1fr); gap: 8px; align-items: center; }
 .trend-control-row input, .trend-control-row select { width: 100%; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 11px; background: #fff; }
+.trend-control-row-compact { grid-template-columns: minmax(72px, 100px) auto; justify-content: start; }
+.trend-unit-suffix { color: #334155; font-size: 14px; font-weight: 800; }
 .trend-chart { min-width: 0; }
 .trend-chart .no-data { min-height: 320px; display: grid; place-items: center; margin: 0; border: 1px dashed #cbd5e1; border-radius: 8px; background: #f8fafc; color: #697586; }
 .trend-tooltip { min-width: 190px; border: 1px solid #d9e2ec; border-radius: 8px; background: #fff; padding: 10px 12px; box-shadow: 0 10px 26px rgba(15, 23, 42, .14); }

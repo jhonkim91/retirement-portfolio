@@ -16,7 +16,7 @@ const emptyProductForm = (today) => ({
 });
 
 const getInitialAccountName = () => localStorage.getItem(ACCOUNT_STORAGE_KEY) || DEFAULT_ACCOUNT_NAME;
-const TREND_UNIT_OPTIONS = [
+const PERIOD_UNIT_OPTIONS = [
   { value: 'year', label: '년' },
   { value: 'month', label: '개월' },
   { value: 'day', label: '일' }
@@ -41,6 +41,13 @@ const formatDateKey = (date) => {
   return `${year}-${month}-${day}`;
 };
 
+const getLocalToday = () => {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+};
+
+const getLocalTodayKey = () => formatDateKey(getLocalToday());
+
 const addDateUnits = (date, amount, unit) => {
   if (unit === 'year') {
     const targetYear = date.getFullYear() + amount;
@@ -58,29 +65,41 @@ const addDateUnits = (date, amount, unit) => {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate() + amount);
 };
 
-const getBucketStartDate = (recordDate, startDate, intervalAmount, intervalUnit) => {
-  const date = parseRecordDate(recordDate);
-  if (!date || !startDate) return null;
+const differenceInDays = (endDate, startDate) => (
+  Math.max(Math.floor((endDate.getTime() - startDate.getTime()) / MS_PER_DAY), 0)
+);
 
-  if (intervalUnit === 'year') {
-    const years = Math.max(date.getFullYear() - startDate.getFullYear(), 0);
-    return addDateUnits(startDate, Math.floor(years / intervalAmount) * intervalAmount, 'year');
+const buildTrendTimeline = (startDate, endDate, intervalDays) => {
+  if (!startDate || !endDate) return [];
+  const pointCount = Math.max(Math.ceil((differenceInDays(endDate, startDate) + 1) / intervalDays), 1);
+  return Array.from({ length: pointCount }, (_, index) => (
+    addDateUnits(endDate, -index * intervalDays, 'day')
+  )).sort((a, b) => a.getTime() - b.getTime());
+};
+
+const getPriceReturnRate = (row) => {
+  if (row?.price_return_rate !== undefined && row?.price_return_rate !== null) {
+    return Number(row.price_return_rate || 0);
   }
 
-  if (intervalUnit === 'month') {
-    const months = Math.max(
-      (date.getFullYear() - startDate.getFullYear()) * 12 + date.getMonth() - startDate.getMonth(),
-      0
-    );
-    return addDateUnits(startDate, Math.floor(months / intervalAmount) * intervalAmount, 'month');
-  }
+  const purchasePrice = Number(row?.purchase_price || 0);
+  if (!purchasePrice) return 0;
+  return (Number(row?.price || 0) - purchasePrice) / purchasePrice * 100;
+};
 
-  const days = Math.max(Math.floor((date.getTime() - startDate.getTime()) / MS_PER_DAY), 0);
-  return addDateUnits(startDate, Math.floor(days / intervalAmount) * intervalAmount, 'day');
+const findLatestRowOnOrBefore = (rows, targetDate) => {
+  const targetTime = targetDate.getTime();
+  let latest = null;
+  for (const row of rows) {
+    const rowDate = parseRecordDate(row.record_date);
+    if (!rowDate || rowDate.getTime() > targetTime) break;
+    latest = row;
+  }
+  return latest;
 };
 
 function Portfolio() {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getLocalTodayKey();
   const [accountName, setAccountName] = useState(getInitialAccountName);
   const [formData, setFormData] = useState(emptyProductForm(today));
   const [depositForm, setDepositForm] = useState({ amount: '', deposit_date: today, notes: '' });
@@ -104,8 +123,7 @@ function Portfolio() {
   const [selectedTrendProductIds, setSelectedTrendProductIds] = useState([]);
   const [trendRangeAmount, setTrendRangeAmount] = useState('1');
   const [trendRangeUnit, setTrendRangeUnit] = useState('year');
-  const [trendIntervalAmount, setTrendIntervalAmount] = useState('5');
-  const [trendIntervalUnit, setTrendIntervalUnit] = useState('day');
+  const [trendIntervalAmount, setTrendIntervalAmount] = useState('30');
 
   const loadData = useCallback(async () => {
     const [productData, trendData, cashData] = await Promise.all([
@@ -172,14 +190,12 @@ function Portfolio() {
     [trends, selectedTrendProductSet]
   );
   const safeTrendRangeAmount = useMemo(() => toPositiveInteger(trendRangeAmount), [trendRangeAmount]);
-  const safeTrendIntervalAmount = useMemo(() => toPositiveInteger(trendIntervalAmount), [trendIntervalAmount]);
+  const safeTrendIntervalAmount = useMemo(() => toPositiveInteger(trendIntervalAmount, 30), [trendIntervalAmount]);
   const trendDateWindow = useMemo(() => {
-    const dates = filteredTrends.map((row) => parseRecordDate(row.record_date)).filter(Boolean);
-    if (dates.length === 0) return { startDate: null, endDate: null };
-    const endDate = dates.reduce((latest, date) => (date > latest ? date : latest), dates[0]);
+    const endDate = getLocalToday();
     const startDate = addDateUnits(endDate, -safeTrendRangeAmount, trendRangeUnit);
     return { startDate, endDate };
-  }, [filteredTrends, safeTrendRangeAmount, trendRangeUnit]);
+  }, [safeTrendRangeAmount, trendRangeUnit]);
   const windowedTrends = useMemo(() => (
     filteredTrends.filter((row) => {
       const rowDate = parseRecordDate(row.record_date);
@@ -189,7 +205,7 @@ function Portfolio() {
   ), [filteredTrends, trendDateWindow]);
   const trendSeries = useMemo(() => {
     const seriesMap = new Map();
-    windowedTrends.forEach((row) => {
+    filteredTrends.forEach((row) => {
       if (!seriesMap.has(row.product_id)) {
         seriesMap.set(row.product_id, {
           id: row.product_id,
@@ -199,32 +215,40 @@ function Portfolio() {
       }
     });
     return Array.from(seriesMap.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [windowedTrends]);
+  }, [filteredTrends]);
 
   const chartData = useMemo(() => {
-    const byPeriod = {};
-    windowedTrends.forEach((row) => {
-      const bucketStartDate = getBucketStartDate(
-        row.record_date,
-        trendDateWindow.startDate,
-        safeTrendIntervalAmount,
-        trendIntervalUnit
-      );
-      if (!bucketStartDate) return;
-      const period = formatDateKey(bucketStartDate);
-      const seriesKey = `product_${row.product_id}`;
-      const metaKey = `${seriesKey}__meta`;
-      const entry = byPeriod[period] || { date: period, sortTime: bucketStartDate.getTime() };
-      const existingMeta = entry[metaKey];
-      if (existingMeta && existingMeta.record_date > row.record_date) return;
-      entry[seriesKey] = Number(row.price_return_rate ?? row.profit_rate ?? 0);
-      entry[metaKey] = row;
-      byPeriod[period] = entry;
+    const rowsByProduct = new Map();
+    filteredTrends.forEach((row) => {
+      const key = String(row.product_id);
+      rowsByProduct.set(key, [...(rowsByProduct.get(key) || []), row]);
     });
-    return Object.values(byPeriod)
-      .sort((a, b) => a.sortTime - b.sortTime)
-      .map(({ sortTime, ...entry }) => entry);
-  }, [windowedTrends, trendDateWindow, safeTrendIntervalAmount, trendIntervalUnit]);
+
+    rowsByProduct.forEach((rows, key) => {
+      rowsByProduct.set(
+        key,
+        [...rows].sort((a, b) => a.record_date.localeCompare(b.record_date))
+      );
+    });
+
+    return buildTrendTimeline(
+      trendDateWindow.startDate,
+      trendDateWindow.endDate,
+      safeTrendIntervalAmount
+    ).map((targetDate) => {
+      const entry = { date: formatDateKey(targetDate) };
+      trendSeries.forEach((series) => {
+        const row = findLatestRowOnOrBefore(rowsByProduct.get(String(series.id)) || [], targetDate);
+        if (!row) return;
+        entry[series.key] = getPriceReturnRate(row);
+        entry[`${series.key}__meta`] = row;
+      });
+      return entry;
+    });
+  }, [filteredTrends, trendDateWindow, safeTrendIntervalAmount, trendSeries]);
+  const chartHasValues = useMemo(() => (
+    chartData.some((entry) => trendSeries.some((series) => entry[series.key] !== undefined))
+  ), [chartData, trendSeries]);
 
   const trendRows = useMemo(() => (
     [...windowedTrends].sort((a, b) => {
@@ -254,7 +278,7 @@ function Portfolio() {
           return (
             <div className="trend-tooltip-item" key={item.dataKey}>
               <span className="trend-tooltip-name" style={{ color: item.color }}>{item.name}</span>
-              <span>기준가 수익률 {formatPercent(row.price_return_rate ?? row.profit_rate)}</span>
+              <span>기준가 수익률 {formatPercent(getPriceReturnRate(row))}</span>
               <span>기준가 {formatCurrency(row.price)}</span>
               <span>매입 기준가 {formatCurrency(row.purchase_price)}</span>
             </div>
@@ -734,7 +758,7 @@ function Portfolio() {
                     aria-label="추이 기간 값"
                   />
                   <select value={trendRangeUnit} onChange={(event) => setTrendRangeUnit(event.target.value)} aria-label="추이 기간 단위">
-                    {TREND_UNIT_OPTIONS.map((option) => (
+                    {PERIOD_UNIT_OPTIONS.map((option) => (
                       <option key={option.value} value={option.value}>{option.label}</option>
                     ))}
                   </select>
@@ -742,7 +766,7 @@ function Portfolio() {
               </label>
               <label className="trend-control-group">
                 <span>단위</span>
-                <div className="trend-control-row">
+                <div className="trend-control-row trend-control-row-compact">
                   <input
                     type="number"
                     min="1"
@@ -751,18 +775,14 @@ function Portfolio() {
                     onChange={(event) => setTrendIntervalAmount(event.target.value)}
                     aria-label="추이 표시 단위 값"
                   />
-                  <select value={trendIntervalUnit} onChange={(event) => setTrendIntervalUnit(event.target.value)} aria-label="추이 표시 단위">
-                    {TREND_UNIT_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>{option.label}</option>
-                    ))}
-                  </select>
+                  <span className="trend-unit-suffix">일</span>
                 </div>
               </label>
             </div>
             <div className="trend-chart">
               {selectedTrendProductIds.length === 0 ? (
                 <p className="no-data">추이를 볼 상품을 체크하세요.</p>
-              ) : chartData.length === 0 ? (
+              ) : !chartHasValues ? (
                 <p className="no-data">선택한 기간에 표시할 추이 데이터가 없습니다.</p>
               ) : (
                 <ResponsiveContainer width="100%" height={320}>
@@ -820,8 +840,8 @@ function Portfolio() {
                         <td className={(row.profit_loss || 0) >= 0 ? 'profit-text' : 'loss-text'}>
                           {formatCurrency(row.profit_loss)}
                         </td>
-                        <td className={(row.price_return_rate ?? row.profit_rate ?? 0) >= 0 ? 'profit-text' : 'loss-text'}>
-                          {formatPercent(row.price_return_rate ?? row.profit_rate)}
+                        <td className={getPriceReturnRate(row) >= 0 ? 'profit-text' : 'loss-text'}>
+                          {formatPercent(getPriceReturnRate(row))}
                         </td>
                       </tr>
                     ))}
