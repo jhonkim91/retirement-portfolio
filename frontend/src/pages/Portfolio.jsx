@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { useLocation, useNavigate } from 'react-router-dom';
 import AccountSelector from '../components/AccountSelector';
-import StockResearchPanel from '../components/StockResearchPanel';
 import { ACCOUNT_STORAGE_KEY, DEFAULT_ACCOUNT_NAME, portfolioAPI } from '../utils/api';
 import '../styles/Portfolio.css';
 
@@ -104,6 +104,8 @@ const getEarlierDate = (first, second) => (
 );
 
 function Portfolio() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const today = getLocalTodayKey();
   const [accountName, setAccountName] = useState(getInitialAccountName);
   const [formData, setFormData] = useState(emptyProductForm(today));
@@ -320,6 +322,15 @@ function Portfolio() {
     setProductSearchResults([]);
     setShowProductSearch(false);
   };
+
+  useEffect(() => {
+    const prefillProduct = location.state?.prefillProduct;
+    if (!prefillProduct) return;
+
+    selectSearchProduct(prefillProduct);
+    setMessage(`종목 정보에서 선택한 ${prefillProduct.name} 상품을 등록 폼에 채웠습니다.`);
+    navigate(location.pathname, { replace: true, state: {} });
+  }, [location.pathname, location.state, navigate]);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -594,8 +605,6 @@ function Portfolio() {
               <button type="submit" className="btn-submit" disabled={loading}>{loading ? '추가 중...' : '상품 추가'}</button>
             </form>
           </section>
-
-          <StockResearchPanel products={products} onUseProduct={selectSearchProduct} />
 
           <div className="cash-panel">
             <div>

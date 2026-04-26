@@ -1,0 +1,56 @@
+.stock-research-page { max-width: 1240px; margin: 0 auto; padding: 24px 20px 48px; }
+.stock-research-page-header h1 { margin: 0 0 8px; color: #102a43; }
+.stock-research-page-header p { margin: 0 0 18px; color: #697586; line-height: 1.5; }
+.stock-research-loading { min-height: 220px; display: grid; place-items: center; border: 1px dashed #cbd5e1; border-radius: 10px; background: #fbfdff; color: #52606d; }
+.stock-research-panel { display: grid; gap: 14px; background: #fff; border: 1px solid #d9e2ec; border-radius: 8px; padding: 18px; box-shadow: 0 4px 14px rgba(15, 23, 42, .05); }
+.stock-research-header { display: flex; justify-content: space-between; gap: 12px; align-items: start; }
+.stock-research-header h2 { margin: 0 0 6px; font-size: 21px; color: #102a43; }
+.stock-research-header p { margin: 0; color: #697586; font-size: 13px; line-height: 1.5; }
+.stock-search-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.stock-search-form input { width: 100%; height: 46px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 11px; font: inherit; line-height: 1.25; }
+.stock-search-form button, .stock-use-button, .analysis-actions button, .analysis-secondary-button { border: 0; background: #33658a; color: #fff; border-radius: 6px; padding: 10px 13px; font-weight: 800; white-space: nowrap; }
+.stock-search-form button:disabled { opacity: .68; cursor: wait; }
+.stock-research-message { border: 1px solid #f6d58a; background: #fff8e6; color: #6f4e00; border-radius: 6px; padding: 10px 12px; font-size: 13px; line-height: 1.45; }
+.stock-result-list { display: grid; gap: 8px; max-height: 270px; overflow-y: auto; padding-right: 2px; }
+.stock-result-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: stretch; border: 1px solid #e5eaf0; border-radius: 8px; padding: 8px; background: #f8fafc; }
+.stock-result-main { width: 100%; border: 0; background: transparent; color: #102a43; text-align: left; padding: 4px 2px; cursor: pointer; }
+.stock-result-main strong { display: block; font-size: 14px; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stock-result-main span { display: block; margin-top: 3px; color: #697586; font-size: 12px; line-height: 1.35; }
+.stock-use-button { align-self: center; background: #17324d; }
+.stock-analysis-card { display: grid; gap: 12px; border-top: 1px dashed #cbd5e1; padding-top: 14px; }
+.stock-analysis-title { display: flex; justify-content: space-between; gap: 12px; align-items: start; }
+.stock-analysis-title span, .stock-snapshot-grid span, .analysis-report-header span { display: block; color: #697586; font-size: 12px; line-height: 1.35; }
+.stock-analysis-title strong, .analysis-report-header strong { display: block; margin-top: 2px; color: #102a43; font-size: 17px; line-height: 1.3; }
+.stock-analysis-title small { display: block; margin-top: 2px; color: #52606d; font-size: 12px; }
+.stock-analysis-title em { color: #697586; font-size: 12px; font-style: normal; white-space: nowrap; }
+.stock-snapshot-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.stock-snapshot-grid > div { min-height: 82px; border: 1px solid #e5eaf0; border-radius: 8px; padding: 10px; background: #f8fafc; }
+.stock-snapshot-grid strong { display: block; margin-top: 6px; color: #102a43; font-size: 16px; line-height: 1.25; overflow-wrap: anywhere; }
+.stock-snapshot-grid small { display: block; margin-top: 4px; color: #7b8794; font-size: 11px; }
+.stock-holding-note { display: grid; gap: 3px; border: 1px solid #c8e6d0; background: #f1fbf3; border-radius: 8px; padding: 10px 12px; color: #1f5130; font-size: 13px; line-height: 1.45; }
+.stock-holding-note span { color: #2f6841; }
+.analysis-mode-row { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.analysis-mode-row button { border: 1px solid #cbd5e1; background: #fff; color: #17324d; border-radius: 6px; padding: 9px 6px; font-weight: 800; font-size: 12px; }
+.analysis-mode-row button.active { border-color: #33658a; background: #eaf2f8; color: #17324d; box-shadow: inset 0 0 0 1px #33658a; }
+.analysis-report-card { display: grid; gap: 12px; border: 1px solid #dce7f1; border-radius: 10px; padding: 14px; background: linear-gradient(180deg, #f9fcff 0%, #ffffff 100%); }
+.analysis-report-header { display: flex; justify-content: space-between; gap: 12px; align-items: start; }
+.analysis-secondary-button { background: #17324d; }
+.analysis-report-summary { margin: 0; color: #102a43; font-size: 14px; line-height: 1.6; }
+.analysis-report-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.analysis-report-section { border: 1px solid #e5eaf0; border-radius: 8px; padding: 12px; background: #fff; }
+.analysis-report-section h3 { margin: 0 0 8px; color: #17324d; font-size: 14px; }
+.analysis-report-section ul { margin: 0; padding-left: 18px; color: #334e68; font-size: 13px; line-height: 1.6; }
+.analysis-prompt-box { width: 100%; min-height: 260px; resize: vertical; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; font: 13px/1.55 ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace; color: #102a43; background: #fbfdff; }
+.analysis-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+@media (max-width: 980px) {
+  .stock-snapshot-grid, .analysis-report-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 640px) {
+  .stock-research-page { padding: 16px 12px 36px; }
+  .stock-research-panel { padding: 14px; }
+  .stock-search-form, .stock-result-item, .stock-snapshot-grid, .analysis-mode-row, .analysis-report-grid { grid-template-columns: 1fr; }
+  .analysis-actions, .analysis-report-header { display: grid; }
+  .stock-search-form button, .stock-use-button, .analysis-actions button, .analysis-secondary-button { width: 100%; }
+}
