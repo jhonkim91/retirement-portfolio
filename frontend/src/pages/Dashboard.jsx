@@ -201,38 +201,42 @@ function Dashboard() {
         <div className="chart-container chart-wide">
           <h2>상품별 수익률</h2>
           {profitData.length === 0 ? <p className="no-data">등록된 보유 상품이 없습니다.</p> : (
-            <ResponsiveContainer width="100%" height={profitChartHeight}>
-              <BarChart
-                data={profitData}
-                layout="vertical"
-                margin={{ top: 8, right: 32, left: 4, bottom: 8 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis
-                  type="number"
-                  tickFormatter={(value) => `${Number(value).toFixed(0)}%`}
-                />
-                <YAxis
-                  type="category"
-                  dataKey="shortName"
-                  width={132}
-                  tickLine={false}
-                  axisLine={false}
-                />
-                <Tooltip formatter={(value) => `${Number(value).toFixed(2)}%`} />
-                <Bar dataKey="수익률" radius={[0, 6, 6, 0]}>
-                  {profitData.map((entry) => (
-                    <Cell key={entry.key} fill={entry.fill} />
-                  ))}
-                  <LabelList
-                    dataKey="수익률"
-                    position="right"
-                    formatter={(value) => `${Number(value).toFixed(1)}%`}
-                    className="profit-bar-label"
-                  />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            <div className="profit-chart-scroll">
+              <div className="profit-chart-inner">
+                <ResponsiveContainer width="100%" height={profitChartHeight}>
+                  <BarChart
+                    data={profitData}
+                    layout="vertical"
+                    margin={{ top: 8, right: 44, left: 12, bottom: 8 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis
+                      type="number"
+                      tickFormatter={(value) => `${Number(value).toFixed(0)}%`}
+                    />
+                    <YAxis
+                      type="category"
+                      dataKey="shortName"
+                      width={168}
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <Tooltip formatter={(value) => `${Number(value).toFixed(2)}%`} />
+                    <Bar dataKey="수익률" radius={[0, 6, 6, 0]}>
+                      {profitData.map((entry) => (
+                        <Cell key={entry.key} fill={entry.fill} />
+                      ))}
+                      <LabelList
+                        dataKey="수익률"
+                        position="right"
+                        formatter={(value) => `${Number(value).toFixed(1)}%`}
+                        className="profit-bar-label"
+                      />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
           )}
         </div>
       </section>

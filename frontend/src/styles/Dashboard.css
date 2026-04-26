@@ -21,6 +21,8 @@
 .holding-name { color: #102a43; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .holding-allocation-item strong { color: #102a43; text-align: right; }
 .profit-bar-label { fill: #102a43; font-size: 12px; font-weight: 700; }
+.profit-chart-scroll { overflow-x: auto; }
+.profit-chart-inner { min-width: 560px; }
 table { width: 100%; border-collapse: collapse; min-width: 700px; }
 th { text-align: left; color: #52606d; font-size: 13px; background: #f8fafc; }
 th, td { padding: 12px; border-bottom: 1px solid #e5eaf0; }
@@ -31,4 +33,4 @@ td { font-size: 14px; }
 .no-data { margin: 0; color: #697586; line-height: 1.6; }
 @media (max-width: 1100px) { .summary-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 900px) { .summary-cards, .charts-section { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 640px) { .dashboard { padding: 16px 12px 36px; } .summary-section .header { flex-direction: column; } .header-actions { width: 100%; justify-content: stretch; } .header-actions button { flex: 1; } .summary-cards, .charts-section { grid-template-columns: 1fr; } .amount { font-size: 21px; } }
+@media (max-width: 640px) { .dashboard { padding: 16px 12px 36px; } .summary-section .header { flex-direction: column; } .header-actions { width: 100%; justify-content: stretch; } .header-actions button { flex: 1; } .summary-cards, .charts-section { grid-template-columns: 1fr; } .amount { font-size: 21px; } .profit-chart-inner { min-width: 620px; } }
