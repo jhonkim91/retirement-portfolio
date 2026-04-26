@@ -16,6 +16,68 @@ const emptyProductForm = (today) => ({
 });
 
 const getInitialAccountName = () => localStorage.getItem(ACCOUNT_STORAGE_KEY) || DEFAULT_ACCOUNT_NAME;
+const TREND_UNIT_OPTIONS = [
+  { value: 'year', label: '년' },
+  { value: 'month', label: '개월' },
+  { value: 'day', label: '일' }
+];
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+const toPositiveInteger = (value, fallback = 1) => {
+  const number = Number.parseInt(value, 10);
+  return Number.isFinite(number) && number > 0 ? number : fallback;
+};
+
+const parseRecordDate = (value) => {
+  const [year, month, day] = String(value || '').split('-').map(Number);
+  if (![year, month, day].every(Number.isFinite)) return null;
+  return new Date(year, month - 1, day);
+};
+
+const formatDateKey = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const addDateUnits = (date, amount, unit) => {
+  if (unit === 'year') {
+    const targetYear = date.getFullYear() + amount;
+    const targetMonth = date.getMonth();
+    const targetDay = Math.min(date.getDate(), new Date(targetYear, targetMonth + 1, 0).getDate());
+    return new Date(targetYear, targetMonth, targetDay);
+  }
+
+  if (unit === 'month') {
+    const targetMonth = new Date(date.getFullYear(), date.getMonth() + amount, 1);
+    const targetDay = Math.min(date.getDate(), new Date(targetMonth.getFullYear(), targetMonth.getMonth() + 1, 0).getDate());
+    return new Date(targetMonth.getFullYear(), targetMonth.getMonth(), targetDay);
+  }
+
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + amount);
+};
+
+const getBucketStartDate = (recordDate, startDate, intervalAmount, intervalUnit) => {
+  const date = parseRecordDate(recordDate);
+  if (!date || !startDate) return null;
+
+  if (intervalUnit === 'year') {
+    const years = Math.max(date.getFullYear() - startDate.getFullYear(), 0);
+    return addDateUnits(startDate, Math.floor(years / intervalAmount) * intervalAmount, 'year');
+  }
+
+  if (intervalUnit === 'month') {
+    const months = Math.max(
+      (date.getFullYear() - startDate.getFullYear()) * 12 + date.getMonth() - startDate.getMonth(),
+      0
+    );
+    return addDateUnits(startDate, Math.floor(months / intervalAmount) * intervalAmount, 'month');
+  }
+
+  const days = Math.max(Math.floor((date.getTime() - startDate.getTime()) / MS_PER_DAY), 0);
+  return addDateUnits(startDate, Math.floor(days / intervalAmount) * intervalAmount, 'day');
+};
 
 function Portfolio() {
   const today = new Date().toISOString().slice(0, 10);
@@ -40,6 +102,10 @@ function Portfolio() {
   const [showProductSearch, setShowProductSearch] = useState(false);
   const [selectedProductName, setSelectedProductName] = useState('');
   const [selectedTrendProductIds, setSelectedTrendProductIds] = useState([]);
+  const [trendRangeAmount, setTrendRangeAmount] = useState('1');
+  const [trendRangeUnit, setTrendRangeUnit] = useState('year');
+  const [trendIntervalAmount, setTrendIntervalAmount] = useState('5');
+  const [trendIntervalUnit, setTrendIntervalUnit] = useState('day');
 
   const loadData = useCallback(async () => {
     const [productData, trendData, cashData] = await Promise.all([
@@ -105,25 +171,68 @@ function Portfolio() {
     () => trends.filter((row) => selectedTrendProductSet.has(String(row.product_id))),
     [trends, selectedTrendProductSet]
   );
+  const safeTrendRangeAmount = useMemo(() => toPositiveInteger(trendRangeAmount), [trendRangeAmount]);
+  const safeTrendIntervalAmount = useMemo(() => toPositiveInteger(trendIntervalAmount), [trendIntervalAmount]);
+  const trendDateWindow = useMemo(() => {
+    const dates = filteredTrends.map((row) => parseRecordDate(row.record_date)).filter(Boolean);
+    if (dates.length === 0) return { startDate: null, endDate: null };
+    const endDate = dates.reduce((latest, date) => (date > latest ? date : latest), dates[0]);
+    const startDate = addDateUnits(endDate, -safeTrendRangeAmount, trendRangeUnit);
+    return { startDate, endDate };
+  }, [filteredTrends, safeTrendRangeAmount, trendRangeUnit]);
+  const windowedTrends = useMemo(() => (
+    filteredTrends.filter((row) => {
+      const rowDate = parseRecordDate(row.record_date);
+      if (!rowDate || !trendDateWindow.startDate || !trendDateWindow.endDate) return false;
+      return rowDate >= trendDateWindow.startDate && rowDate <= trendDateWindow.endDate;
+    })
+  ), [filteredTrends, trendDateWindow]);
+  const trendSeries = useMemo(() => {
+    const seriesMap = new Map();
+    windowedTrends.forEach((row) => {
+      if (!seriesMap.has(row.product_id)) {
+        seriesMap.set(row.product_id, {
+          id: row.product_id,
+          key: `product_${row.product_id}`,
+          name: row.product_name
+        });
+      }
+    });
+    return Array.from(seriesMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [windowedTrends]);
 
   const chartData = useMemo(() => {
-    const byDate = {};
-    filteredTrends.forEach((row) => {
-      byDate[row.record_date] = byDate[row.record_date] || { date: row.record_date };
-      byDate[row.record_date][row.product_name] = row.evaluation_value;
-      byDate[row.record_date][`${row.product_name}__meta`] = row;
+    const byPeriod = {};
+    windowedTrends.forEach((row) => {
+      const bucketStartDate = getBucketStartDate(
+        row.record_date,
+        trendDateWindow.startDate,
+        safeTrendIntervalAmount,
+        trendIntervalUnit
+      );
+      if (!bucketStartDate) return;
+      const period = formatDateKey(bucketStartDate);
+      const seriesKey = `product_${row.product_id}`;
+      const metaKey = `${seriesKey}__meta`;
+      const entry = byPeriod[period] || { date: period, sortTime: bucketStartDate.getTime() };
+      const existingMeta = entry[metaKey];
+      if (existingMeta && existingMeta.record_date > row.record_date) return;
+      entry[seriesKey] = Number(row.price_return_rate ?? row.profit_rate ?? 0);
+      entry[metaKey] = row;
+      byPeriod[period] = entry;
     });
-    return Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
-  }, [filteredTrends]);
+    return Object.values(byPeriod)
+      .sort((a, b) => a.sortTime - b.sortTime)
+      .map(({ sortTime, ...entry }) => entry);
+  }, [windowedTrends, trendDateWindow, safeTrendIntervalAmount, trendIntervalUnit]);
 
-  const productNames = [...new Set(filteredTrends.map((row) => row.product_name))];
   const trendRows = useMemo(() => (
-    [...filteredTrends].sort((a, b) => {
+    [...windowedTrends].sort((a, b) => {
       const dateOrder = b.record_date.localeCompare(a.record_date);
       if (dateOrder !== 0) return dateOrder;
       return a.product_name.localeCompare(b.product_name);
     })
-  ), [filteredTrends]);
+  ), [windowedTrends]);
   const colors = ['#33658a', '#d94841', '#256f68', '#f6ae2d', '#7f4f24', '#6a4c93'];
   const formatCurrency = (value) => new Intl.NumberFormat('ko-KR', {
     style: 'currency',
@@ -140,14 +249,14 @@ function Portfolio() {
       <div className="trend-tooltip">
         <strong>{label}</strong>
         {payload.map((item) => {
-          const row = item.payload?.[`${item.name}__meta`];
+          const row = item.payload?.[`${item.dataKey}__meta`];
           if (!row) return null;
           return (
-            <div className="trend-tooltip-item" key={item.name}>
+            <div className="trend-tooltip-item" key={item.dataKey}>
               <span className="trend-tooltip-name" style={{ color: item.color }}>{item.name}</span>
+              <span>기준가 수익률 {formatPercent(row.price_return_rate ?? row.profit_rate)}</span>
               <span>기준가 {formatCurrency(row.price)}</span>
-              <span>평가액 {formatCurrency(row.evaluation_value)}</span>
-              <span className={(row.profit_rate || 0) >= 0 ? 'profit-text' : 'loss-text'}>수익률 {formatPercent(row.profit_rate)}</span>
+              <span>매입 기준가 {formatCurrency(row.purchase_price)}</span>
             </div>
           );
         })}
@@ -612,24 +721,76 @@ function Portfolio() {
         <div className="trend-panel">
           <h2>{accountName} 추이</h2>
           <div className="trend-view">
+            <div className="trend-controls">
+              <label className="trend-control-group">
+                <span>기간</span>
+                <div className="trend-control-row">
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={trendRangeAmount}
+                    onChange={(event) => setTrendRangeAmount(event.target.value)}
+                    aria-label="추이 기간 값"
+                  />
+                  <select value={trendRangeUnit} onChange={(event) => setTrendRangeUnit(event.target.value)} aria-label="추이 기간 단위">
+                    {TREND_UNIT_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </label>
+              <label className="trend-control-group">
+                <span>단위</span>
+                <div className="trend-control-row">
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={trendIntervalAmount}
+                    onChange={(event) => setTrendIntervalAmount(event.target.value)}
+                    aria-label="추이 표시 단위 값"
+                  />
+                  <select value={trendIntervalUnit} onChange={(event) => setTrendIntervalUnit(event.target.value)} aria-label="추이 표시 단위">
+                    {TREND_UNIT_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </label>
+            </div>
             <div className="trend-chart">
-              <ResponsiveContainer width="100%" height={320}>
-                <LineChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="date" />
-                  <YAxis tickFormatter={(value) => value.toLocaleString()} />
-                  <Tooltip content={<TrendTooltip />} />
-                  <Legend />
-                  {productNames.map((name, index) => (
-                    <Line key={name} type="monotone" dataKey={name} stroke={colors[index % colors.length]} connectNulls={false} />
-                  ))}
-                </LineChart>
-              </ResponsiveContainer>
+              {selectedTrendProductIds.length === 0 ? (
+                <p className="no-data">추이를 볼 상품을 체크하세요.</p>
+              ) : chartData.length === 0 ? (
+                <p className="no-data">선택한 기간에 표시할 추이 데이터가 없습니다.</p>
+              ) : (
+                <ResponsiveContainer width="100%" height={320}>
+                  <LineChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="date" />
+                    <YAxis tickFormatter={formatPercent} label={{ value: '기준가 수익률', angle: -90, position: 'insideLeft', dx: -10, dy: 52 }} />
+                    <Tooltip content={<TrendTooltip />} />
+                    <Legend />
+                    {trendSeries.map((series, index) => (
+                      <Line
+                        key={series.key}
+                        type="monotone"
+                        dataKey={series.key}
+                        name={series.name}
+                        stroke={colors[index % colors.length]}
+                        dot={chartData.length <= 20}
+                        connectNulls={false}
+                      />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
             </div>
           </div>
           <div className="trend-detail">
             <h3>상품 추이 상세</h3>
-            {selectedTrendProductIds.length > 0 && trendRows.length === 0 && <p className="no-data">선택한 상품의 추이 데이터가 없습니다.</p>}
+            {selectedTrendProductIds.length > 0 && trendRows.length === 0 && <p className="no-data">선택한 기간의 추이 데이터가 없습니다.</p>}
             {selectedTrendProductIds.length > 0 && trendRows.length > 0 && (
               <div className="trend-table-wrapper">
                 <table className="trend-table">
@@ -643,6 +804,7 @@ function Portfolio() {
                       <th>매입금액</th>
                       <th>평가액</th>
                       <th>손익</th>
+                      <th>기준가 수익률</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -656,7 +818,10 @@ function Portfolio() {
                         <td>{formatCurrency(row.purchase_value)}</td>
                         <td>{formatCurrency(row.evaluation_value)}</td>
                         <td className={(row.profit_loss || 0) >= 0 ? 'profit-text' : 'loss-text'}>
-                          {formatCurrency(row.profit_loss)} ({Number(row.profit_rate || 0).toFixed(2)}%)
+                          {formatCurrency(row.profit_loss)}
+                        </td>
+                        <td className={(row.price_return_rate ?? row.profit_rate ?? 0) >= 0 ? 'profit-text' : 'loss-text'}>
+                          {formatPercent(row.price_return_rate ?? row.profit_rate)}
                         </td>
                       </tr>
                     ))}

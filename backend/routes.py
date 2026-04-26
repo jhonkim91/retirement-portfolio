@@ -9,7 +9,7 @@ from models import db, User, Product, PriceHistory, TradeLog, CashBalance, DEFAU
 
 api = Blueprint('api', __name__, url_prefix='/api')
 market_client = StockAPIClient()
-API_VERSION = '2026-04-25-dashboard-search-v1'
+API_VERSION = '2026-04-26-trend-price-return-v1'
 
 
 def current_user_id():
@@ -811,6 +811,8 @@ def get_portfolio_trends():
                 evaluation_value = Product.amount_for(product.quantity, history.price, product.unit_type)
                 profit_loss = evaluation_value - purchase_value
                 profit_rate = (profit_loss / purchase_value * 100) if purchase_value else 0
+                price_profit_loss = float(history.price or 0) - float(product.purchase_price or 0)
+                price_return_rate = (price_profit_loss / float(product.purchase_price) * 100) if product.purchase_price else 0
                 rows.append({
                     'product_id': product.id,
                     'product_name': product.product_name,
@@ -826,6 +828,7 @@ def get_portfolio_trends():
                     'evaluation_value': round(evaluation_value, 2),
                     'profit_loss': round(profit_loss, 2),
                     'profit_rate': round(profit_rate, 2),
+                    'price_return_rate': round(price_return_rate, 2),
                     'record_date': history.record_date.isoformat()
                 })
         rows.sort(key=lambda item: (item['record_date'], item['product_name']))

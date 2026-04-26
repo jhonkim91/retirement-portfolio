@@ -22,7 +22,12 @@
 .cash-panel h3, .deposit-panel h3 { margin: 0 0 6px; }
 .cash-panel p, .deposit-panel p { margin: 0; color: #697586; font-size: 13px; line-height: 1.5; }
 .trend-view { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
+.trend-controls { display: grid; grid-template-columns: repeat(2, minmax(180px, 1fr)); gap: 12px; align-items: end; }
+.trend-control-group { display: grid; gap: 6px; color: #334155; font-size: 13px; font-weight: 700; }
+.trend-control-row { display: grid; grid-template-columns: minmax(72px, 100px) minmax(92px, 1fr); gap: 8px; align-items: center; }
+.trend-control-row input, .trend-control-row select { width: 100%; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 11px; background: #fff; }
 .trend-chart { min-width: 0; }
+.trend-chart .no-data { min-height: 320px; display: grid; place-items: center; margin: 0; border: 1px dashed #cbd5e1; border-radius: 8px; background: #f8fafc; color: #697586; }
 .trend-tooltip { min-width: 190px; border: 1px solid #d9e2ec; border-radius: 8px; background: #fff; padding: 10px 12px; box-shadow: 0 10px 26px rgba(15, 23, 42, .14); }
 .trend-tooltip > strong { display: block; margin-bottom: 8px; color: #102a43; font-size: 13px; }
 .trend-tooltip-item { display: grid; gap: 3px; padding-top: 8px; border-top: 1px solid #edf2f7; color: #52606d; font-size: 12px; }
@@ -31,7 +36,7 @@
 .trend-detail { border-top: 1px solid #e5eaf0; margin-top: 18px; padding-top: 18px; }
 .trend-detail h3 { margin: 0 0 10px; }
 .trend-table-wrapper { overflow-x: auto; border: 1px solid #e5eaf0; border-radius: 8px; }
-.trend-table { width: 100%; min-width: 840px; border-collapse: collapse; background: #fff; }
+.trend-table { width: 100%; min-width: 980px; border-collapse: collapse; background: #fff; }
 .trend-table th { text-align: left; color: #52606d; font-size: 12px; background: #f8fafc; }
 .trend-table th, .trend-table td { padding: 10px; border-bottom: 1px solid #e5eaf0; font-size: 13px; white-space: nowrap; }
 .trend-table tr:last-child td { border-bottom: 0; }
@@ -83,4 +88,4 @@
 .edit-panel input, .edit-panel select { width: 100%; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 11px; }
 @media (max-width: 1100px) { .portfolio-workspace { grid-template-columns: 1fr; } }
 @media (max-width: 980px) { .product-row, .trend-view { grid-template-columns: 1fr; } }
-@media (max-width: 640px) { .portfolio-container { padding: 16px 12px 36px; } .form-row, .holding-card-summary, .card-actions, .inline-actions, .inline-actions:has(input + input), .buy-actions, .sell-actions, .price-fields, .buy-fields, .sell-fields, .cash-panel, .deposit-panel, .cash-actions, .deposit-actions { grid-template-columns: 1fr; } .trend-card-check { width: 100%; justify-content: start; padding-left: 10px; } .panel-heading { display: block; } .panel-heading span { display: block; margin-top: 4px; } .delete-action { justify-self: stretch; } .delete-btn, .row-actions button, .panel-fields button, .card-actions button { width: 100%; } }
+@media (max-width: 640px) { .portfolio-container { padding: 16px 12px 36px; } .form-row, .holding-card-summary, .card-actions, .inline-actions, .inline-actions:has(input + input), .buy-actions, .sell-actions, .price-fields, .buy-fields, .sell-fields, .cash-panel, .deposit-panel, .cash-actions, .deposit-actions, .trend-controls, .trend-control-row { grid-template-columns: 1fr; } .trend-card-check { width: 100%; justify-content: start; padding-left: 10px; } .panel-heading { display: block; } .panel-heading span { display: block; margin-top: 4px; } .delete-action { justify-self: stretch; } .delete-btn, .row-actions button, .panel-fields button, .card-actions button { width: 100%; } }
