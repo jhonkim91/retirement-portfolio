@@ -297,6 +297,8 @@ function StockResearchPanel({ products = [], onUseProduct, useProductLabel = '�
   const [results, setResults] = useState([]);
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [quote, setQuote] = useState(null);
+  const [aiReport, setAiReport] = useState(null);
+  const [aiLoading, setAiLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [message, setMessage] = useState('');
@@ -375,7 +377,29 @@ function StockResearchPanel({ products = [], onUseProduct, useProductLabel = '�
     setSelectedProduct(product);
     setQuery(product.name);
     setCopiedTarget('');
+    setAiReport(null);
     await loadQuote(product);
+  };
+
+  const generateAiReport = async () => {
+    if (!selectedProduct) return;
+
+    setAiLoading(true);
+    setMessage('');
+    try {
+      const report = await portfolioAPI.getProductAnalysisReport({
+        product: selectedProduct,
+        quote,
+        holding,
+        mode: selectedMode
+      });
+      setAiReport(report);
+    } catch (err) {
+      setAiReport(null);
+      setMessage(err.message || 'GPT 분석 레포트 생성에 실패했습니다.');
+    } finally {
+      setAiLoading(false);
+    }
   };
 
   const copyText = async (value, target) => {
@@ -470,7 +494,10 @@ function StockResearchPanel({ products = [], onUseProduct, useProductLabel = '�
                 key={mode.value}
                 type="button"
                 className={analysisMode === mode.value ? 'active' : ''}
-                onClick={() => setAnalysisMode(mode.value)}
+                onClick={() => {
+                  setAnalysisMode(mode.value);
+                  setAiReport(null);
+                }}
               >
                 {mode.label}
               </button>
@@ -481,7 +508,7 @@ function StockResearchPanel({ products = [], onUseProduct, useProductLabel = '�
             <div className="analysis-report-card">
               <div className="analysis-report-header">
                 <div>
-                  <span>분석 레포트</span>
+                  <span>빠른 요약</span>
                   <strong>{analysisReport.title}</strong>
                 </div>
                 <button type="button" className="analysis-secondary-button" onClick={() => copyText(buildReportText(analysisReport), 'report')}>
@@ -517,6 +544,47 @@ function StockResearchPanel({ products = [], onUseProduct, useProductLabel = '�
               </div>
             </div>
           )}
+
+          <div className="analysis-ai-card">
+            <div className="analysis-ai-header">
+              <div>
+                <span>GPT 분석</span>
+                <strong>{selectedMode.label} 기준 최신 분석 레포트</strong>
+              </div>
+              <button type="button" className="analysis-primary-button" onClick={generateAiReport} disabled={aiLoading}>
+                {aiLoading ? 'GPT 분석 생성 중...' : 'GPT 분석 생성'}
+              </button>
+            </div>
+            {!aiReport && (
+              <p className="analysis-ai-empty">
+                최신 기사와 공개 정보를 반영한 GPT 레포트를 생성할 수 있습니다.
+              </p>
+            )}
+            {aiReport && (
+              <>
+                <div className="analysis-ai-meta">
+                  <span>모델 {aiReport.model}</span>
+                </div>
+                <div className="analysis-ai-body">
+                  {String(aiReport.report || '').split('\n').map((line, index) => (
+                    <p key={`${line}-${index}`}>{line || '\u00A0'}</p>
+                  ))}
+                </div>
+                {Array.isArray(aiReport.citations) && aiReport.citations.length > 0 && (
+                  <div className="analysis-ai-sources">
+                    <h3>참고 소스</h3>
+                    <ul>
+                      {aiReport.citations.map((source) => (
+                        <li key={source.url}>
+                          <a href={source.url} target="_blank" rel="noreferrer">{source.title || source.url}</a>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
 
           <textarea className="analysis-prompt-box" value={analysisPrompt} readOnly rows="12" />
           <div className="analysis-actions">

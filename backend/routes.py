@@ -1,16 +1,18 @@
 ﻿from datetime import datetime, date
 import hashlib
 from datetime import timedelta
+import os
 
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
+import requests
 
 from api_client import StockAPIClient
 from models import db, User, Product, PriceHistory, TradeLog, CashBalance, DEFAULT_ACCOUNT_NAME
 
 api = Blueprint('api', __name__, url_prefix='/api')
 market_client = StockAPIClient()
-API_VERSION = '2026-04-26-stock-research-panel-v1'
+API_VERSION = '2026-04-26-stock-ai-report-v1'
 
 
 def current_user_id():
@@ -335,6 +337,171 @@ def build_quote_snapshot(code):
     }
 
 
+def get_openai_api_key():
+    for env_name in ('OPENAI_API_KEY', 'API_KEY'):
+        value = str(os.getenv(env_name, '') or '').strip()
+        if value and 'your_api_key_here' not in value:
+            return value
+    return ''
+
+
+def build_stock_analysis_messages(product, quote, holding, mode):
+    product_name = str((product or {}).get('name') or '').strip()
+    product_code = str((product or {}).get('code') or '').strip()
+    if not product_name and not product_code:
+        raise ValueError('분석할 종목명 또는 코드가 필요합니다.')
+
+    mode_label = str((mode or {}).get('label') or '핵심 점검').strip()
+    mode_focus = (mode or {}).get('focus') or []
+    focus_text = ', '.join(str(item).strip() for item in mode_focus if str(item).strip()) or '핵심 투자 포인트와 리스크'
+
+    quote_lines = [
+        f"- 현재가: {(quote or {}).get('price') if (quote or {}).get('price') is not None else '미확인'}",
+        f"- 가격 기준일: {(quote or {}).get('price_date') or '미확인'}",
+        f"- 52주 고가: {(quote or {}).get('high_52w') if (quote or {}).get('high_52w') is not None else '미확인'}",
+        f"- 52주 저가: {(quote or {}).get('low_52w') if (quote or {}).get('low_52w') is not None else '미확인'}",
+        f"- 최근 1년 수익률: {(quote or {}).get('one_year_return_rate') if (quote or {}).get('one_year_return_rate') is not None else '미확인'}"
+    ]
+
+    if holding:
+        holding_lines = [
+            '- 내 계좌 보유 여부: 보유 중',
+            f"- 평균 매입가/기준가: {holding.get('purchase_price')}",
+            f"- 현재 대장 기준가: {holding.get('current_price')}",
+            f"- 평가 수익률: {holding.get('profit_rate')}",
+            f"- 보유 수량/좌수: {holding.get('quantity')}"
+        ]
+    else:
+        holding_lines = ['- 내 계좌 보유 여부: 미보유']
+
+    instructions = (
+        '당신은 퇴직연금 계좌에서 국내 종목과 ETF를 점검하는 보수적인 투자 분석가입니다. '
+        '반드시 최신 공개 정보를 바탕으로 분석하고, 불확실한 내용은 추정이라고 분리하세요. '
+        '한국어로 답하고, 사실 기반 요약을 우선하며 투자 권유처럼 단정하지 마세요.'
+    )
+
+    user_prompt = '\n'.join([
+        f"분석 대상: {product_name or '종목명 미확인'} ({product_code or '코드 미확인'})",
+        f"분석 모드: {mode_label}",
+        f"중점 항목: {focus_text}",
+        '',
+        '앱에서 확보한 참고 데이터:',
+        *quote_lines,
+        '',
+        '내 계좌 기준:',
+        *holding_lines,
+        '',
+        '요청 사항:',
+        '1. 지금 시점 기준으로 종목/ETF 개요를 2~3문장으로 요약',
+        '2. 투자 포인트 3개',
+        '3. 리스크 3개',
+        '4. 내 계좌 기준 해석 2개',
+        '5. 지금 추가 확인할 질문 3개',
+        '',
+        '중요:',
+        '- 웹 검색을 활용해 최신 정보를 반영하세요.',
+        '- 인용 가능한 근거가 있는 사실 위주로 작성하세요.',
+        '- 섹션 제목을 붙여 읽기 쉽게 정리하세요.'
+    ])
+    return instructions, user_prompt
+
+
+def extract_openai_report(data):
+    report_text = str(data.get('output_text') or '').strip()
+    citations = []
+
+    for item in data.get('output') or []:
+        if item.get('type') == 'web_search_call':
+            sources = (((item.get('action') or {}).get('sources')) or [])
+            for source in sources:
+                url = str(source.get('url') or '').strip()
+                title = str(source.get('title') or url).strip()
+                if url:
+                    citations.append({'title': title, 'url': url})
+
+        if item.get('type') != 'message':
+            continue
+        for content in item.get('content') or []:
+            if content.get('type') != 'output_text':
+                continue
+            if not report_text:
+                report_text = str(content.get('text') or '').strip()
+            for annotation in content.get('annotations') or []:
+                if annotation.get('type') != 'url_citation':
+                    continue
+                url = str(annotation.get('url') or '').strip()
+                title = str(annotation.get('title') or url).strip()
+                if url:
+                    citations.append({'title': title, 'url': url})
+
+    unique = []
+    seen = set()
+    for citation in citations:
+        key = citation['url']
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(citation)
+
+    return report_text, unique
+
+
+def generate_openai_stock_report(product, quote, holding, mode):
+    api_key = get_openai_api_key()
+    if not api_key:
+        raise RuntimeError('OPENAI_API_KEY가 설정되지 않았습니다. Railway 환경변수에 OPENAI_API_KEY를 추가하세요.')
+
+    instructions, user_prompt = build_stock_analysis_messages(product, quote, holding, mode)
+    model = os.getenv('OPENAI_MODEL', 'gpt-5.4-mini')
+    payload = {
+        'model': model,
+        'instructions': instructions,
+        'input': user_prompt,
+        'reasoning': {'effort': 'low'},
+        'tools': [{
+            'type': 'web_search',
+            'user_location': {
+                'type': 'approximate',
+                'country': 'KR',
+                'city': 'Seoul',
+                'region': 'Seoul',
+                'timezone': 'Asia/Seoul'
+            }
+        }],
+        'include': ['web_search_call.action.sources'],
+        'max_output_tokens': 1400
+    }
+
+    response = requests.post(
+        'https://api.openai.com/v1/responses',
+        headers={
+            'Authorization': f'Bearer {api_key}',
+            'Content-Type': 'application/json'
+        },
+        json=payload,
+        timeout=90
+    )
+
+    try:
+        data = response.json()
+    except ValueError:
+        data = {}
+
+    if response.status_code >= 400:
+        error_message = (((data.get('error') or {}).get('message')) or 'OpenAI 응답 생성에 실패했습니다.')
+        raise RuntimeError(error_message)
+
+    report_text, citations = extract_openai_report(data)
+    if not report_text:
+        raise RuntimeError('GPT 분석 레포트 본문을 생성하지 못했습니다.')
+
+    return {
+        'model': model,
+        'report': report_text,
+        'citations': citations
+    }
+
+
 @api.route('/version', methods=['GET'])
 def get_api_version():
     return jsonify({'version': API_VERSION}), 200
@@ -469,6 +636,25 @@ def get_product_quote():
         return jsonify(build_quote_snapshot(code)), 200
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/products/analysis-report', methods=['POST'])
+@jwt_required()
+def get_product_analysis_report():
+    try:
+        data = request.get_json() or {}
+        product = data.get('product') or {}
+        quote = data.get('quote') or {}
+        holding = data.get('holding') or None
+        mode = data.get('mode') or {}
+        report = generate_openai_stock_report(product, quote, holding, mode)
+        return jsonify(report), 200
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except RuntimeError as e:
+        return jsonify({'error': str(e)}), 503
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
