@@ -7,9 +7,28 @@
 .stock-research-header h2 { margin: 0 0 6px; font-size: 21px; color: #102a43; }
 .stock-research-header p { margin: 0; color: #697586; font-size: 13px; line-height: 1.5; }
 .stock-search-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.stock-search-field { position: relative; }
 .stock-search-form input { width: 100%; height: 46px; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 11px; font: inherit; line-height: 1.25; }
 .stock-search-form button, .stock-use-button, .analysis-actions button, .analysis-secondary-button, .analysis-primary-button { border: 0; background: #33658a; color: #fff; border-radius: 6px; padding: 10px 13px; font-weight: 800; white-space: nowrap; }
 .stock-search-form button:disabled { opacity: .68; cursor: wait; }
+.stock-search-suggestion-list { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; right: 0; max-height: 260px; overflow-y: auto; background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; box-shadow: 0 12px 28px rgba(15, 23, 42, .16); }
+.stock-search-status { padding: 11px 12px; color: #697586; font-size: 13px; }
+.stock-search-suggestion-item { width: 100%; border: 0; border-bottom: 1px solid #e5eaf0; background: #fff; padding: 10px 12px; text-align: left; cursor: pointer; }
+.stock-search-suggestion-item:last-child { border-bottom: 0; }
+.stock-search-suggestion-item:hover { background: #f4f7fb; }
+.stock-search-suggestion-item strong { display: block; color: #102a43; font-size: 14px; line-height: 1.35; }
+.stock-search-suggestion-item span { display: block; margin-top: 3px; color: #697586; font-size: 12px; line-height: 1.35; }
+.held-stock-section { display: grid; gap: 10px; }
+.held-stock-header { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.held-stock-header h3 { margin: 0; color: #17324d; font-size: 15px; }
+.held-stock-header span { color: #697586; font-size: 12px; font-weight: 700; }
+.held-stock-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.held-stock-card { width: 100%; border: 1px solid #d9e2ec; border-radius: 10px; padding: 12px; background: #fff; text-align: left; display: grid; gap: 8px; cursor: pointer; box-shadow: 0 4px 14px rgba(15, 23, 42, .04); }
+.held-stock-card.active { border-color: #33658a; box-shadow: inset 0 0 0 1px #33658a; background: #f7fbff; }
+.held-stock-top strong { display: block; color: #102a43; font-size: 14px; line-height: 1.35; }
+.held-stock-top span { display: block; margin-top: 3px; color: #52606d; font-size: 12px; }
+.held-stock-meta { display: flex; justify-content: space-between; gap: 8px; color: #697586; font-size: 12px; }
+.held-stock-stats { display: flex; justify-content: space-between; gap: 8px; align-items: center; color: #17324d; font-size: 13px; font-weight: 700; }
 .stock-research-message { border: 1px solid #f6d58a; background: #fff8e6; color: #6f4e00; border-radius: 6px; padding: 10px 12px; font-size: 13px; line-height: 1.45; }
 .stock-result-list { display: grid; gap: 8px; max-height: 270px; overflow-y: auto; padding-right: 2px; }
 .stock-result-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: stretch; border: 1px solid #e5eaf0; border-radius: 8px; padding: 8px; background: #f8fafc; }
@@ -58,13 +77,14 @@
 .analysis-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
 @media (max-width: 980px) {
-  .stock-snapshot-grid, .analysis-report-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stock-snapshot-grid, .analysis-report-grid, .held-stock-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 640px) {
   .stock-research-page { padding: 16px 12px 36px; }
   .stock-research-panel { padding: 14px; }
-  .stock-search-form, .stock-result-item, .stock-snapshot-grid, .analysis-mode-row, .analysis-report-grid { grid-template-columns: 1fr; }
+  .stock-search-form, .stock-result-item, .stock-snapshot-grid, .analysis-mode-row, .analysis-report-grid, .held-stock-grid { grid-template-columns: 1fr; }
   .analysis-actions, .analysis-report-header, .analysis-ai-header { display: grid; }
   .stock-search-form button, .stock-use-button, .analysis-actions button, .analysis-secondary-button, .analysis-primary-button { width: 100%; }
+  .held-stock-meta, .held-stock-stats { display: grid; }
 }

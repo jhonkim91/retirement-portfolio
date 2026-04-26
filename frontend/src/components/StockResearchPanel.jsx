@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { portfolioAPI } from '../utils/api';
 import '../styles/StockResearch.css';
 
@@ -295,12 +295,15 @@ const buildAnalysisPrompt = ({ selectedProduct, quote, holding, mode }) => {
 function StockResearchPanel({ products = [], onUseProduct, useProductLabel = '대장 입력' }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
+  const [searchSuggestions, setSearchSuggestions] = useState([]);
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [quote, setQuote] = useState(null);
   const [aiReport, setAiReport] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [quoteLoading, setQuoteLoading] = useState(false);
+  const [suggestionLoading, setSuggestionLoading] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
   const [message, setMessage] = useState('');
   const [analysisMode, setAnalysisMode] = useState(ANALYSIS_MODES[0].value);
   const [copiedTarget, setCopiedTarget] = useState('');
@@ -325,6 +328,51 @@ function StockResearchPanel({ products = [], onUseProduct, useProductLabel = '�
     holding,
     mode: selectedMode
   }), [selectedProduct, quote, holding, selectedMode]);
+  const heldProductCards = useMemo(() => (
+    products
+      .map((product) => ({
+        id: product.id,
+        name: product.product_name,
+        code: product.product_code,
+        assetType: product.asset_type,
+        currentPrice: product.current_price,
+        purchasePrice: product.purchase_price,
+        profitRate: product.profit_rate,
+        quantity: product.quantity,
+        unitType: product.unit_type || 'share'
+      }))
+      .sort((left, right) => right.profitRate - left.profitRate)
+  ), [products]);
+
+  useEffect(() => {
+    const keyword = query.trim();
+    if (keyword.length < 2) {
+      setSearchSuggestions([]);
+      setSuggestionLoading(false);
+      return undefined;
+    }
+
+    let active = true;
+    const timer = setTimeout(async () => {
+      setSuggestionLoading(true);
+      try {
+        const rows = await portfolioAPI.searchProducts(keyword);
+        if (active) {
+          setSearchSuggestions(rows);
+          setShowSuggestions(true);
+        }
+      } catch (err) {
+        if (active) setSearchSuggestions([]);
+      } finally {
+        if (active) setSuggestionLoading(false);
+      }
+    }, 300);
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [query]);
 
   const searchProducts = async (event) => {
     event.preventDefault();
@@ -338,7 +386,7 @@ function StockResearchPanel({ products = [], onUseProduct, useProductLabel = '�
 
     setLoading(true);
     try {
-      const rows = await portfolioAPI.searchProducts(keyword);
+      const rows = searchSuggestions.length > 0 ? searchSuggestions : await portfolioAPI.searchProducts(keyword);
       setResults(rows);
       const normalizedKeyword = normalizeText(keyword);
       const exactMatch = rows.find((product) => (
@@ -378,6 +426,9 @@ function StockResearchPanel({ products = [], onUseProduct, useProductLabel = '�
     setQuery(product.name);
     setCopiedTarget('');
     setAiReport(null);
+    setResults([]);
+    setSearchSuggestions([]);
+    setShowSuggestions(false);
     await loadQuote(product);
   };
 
@@ -422,13 +473,74 @@ function StockResearchPanel({ products = [], onUseProduct, useProductLabel = '�
       </div>
 
       <form className="stock-search-form" onSubmit={searchProducts}>
-        <input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="예: 삼성전자, KODEX 200, 069500"
-        />
+        <div className="stock-search-field">
+          <input
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setMessage('');
+            }}
+            onFocus={() => {
+              if (searchSuggestions.length > 0) setShowSuggestions(true);
+            }}
+            onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+            placeholder="예: 삼성전자, KODEX 200, 069500"
+            autoComplete="off"
+          />
+          {showSuggestions && (suggestionLoading || searchSuggestions.length > 0) && (
+            <div className="stock-search-suggestion-list">
+              {suggestionLoading && <div className="stock-search-status">검색 중...</div>}
+              {searchSuggestions.map((product) => (
+                <button
+                  key={`${product.code}-${product.source}`}
+                  type="button"
+                  className="stock-search-suggestion-item"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => selectProduct(product)}
+                >
+                  <strong>{product.name}</strong>
+                  <span>{product.code} · {product.exchange} · {product.source}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <button type="submit" disabled={loading}>{loading ? '검색 중' : '검색'}</button>
       </form>
+
+      {heldProductCards.length > 0 && (
+        <section className="held-stock-section">
+          <div className="held-stock-header">
+            <h3>보유 중인 종목</h3>
+            <span>{heldProductCards.length}개</span>
+          </div>
+          <div className="held-stock-grid">
+            {heldProductCards.map((product) => (
+              <button
+                key={product.id}
+                type="button"
+                className={`held-stock-card ${selectedProduct?.code === product.code ? 'active' : ''}`}
+                onClick={() => selectProduct({ name: product.name, code: product.code, exchange: '계좌 보유', type: product.unitType === 'unit' ? 'fund' : 'stock', source: 'Holding' })}
+              >
+                <div className="held-stock-top">
+                  <strong>{product.name}</strong>
+                  <span>{product.code}</span>
+                </div>
+                <div className="held-stock-meta">
+                  <small>{product.assetType === 'risk' ? '위험자산' : '안전자산'}</small>
+                  <small>{formatNumber(product.quantity)}{product.unitType === 'unit' ? '좌' : '수'}</small>
+                </div>
+                <div className="held-stock-stats">
+                  <span>현재 {formatCurrency(product.currentPrice)}</span>
+                  <span className={product.profitRate >= 0 ? 'profit-text' : 'loss-text'}>
+                    {formatPercent(product.profitRate)}
+                  </span>
+                </div>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       {message && <div className="stock-research-message">{message}</div>}
 
