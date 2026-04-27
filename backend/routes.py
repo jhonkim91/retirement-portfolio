@@ -1524,17 +1524,40 @@ def get_portfolio_trends():
         maybe_sync_account_prices(user_id, account_name)
         products = Product.query.filter_by(user_id=user_id, account_name=account_name, status='holding').all()
         rows = []
+        changed = False
         for product in products:
-            histories = PriceHistory.query.filter_by(product_id=product.id)
-            if product.status == 'sold' and product.sale_date:
-                histories = histories.filter(PriceHistory.record_date <= product.sale_date)
             buy_logs = get_product_buy_logs(product)
+            history_start = min((log.trade_date for log in buy_logs), default=product.purchase_date)
+            history_end = product.sale_date if product.status == 'sold' and product.sale_date else date.today()
+
+            history_points = []
+            if not is_manual_price_product(product.product_code):
+                fetched_histories = market_client.get_historical_prices(product.product_code, history_start, history_end)
+                if fetched_histories:
+                    for history_row in fetched_histories:
+                        upsert_price_history(product.id, history_row['date'], history_row['price'])
+                    product.current_price = fetched_histories[-1]['price']
+                    history_points = fetched_histories
+                    changed = True
+
+            if not history_points:
+                histories = PriceHistory.query.filter_by(product_id=product.id)
+                if product.status == 'sold' and product.sale_date:
+                    histories = histories.filter(PriceHistory.record_date <= product.sale_date)
+                history_points = [
+                    {'date': history.record_date, 'price': history.price}
+                    for history in histories.order_by(PriceHistory.record_date).all()
+                ]
+
             buy_index = 0
             cumulative_quantity = 0.0
             cumulative_purchase_value = 0.0
 
-            for history in histories.order_by(PriceHistory.record_date).all():
-                while buy_index < len(buy_logs) and buy_logs[buy_index].trade_date <= history.record_date:
+            for history in history_points:
+                record_date = history['date']
+                price = history['price']
+
+                while buy_index < len(buy_logs) and buy_logs[buy_index].trade_date <= record_date:
                     buy_log = buy_logs[buy_index]
                     buy_quantity = float(buy_log.quantity or 0)
                     buy_amount = float(buy_log.total_amount or trade_amount(buy_quantity, buy_log.price, product.unit_type))
@@ -1551,10 +1574,10 @@ def get_portfolio_trends():
                     product.unit_type
                 )
                 purchase_value = cumulative_purchase_value
-                evaluation_value = Product.amount_for(cumulative_quantity, history.price, product.unit_type)
+                evaluation_value = Product.amount_for(cumulative_quantity, price, product.unit_type)
                 profit_loss = evaluation_value - purchase_value
                 profit_rate = (profit_loss / purchase_value * 100) if purchase_value else 0
-                price_profit_loss = float(history.price or 0) - float(effective_purchase_price or 0)
+                price_profit_loss = float(price or 0) - float(effective_purchase_price or 0)
                 price_return_rate = (price_profit_loss / float(effective_purchase_price) * 100) if effective_purchase_price else 0
                 rows.append({
                     'product_id': product.id,
@@ -1567,16 +1590,19 @@ def get_portfolio_trends():
                     'unit_label': '좌' if product.unit_type == 'unit' else '수',
                     'purchase_price': round(effective_purchase_price, 4),
                     'purchase_value': round(purchase_value, 2),
-                    'price': history.price,
+                    'price': price,
                     'evaluation_value': round(evaluation_value, 2),
                     'profit_loss': round(profit_loss, 2),
                     'profit_rate': round(profit_rate, 2),
                     'price_return_rate': round(price_return_rate, 2),
-                    'record_date': history.record_date.isoformat()
+                    'record_date': record_date.isoformat()
                 })
+        if changed:
+            db.session.commit()
         rows.sort(key=lambda item: (item['record_date'], item['product_name']))
         return jsonify(rows), 200
     except Exception as e:
+        db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
 

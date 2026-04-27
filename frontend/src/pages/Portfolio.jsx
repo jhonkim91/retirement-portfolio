@@ -247,6 +247,13 @@ function Portfolio() {
     const endDate = getEarlierDate(addDateUnits(startDate, safeTrendRangeAmount, trendRangeUnit), todayDate);
     return { startDate, endDate };
   }, [products, selectedTrendProductSet, safeTrendRangeAmount, trendRangeUnit]);
+  const windowedTrends = useMemo(() => (
+    filteredTrends.filter((row) => {
+      const rowDate = parseRecordDate(row.record_date);
+      if (!rowDate || !trendDateWindow.startDate || !trendDateWindow.endDate) return false;
+      return rowDate >= trendDateWindow.startDate && rowDate <= trendDateWindow.endDate;
+    })
+  ), [filteredTrends, trendDateWindow]);
   const trendSeries = useMemo(() => {
     const seriesMap = new Map();
     filteredTrends.forEach((row) => {
@@ -295,21 +302,12 @@ function Portfolio() {
   ), [chartData, trendSeries]);
 
   const trendRows = useMemo(() => (
-    [...chartData]
-      .sort((a, b) => b.date.localeCompare(a.date))
-      .flatMap((entry) => (
-        trendSeries
-          .map((series) => {
-            const row = entry[`${series.key}__meta`];
-            if (!row) return null;
-            return {
-              ...row,
-              record_date: entry.date
-            };
-          })
-          .filter(Boolean)
-      ))
-  ), [chartData, trendSeries]);
+    [...windowedTrends].sort((a, b) => {
+      const dateOrder = b.record_date.localeCompare(a.record_date);
+      if (dateOrder !== 0) return dateOrder;
+      return a.product_name.localeCompare(b.product_name);
+    })
+  ), [windowedTrends]);
   const selectedTrendProducts = useMemo(() => (
     products.filter((product) => selectedTrendProductSet.has(String(product.id)))
   ), [products, selectedTrendProductSet]);
