@@ -1,0 +1,84 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`portfolio analytics engine keeps chart transformers stable for the dashboard layer 1`] = `
+Object {
+  "cards": Array [
+    Object {
+      "key": "twr",
+      "label": "TWR",
+      "suffix": "%",
+      "value": 26.5326,
+    },
+    Object {
+      "key": "mwr",
+      "label": "MWR / IRR",
+      "suffix": "%",
+      "value": -34.7598,
+    },
+    Object {
+      "key": "cagr",
+      "label": "CAGR",
+      "suffix": "%",
+      "value": 23.6835,
+    },
+    Object {
+      "key": "drawdown",
+      "label": "Max drawdown",
+      "suffix": "%",
+      "value": 0,
+    },
+  ],
+  "contribution": Array [
+    Object {
+      "amount": 3978.57,
+      "contributionPct": 17.6768,
+      "key": "1",
+      "kind": "positive",
+      "label": "Alpha ETF",
+      "span": 3978.57,
+      "start": 0,
+    },
+    Object {
+      "amount": 1326.13,
+      "contributionPct": 5.8416,
+      "key": "2",
+      "kind": "positive",
+      "label": "Beta Bond",
+      "span": 1326.13,
+      "start": 3978.57,
+    },
+    Object {
+      "amount": 0,
+      "contributionPct": 0,
+      "key": "__cash__",
+      "kind": "positive",
+      "label": "현금",
+      "span": 0,
+      "start": 5304.7,
+    },
+  ],
+  "cumulative": Array [
+    Object {
+      "benchmark": 0,
+      "benchmarkIndex": 100,
+      "date": "2025-01-02",
+      "portfolio": 0,
+      "portfolioIndex": 100,
+    },
+    Object {
+      "benchmark": 0.09,
+      "benchmarkIndex": 100.090019,
+      "date": "2025-01-03",
+      "portfolio": 0.06,
+      "portfolioIndex": 100.060036,
+    },
+    Object {
+      "benchmark": 0.18,
+      "benchmarkIndex": 100.180038,
+      "date": "2025-01-06",
+      "portfolio": 0.1201,
+      "portfolioIndex": 100.120144,
+    },
+  ],
+}
+`;

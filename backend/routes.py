@@ -15,7 +15,7 @@ from models import AccountProfile, db, User, Product, PriceHistory, TradeLog, Ca
 
 api = Blueprint('api', __name__, url_prefix='/api')
 market_client = StockAPIClient()
-API_VERSION = '2026-04-27-stock-screener-v1'
+API_VERSION = '2026-04-27-analytics-engine-v1'
 MARKET_TIMEZONE = ZoneInfo('Asia/Seoul')
 MARKET_SYNC_TTL_SECONDS = 60 * 5
 _market_sync_cache = {}
@@ -1615,7 +1615,7 @@ def run_stock_screener():
 def get_screener_chart():
     try:
         code = request.args.get('code', '').strip()
-        lookback_days = max(60, min(int(request.args.get('days') or 120), 240))
+        lookback_days = max(60, min(int(request.args.get('days') or 120), 520))
         if not code:
             return jsonify({'error': '종목 코드를 입력하세요.'}), 400
         return jsonify({
@@ -2039,8 +2039,12 @@ def get_portfolio_trends():
     try:
         user_id = current_user_id()
         account_name = current_account_name()
+        include_sold = str(request.args.get('include_sold') or '').strip().lower() in ('1', 'true', 'yes', 'all')
         maybe_sync_account_prices(user_id, account_name)
-        products = Product.query.filter_by(user_id=user_id, account_name=account_name, status='holding').all()
+        query = Product.query.filter_by(user_id=user_id, account_name=account_name)
+        if not include_sold:
+            query = query.filter_by(status='holding')
+        products = query.all()
         rows = []
         changed = False
         for product in products:

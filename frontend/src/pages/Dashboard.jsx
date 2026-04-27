@@ -13,9 +13,13 @@ import {
   YAxis
 } from 'recharts';
 import AccountSelector from '../components/AccountSelector';
+import AnalyticsDashboard from '../components/analytics/AnalyticsDashboard';
+import { buildAnalyticsInputs, DEFAULT_BENCHMARKS } from '../lib/analytics/adapters';
+import { computePortfolioAnalytics } from '../lib/analytics/engine';
 import {
   DEFAULT_ACCOUNT_NAME,
   portfolioAPI,
+  tradeLogAPI,
   readStoredAccountName,
   writeStoredAccountName
 } from '../utils/api';
@@ -139,20 +143,54 @@ function Dashboard() {
   const [cashEditing, setCashEditing] = useState(false);
   const [cashAmount, setCashAmount] = useState('');
   const [cashLoading, setCashLoading] = useState(false);
+  const [analyticsLoading, setAnalyticsLoading] = useState(true);
+  const [analyticsError, setAnalyticsError] = useState('');
+  const [analyticsRaw, setAnalyticsRaw] = useState({
+    allProducts: [],
+    transactions: [],
+    trends: [],
+    benchmark: { name: DEFAULT_BENCHMARKS.retirement.name, series: [] }
+  });
 
   const fetchDashboardData = useCallback(async () => {
     try {
       setError('');
-      const [summaryResponse, productsResponse] = await Promise.all([
+      setAnalyticsError('');
+      setAnalyticsLoading(true);
+      const [summaryResponse, productsResponse, allProductsResponse, trendsResponse, tradeLogsResponse] = await Promise.all([
         portfolioAPI.getSummary(accountName),
-        portfolioAPI.getProducts(accountName)
+        portfolioAPI.getProducts(accountName),
+        portfolioAPI.getAllProducts(accountName),
+        portfolioAPI.getTrends(accountName, { includeSold: true }),
+        tradeLogAPI.getLogs({ accountName })
       ]);
+      const benchmarkConfig = DEFAULT_BENCHMARKS[summaryResponse?.account_type] || DEFAULT_BENCHMARKS.retirement;
+      let benchmarkResponse = { name: benchmarkConfig.name, series: [] };
+      try {
+        const chartResponse = await portfolioAPI.getBenchmarkChart(benchmarkConfig.code, 520);
+        benchmarkResponse = {
+          name: benchmarkConfig.name,
+          series: chartResponse?.series || []
+        };
+      } catch (benchmarkFetchError) {
+        benchmarkResponse = {
+          name: benchmarkConfig.name,
+          series: []
+        };
+      }
       setSummary(summaryResponse);
       setProducts(productsResponse);
+      setAnalyticsRaw({
+        allProducts: allProductsResponse,
+        transactions: tradeLogsResponse,
+        trends: trendsResponse,
+        benchmark: benchmarkResponse
+      });
     } catch (err) {
       setError(err.message || '현황을 불러오지 못했습니다.');
     } finally {
       setLoading(false);
+      setAnalyticsLoading(false);
     }
   }, [accountName]);
 
@@ -165,6 +203,24 @@ function Dashboard() {
   useEffect(() => {
     setCashAmount(String(summary?.total_cash ?? 0));
   }, [summary?.total_cash, accountName]);
+
+  const analyticsReport = useMemo(() => {
+    if (!summary) return null;
+
+    try {
+      return computePortfolioAnalytics(buildAnalyticsInputs({
+        accountType: summary?.account_type || 'retirement',
+        holdings: analyticsRaw.allProducts,
+        products: analyticsRaw.allProducts,
+        summary,
+        transactions: analyticsRaw.transactions,
+        trends: analyticsRaw.trends,
+        benchmarkSeries: analyticsRaw.benchmark
+      }));
+    } catch (analyticsEngineError) {
+      return null;
+    }
+  }, [analyticsRaw, summary]);
 
   const changeAccountName = (value) => {
     writeStoredAccountName(value);
@@ -669,6 +725,12 @@ function Dashboard() {
           </>
         )}
       </section>
+
+      <AnalyticsDashboard
+        report={analyticsReport}
+        loading={analyticsLoading}
+        error={analyticsError || (!analyticsLoading && !analyticsReport ? '분석 엔진 계산 중 오류가 발생했습니다.' : '')}
+      />
     </main>
   );
 }

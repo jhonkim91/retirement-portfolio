@@ -1,0 +1,888 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`AnalyticsDashboard renders the analytics widget stack 1`] = `
+<DocumentFragment>
+  <section
+    class="analytics-section"
+  >
+    <div
+      class="analytics-header"
+    >
+      <div>
+        <h2>
+          포트폴리오 분석 엔진
+        </h2>
+        <p>
+          2025-01-02 ~ 2026-01-28 · Synthetic Benchmark 비교
+        </p>
+      </div>
+      <div
+        class="analytics-actions"
+      >
+        <label
+          class="analytics-toggle"
+        >
+          <span>
+            Benchmark overlay
+          </span>
+          <input
+            checked=""
+            type="checkbox"
+          />
+        </label>
+        <div
+          class="analytics-segment"
+        >
+          <button
+            class="active"
+            type="button"
+          >
+            Linear
+          </button>
+          <button
+            class=""
+            type="button"
+          >
+            Log
+          </button>
+        </div>
+      </div>
+    </div>
+    <div
+      class="analytics-risk-grid"
+    >
+      <article
+        class="analytics-metric-card positive"
+      >
+        <span>
+          TWR
+        </span>
+        <strong>
+          26.53%
+        </strong>
+      </article>
+      <article
+        class="analytics-metric-card negative"
+      >
+        <span>
+          MWR / IRR
+        </span>
+        <strong>
+          -34.76%
+        </strong>
+      </article>
+      <article
+        class="analytics-metric-card positive"
+      >
+        <span>
+          CAGR
+        </span>
+        <strong>
+          23.68%
+        </strong>
+      </article>
+      <article
+        class="analytics-metric-card positive"
+      >
+        <span>
+          Max drawdown
+        </span>
+        <strong>
+          0.00%
+        </strong>
+      </article>
+      <article
+        class="analytics-metric-card positive"
+      >
+        <span>
+          30D vol
+        </span>
+        <strong>
+          0.00%
+        </strong>
+      </article>
+      <article
+        class="analytics-metric-card positive"
+      >
+        <span>
+          90D vol
+        </span>
+        <strong>
+          0.01%
+        </strong>
+      </article>
+      <article
+        class="analytics-metric-card positive"
+      >
+        <span>
+          1Y vol
+        </span>
+        <strong>
+          0.04%
+        </strong>
+      </article>
+      <article
+        class="analytics-metric-card positive"
+      >
+        <span>
+          Sharpe
+        </span>
+        <strong>
+          148.379
+        </strong>
+      </article>
+      <article
+        class="analytics-metric-card positive"
+      >
+        <span>
+          Sortino
+        </span>
+        <strong>
+          0.000
+        </strong>
+      </article>
+      <article
+        class="analytics-metric-card positive"
+      >
+        <span>
+          Beta
+        </span>
+        <strong>
+          0.938
+        </strong>
+      </article>
+      <article
+        class="analytics-metric-card positive"
+      >
+        <span>
+          Correlation
+        </span>
+        <strong>
+          0.526
+        </strong>
+      </article>
+      <article
+        class="analytics-metric-card positive"
+      >
+        <span>
+          Tracking error
+        </span>
+        <strong>
+          0.13%
+        </strong>
+      </article>
+      <article
+        class="analytics-metric-card negative"
+      >
+        <span>
+          Excess return
+        </span>
+        <strong>
+          -2.00%
+        </strong>
+      </article>
+    </div>
+    <section
+      class="analytics-panel"
+    >
+      <div
+        class="analytics-panel-header"
+      >
+        <h3>
+          누적수익률 vs benchmark
+        </h3>
+      </div>
+      <div
+        class="analytics-chart-shell"
+      >
+        <div
+          class="recharts-responsive-container"
+          style="width: 100%; height: 340px; min-width: 0;"
+        >
+          <div
+            style="width: 0px; overflow-x: visible;"
+          />
+        </div>
+      </div>
+    </section>
+    <div
+      class="analytics-two-column"
+    >
+      <section
+        class="analytics-panel"
+      >
+        <div
+          class="analytics-panel-header"
+        >
+          <h3>
+            Drawdown area
+          </h3>
+        </div>
+        <div
+          class="analytics-chart-shell"
+        >
+          <div
+            class="recharts-responsive-container"
+            style="width: 100%; height: 280px; min-width: 0;"
+          >
+            <div
+              style="width: 0px; overflow-x: visible;"
+            />
+          </div>
+        </div>
+      </section>
+      <section
+        class="analytics-panel"
+      >
+        <div
+          class="analytics-panel-header"
+        >
+          <h3>
+            월간 heatmap
+          </h3>
+        </div>
+        <div
+          class="analytics-heatmap"
+        >
+          <div
+            class="analytics-heatmap-grid analytics-heatmap-head"
+          >
+            <span />
+            <strong>
+              2025
+            </strong>
+            <strong>
+              2026
+            </strong>
+          </div>
+          <div
+            class="analytics-heatmap-grid"
+          >
+            <span
+              class="analytics-heatmap-label"
+            >
+              1월
+            </span>
+            <div
+              class="analytics-heatmap-cell"
+              style="background-color: rgb(220, 230, 242);"
+              title="2025-01: 1.28%"
+            >
+              1.3%
+            </div>
+            <div
+              class="analytics-heatmap-cell"
+              style="background-color: rgb(220, 230, 242);"
+              title="2026-01: 1.79%"
+            >
+              1.8%
+            </div>
+          </div>
+          <div
+            class="analytics-heatmap-grid"
+          >
+            <span
+              class="analytics-heatmap-label"
+            >
+              2월
+            </span>
+            <div
+              class="analytics-heatmap-cell"
+              style="background-color: rgb(220, 230, 242);"
+              title="2025-02: 1.53%"
+            >
+              1.5%
+            </div>
+            <div
+              class="analytics-heatmap-cell"
+              style="background-color: rgb(244, 247, 251);"
+              title="데이터 없음"
+            >
+              -
+            </div>
+          </div>
+          <div
+            class="analytics-heatmap-grid"
+          >
+            <span
+              class="analytics-heatmap-label"
+            >
+              3월
+            </span>
+            <div
+              class="analytics-heatmap-cell"
+              style="background-color: rgb(220, 230, 242);"
+              title="2025-03: 1.82%"
+            >
+              1.8%
+            </div>
+            <div
+              class="analytics-heatmap-cell"
+              style="background-color: rgb(244, 247, 251);"
+              title="데이터 없음"
+            >
+              -
+            </div>
+          </div>
+          <div
+            class="analytics-heatmap-grid"
+          >
+            <span
+              class="analytics-heatmap-label"
+            >
+              4월
+            </span>
+            <div
+              class="analytics-heatmap-cell"
+              style="background-color: rgb(220, 230, 242);"
+              title="2025-04: 1.91%"
+            >
+              1.9%
+            </div>
+            <div
+              class="analytics-heatmap-cell"
+              style="background-color: rgb(244, 247, 251);"
+              title="데이터 없음"
+            >
+              -
+            </div>
+          </div>
+          <div
+            class="analytics-heatmap-grid"
+          >
+            <span
+              class="analytics-heatmap-label"
+            >
+              5월
+            </span>
+            <div
+              class="analytics-heatmap-cell"
+              style="background-color: rgb(220, 230, 242);"
+              title="2025-05: 1.92%"
+            >
+              1.9%
+            </div>
+            <div
+              class="analytics-heatmap-cell"
+              style="background-color: rgb(244, 247, 251);"
+              title="데이터 없음"
+            >
+              -
+            </div>
+          </div>
+          <div
+            class="analytics-heatmap-grid"
+          >
+            <span
+              class="analytics-heatmap-label"
+            >
+              6월
+            </span>
+            <div
+              class="analytics-heatmap-cell"
+              style="background-color: rgb(220, 230, 242);"
+              title="2025-06: 1.84%"
+            >
+              1.8%
+            </div>
+            <div
+              class="analytics-heatmap-cell"
+              style="background-color: rgb(244, 247, 251);"
+              title="데이터 없음"
+            >
+              -
+            </div>
+          </div>
+          <div
+            class="analytics-heatmap-grid"
+          >
+            <span
+              class="analytics-heatmap-label"
+            >
+              7월
+            </span>
+            <div
+              class="analytics-heatmap-cell"
+              style="background-color: rgb(220, 230, 242);"
+              title="2025-07: 2.02%"
+            >
+              2.0%
+            </div>
+            <div
+              class="analytics-heatmap-cell"
+              style="background-color: rgb(244, 247, 251);"
+              title="데이터 없음"
+            >
+              -
+            </div>
+          </div>
+          <div
+            class="analytics-heatmap-grid"
+          >
+            <span
+              class="analytics-heatmap-label"
+            >
+              8월
+            </span>
+            <div
+              class="analytics-heatmap-cell"
+              style="background-color: rgb(220, 230, 242);"
+              title="2025-08: 1.85%"
+            >
+              1.8%
+            </div>
+            <div
+              class="analytics-heatmap-cell"
+              style="background-color: rgb(244, 247, 251);"
+              title="데이터 없음"
+            >
+              -
+            </div>
+          </div>
+          <div
+            class="analytics-heatmap-grid"
+          >
+            <span
+              class="analytics-heatmap-label"
+            >
+              9월
+            </span>
+            <div
+              class="analytics-heatmap-cell"
+              style="background-color: rgb(220, 230, 242);"
+              title="2025-09: 1.94%"
+            >
+              1.9%
+            </div>
+            <div
+              class="analytics-heatmap-cell"
+              style="background-color: rgb(244, 247, 251);"
+              title="데이터 없음"
+            >
+              -
+            </div>
+          </div>
+          <div
+            class="analytics-heatmap-grid"
+          >
+            <span
+              class="analytics-heatmap-label"
+            >
+              10월
+            </span>
+            <div
+              class="analytics-heatmap-cell"
+              style="background-color: rgb(220, 230, 242);"
+              title="2025-10: 2.04%"
+            >
+              2.0%
+            </div>
+            <div
+              class="analytics-heatmap-cell"
+              style="background-color: rgb(244, 247, 251);"
+              title="데이터 없음"
+            >
+              -
+            </div>
+          </div>
+          <div
+            class="analytics-heatmap-grid"
+          >
+            <span
+              class="analytics-heatmap-label"
+            >
+              11월
+            </span>
+            <div
+              class="analytics-heatmap-cell"
+              style="background-color: rgb(220, 230, 242);"
+              title="2025-11: 1.78%"
+            >
+              1.8%
+            </div>
+            <div
+              class="analytics-heatmap-cell"
+              style="background-color: rgb(244, 247, 251);"
+              title="데이터 없음"
+            >
+              -
+            </div>
+          </div>
+          <div
+            class="analytics-heatmap-grid"
+          >
+            <span
+              class="analytics-heatmap-label"
+            >
+              12월
+            </span>
+            <div
+              class="analytics-heatmap-cell"
+              style="background-color: rgb(220, 230, 242);"
+              title="2025-12: 2.05%"
+            >
+              2.1%
+            </div>
+            <div
+              class="analytics-heatmap-cell"
+              style="background-color: rgb(244, 247, 251);"
+              title="데이터 없음"
+            >
+              -
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+    <div
+      class="analytics-two-column"
+    >
+      <section
+        class="analytics-panel"
+      >
+        <div
+          class="analytics-panel-header"
+        >
+          <h3>
+            기여도 waterfall
+          </h3>
+        </div>
+        <div
+          class="analytics-chart-shell"
+        >
+          <div
+            class="recharts-responsive-container"
+            style="width: 100%; height: 280px; min-width: 0;"
+          >
+            <div
+              style="width: 0px; overflow-x: visible;"
+            />
+          </div>
+        </div>
+      </section>
+      <section
+        class="analytics-panel"
+      >
+        <div
+          class="analytics-panel-header"
+        >
+          <h3>
+            현금흐름 vs 시장수익
+          </h3>
+        </div>
+        <div
+          class="analytics-chart-shell"
+        >
+          <div
+            class="recharts-responsive-container"
+            style="width: 100%; height: 280px; min-width: 0;"
+          >
+            <div
+              style="width: 0px; overflow-x: visible;"
+            />
+          </div>
+        </div>
+      </section>
+    </div>
+    <section
+      class="analytics-panel"
+    >
+      <div
+        class="analytics-panel-header"
+      >
+        <h3>
+          자산배분 drift stacked area
+        </h3>
+      </div>
+      <div
+        class="analytics-chart-shell"
+      >
+        <div
+          class="recharts-responsive-container"
+          style="width: 100%; height: 300px; min-width: 0;"
+        >
+          <div
+            style="width: 0px; overflow-x: visible;"
+          />
+        </div>
+      </div>
+    </section>
+    <section
+      class="analytics-panel"
+    >
+      <div
+        class="analytics-panel-header"
+      >
+        <h3>
+          리밸런싱 전후 성과
+        </h3>
+        <p>
+          기초 비중 기준 월간 리밸런싱 가정과 실제 보유 경로를 비교합니다.
+        </p>
+      </div>
+      <div
+        class="analytics-rebalance-grid"
+      >
+        <article
+          class="analytics-rebalance-card"
+        >
+          <span>
+            누적 수익률
+          </span>
+          <div
+            class="analytics-rebalance-values"
+          >
+            <div>
+              <small>
+                실제
+              </small>
+              <strong>
+                26.53%
+              </strong>
+            </div>
+            <div>
+              <small>
+                리밸런싱
+              </small>
+              <strong>
+                18.35%
+              </strong>
+            </div>
+            <div>
+              <small>
+                차이
+              </small>
+              <strong
+                style="color: rgb(217, 72, 65);"
+              >
+                -8.18%
+              </strong>
+            </div>
+          </div>
+        </article>
+        <article
+          class="analytics-rebalance-card"
+        >
+          <span>
+            최대 낙폭
+          </span>
+          <div
+            class="analytics-rebalance-values"
+          >
+            <div>
+              <small>
+                실제
+              </small>
+              <strong>
+                0.00%
+              </strong>
+            </div>
+            <div>
+              <small>
+                리밸런싱
+              </small>
+              <strong>
+                0.00%
+              </strong>
+            </div>
+            <div>
+              <small>
+                차이
+              </small>
+              <strong
+                style="color: rgb(37, 111, 104);"
+              >
+                0.00%
+              </strong>
+            </div>
+          </div>
+        </article>
+        <article
+          class="analytics-rebalance-card"
+        >
+          <span>
+            변동성
+          </span>
+          <div
+            class="analytics-rebalance-values"
+          >
+            <div>
+              <small>
+                실제
+              </small>
+              <strong>
+                0.13%
+              </strong>
+            </div>
+            <div>
+              <small>
+                리밸런싱
+              </small>
+              <strong>
+                0.00%
+              </strong>
+            </div>
+            <div>
+              <small>
+                차이
+              </small>
+              <strong
+                style="color: rgb(217, 72, 65);"
+              >
+                -0.13%
+              </strong>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+    <section
+      class="analytics-panel analytics-template-panel"
+    >
+      <div
+        class="analytics-panel-header"
+      >
+        <h3>
+          분석 템플릿
+        </h3>
+      </div>
+      <div
+        class="analytics-template-grid"
+      >
+        <article
+          class="analytics-template-card active"
+        >
+          <div
+            class="analytics-template-top"
+          >
+            <strong>
+              연금 적립형 템플릿
+            </strong>
+            <span>
+              현재 계좌
+            </span>
+          </div>
+          <p>
+            장기 적립, 안전자산 완충, 낙폭 관리 중심으로 보는 템플릿입니다.
+          </p>
+          <ul
+            class="analytics-rule-list"
+          >
+            <li
+              class="pass"
+            >
+              <div>
+                <strong>
+                  안전자산 완충
+                </strong>
+                <span>
+                  안전자산 + 현금 44.7%
+                </span>
+              </div>
+              <em>
+                적합
+              </em>
+            </li>
+            <li
+              class="pass"
+            >
+              <div>
+                <strong>
+                  입금 흐름 기록
+                </strong>
+                <span>
+                  외부 현금흐름 1건
+                </span>
+              </div>
+              <em>
+                적합
+              </em>
+            </li>
+            <li
+              class="pass"
+            >
+              <div>
+                <strong>
+                  낙폭 완충
+                </strong>
+                <span>
+                  최대낙폭 0.0%
+                </span>
+              </div>
+              <em>
+                적합
+              </em>
+            </li>
+          </ul>
+        </article>
+        <article
+          class="analytics-template-card "
+        >
+          <div
+            class="analytics-template-top"
+          >
+            <strong>
+              일반 계좌 템플릿
+            </strong>
+            <span>
+              참고 템플릿
+            </span>
+          </div>
+          <p>
+            집중도, 변동성, 벤치마크 대비 성과를 더 강하게 보는 템플릿입니다.
+          </p>
+          <ul
+            class="analytics-rule-list"
+          >
+            <li
+              class="fail"
+            >
+              <div>
+                <strong>
+                  집중도 점검
+                </strong>
+                <span>
+                  최대 단일 비중 55.3%
+                </span>
+              </div>
+              <em>
+                주의
+              </em>
+            </li>
+            <li
+              class="pass"
+            >
+              <div>
+                <strong>
+                  벤치마크 커버리지
+                </strong>
+                <span>
+                  겹치는 거래일 280일
+                </span>
+              </div>
+              <em>
+                적합
+              </em>
+            </li>
+            <li
+              class="pass"
+            >
+              <div>
+                <strong>
+                  변동성 감내
+                </strong>
+                <span>
+                  90일 연환산 변동성 0.0%
+                </span>
+              </div>
+              <em>
+                적합
+              </em>
+            </li>
+          </ul>
+        </article>
+      </div>
+    </section>
+  </section>
+</DocumentFragment>
+`;

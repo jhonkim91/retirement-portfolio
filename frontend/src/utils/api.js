@@ -78,7 +78,12 @@ export const portfolioAPI = {
   getSummary: (accountName) => apiCall(`/portfolio/summary?${accountQuery(accountName)}`),
   getProducts: (accountName) => apiCall(`/portfolio/products?${accountQuery(accountName)}`),
   getAllProducts: (accountName) => apiCall(`/portfolio/all-products?${accountQuery(accountName)}`),
-  getTrends: (accountName) => apiCall(`/portfolio/trends?${accountQuery(accountName)}`),
+  getTrends: (accountName, options = {}) => {
+    const params = new URLSearchParams();
+    params.append('account_name', accountNameOrDefault(accountName));
+    if (options.includeSold) params.append('include_sold', '1');
+    return apiCall(`/portfolio/trends?${params.toString()}`);
+  },
   syncPrices: (accountName) => apiCall(`/portfolio/sync-prices?${accountQuery(accountName)}`, 'POST'),
   searchProducts: (query) => apiCall(`/products/search?q=${encodeURIComponent(query)}`),
   getProductQuote: (code) => apiCall(`/products/quote?code=${encodeURIComponent(code)}`),
@@ -92,7 +97,8 @@ export const portfolioAPI = {
   deleteProduct: (productId) => apiCall(`/products/${productId}/delete`, 'POST'),
   sellProduct: (productId, saleData) => apiCall(`/products/${productId}/sell`, 'PUT', saleData),
   updatePrice: (productId, price) => apiCall(`/products/${productId}/update-price`, 'PUT', { price }),
-  getPriceHistory: (productId) => apiCall(`/products/${productId}/price-history`)
+  getPriceHistory: (productId) => apiCall(`/products/${productId}/price-history`),
+  getBenchmarkChart: (code, days = 320) => apiCall(`/screener/chart?code=${encodeURIComponent(code)}&days=${encodeURIComponent(days)}`)
 };
 
 export const tradeLogAPI = {
