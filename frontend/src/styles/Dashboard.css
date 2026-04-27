@@ -40,6 +40,7 @@
 .holding-name { color: #102a43; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .allocation-legend-item strong, .holding-allocation-item strong { color: #102a43; text-align: right; }
 .holding-treemap-desktop { margin-bottom: 12px; border-radius: 8px; overflow: hidden; background: #f8fafc; min-height: 480px; }
+.holding-treemap-desktop text { letter-spacing: 0; paint-order: stroke fill; stroke: rgba(15, 23, 42, 0.08); stroke-width: 0.6px; }
 .profit-bar-label { fill: #102a43; font-size: 12px; font-weight: 700; }
 .profit-chart-scroll { overflow-x: auto; }
 .profit-chart-inner { min-width: 560px; }

@@ -116,24 +116,27 @@ function HoldingTreemapCell({
   height,
   depth,
   name,
-  value,
   fill,
   payload,
-  root
+  root,
+  percentByName
 }) {
   if (depth !== 1) return null;
 
   const area = width * height;
-  const showLabel = width > 84 && height > 52;
-  const showPercent = width > 96 && height > 72;
-  const isLarge = area > 22000;
-  const isMedium = area > 11000;
-  const fontSize = isLarge ? 18 : isMedium ? 14 : 11;
-  const percentSize = isLarge ? 13 : 11;
+  const showLabel = width > 96 && height > 64;
+  const showPercent = width > 120 && height > 88;
+  const isLarge = area > 26000;
+  const isMedium = area > 14000;
+  const fontSize = isLarge ? 15 : isMedium ? 13 : 11;
+  const percentSize = isLarge ? 12 : 11;
   const safeName = String(name || payload?.name || '');
-  const labelLines = wrapChartLabel(safeName, isLarge ? 14 : 10);
-  const lineHeight = isLarge ? 22 : 16;
-  const percent = Number(payload?.percent ?? 0).toFixed(1);
+  const labelLines = wrapChartLabel(safeName, isLarge ? 16 : 12);
+  const lineHeight = isLarge ? 18 : 15;
+  const resolvedPercent = percentByName?.get(safeName);
+  const percent = Number(resolvedPercent ?? payload?.percent ?? 0).toFixed(1);
+  const textX = x + 16;
+  const textY = y + (showPercent ? 28 : 34);
 
   return (
     <g>
@@ -149,17 +152,17 @@ function HoldingTreemapCell({
       />
       {showLabel && (
         <text
-          x={x + width / 2}
-          y={y + height / 2 - (showPercent ? 12 : 0)}
-          textAnchor="middle"
+          x={textX}
+          y={textY}
+          textAnchor="start"
           fill="#f8fafc"
           fontSize={fontSize}
-          fontWeight={700}
+          fontWeight={600}
         >
           {labelLines.map((line, index) => (
             <tspan
               key={`${safeName}-${index}`}
-              x={x + width / 2}
+              x={textX}
               dy={index === 0 ? 0 : lineHeight}
             >
               {line}
@@ -169,9 +172,9 @@ function HoldingTreemapCell({
       )}
       {showPercent && (
         <text
-          x={x + width / 2}
-          y={y + height / 2 + (isLarge ? 20 : 14)}
-          textAnchor="middle"
+          x={textX}
+          y={textY + labelLines.length * lineHeight + 8}
+          textAnchor="start"
           fill="#f8fafc"
           fontSize={percentSize}
           fontWeight={700}
@@ -296,6 +299,10 @@ function Dashboard() {
       size: item.amount,
       percent: item.value
     }))
+  ), [holdingAllocation]);
+
+  const holdingPercentMap = useMemo(() => (
+    new Map(holdingAllocation.map((item) => [item.name, item.value]))
   ), [holdingAllocation]);
 
   const profitData = useMemo(() => (
@@ -489,7 +496,7 @@ function Dashboard() {
                     dataKey="size"
                     stroke="#f8fafc"
                     fill="#8884d8"
-                    content={<HoldingTreemapCell />}
+                    content={<HoldingTreemapCell percentByName={holdingPercentMap} />}
                   >
                     <Tooltip formatter={(tooltipValue, tooltipName, item) => [`${Number(item?.payload?.percent || 0).toFixed(2)}% (${formatCurrency(item?.payload?.amount)})`, item?.payload?.name || tooltipName]} />
                   </Treemap>
