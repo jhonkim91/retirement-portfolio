@@ -1,10 +1,24 @@
 .navbar { background: #17324d; color: #fff; position: sticky; top: 0; z-index: 10; box-shadow: 0 2px 12px rgba(15, 23, 42, .14); }
 .navbar-container { max-width: 1240px; margin: 0 auto; padding: 12px 20px; display: flex; align-items: center; gap: 24px; }
 .navbar-logo { color: #fff; text-decoration: none; font-weight: 800; font-size: 20px; white-space: nowrap; }
-.nav-menu { display: flex; gap: 8px; flex: 1; }
-.nav-link { color: #d9e2ec; text-decoration: none; padding: 8px 12px; border-radius: 6px; font-size: 14px; }
+.nav-menu { display: flex; gap: 8px; flex: 1; min-width: 0; }
+.nav-link { color: #d9e2ec; text-decoration: none; padding: 8px 12px; border-radius: 6px; font-size: 14px; text-align: center; }
 .nav-link.active, .nav-link:hover { background: rgba(255,255,255,.12); color: #fff; }
-.nav-user { display: flex; align-items: center; gap: 10px; }
+.nav-user { display: flex; align-items: center; gap: 10px; margin-left: auto; }
 .user-name { color: #d9e2ec; font-size: 14px; }
-.logout-btn { border: 0; background: #f6ae2d; color: #17212b; padding: 8px 12px; border-radius: 6px; font-weight: 700; }
-@media (max-width: 760px) { .navbar-container { flex-wrap: wrap; gap: 10px; } .nav-menu { order: 3; width: 100%; justify-content: space-between; } .nav-link { flex: 1; text-align: center; } .nav-user { margin-left: auto; } }
+.logout-btn { border: 0; background: #f6ae2d; color: #17212b; padding: 8px 12px; border-radius: 6px; font-weight: 700; white-space: nowrap; }
+
+@media (max-width: 760px) {
+  .navbar-container { padding: 10px 12px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 12px; align-items: center; }
+  .navbar-logo { font-size: 16px; line-height: 1.2; white-space: normal; }
+  .nav-user { gap: 8px; }
+  .user-name { font-size: 12px; }
+  .logout-btn { padding: 7px 10px; font-size: 12px; }
+  .nav-menu { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  .nav-link { padding: 10px 6px; font-size: 13px; }
+}
+
+@media (max-width: 420px) {
+  .nav-user { display: grid; justify-items: end; }
+  .nav-menu { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

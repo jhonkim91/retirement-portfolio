@@ -3,7 +3,7 @@ body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sa
 button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }
 .app-loading, .loading { display: flex; justify-content: center; align-items: center; min-height: 180px; color: #52606d; }
-.table-wrapper { overflow-x: auto; }
+.table-wrapper { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
 .no-data { color: #7b8794; text-align: center; padding: 32px 12px; }
 .account-switcher-wrap { display: grid; justify-items: end; gap: 8px; margin-bottom: 14px; }
 .account-switcher { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
