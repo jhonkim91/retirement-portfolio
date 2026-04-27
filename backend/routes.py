@@ -293,6 +293,22 @@ def rebuild_product_from_trade_logs(product):
     return {'deleted_product': False}
 
 
+def sync_product_from_trade_log(log):
+    if log.trade_type not in ('buy', 'sell') or not log.product_id:
+        return None
+
+    product = Product.query.filter_by(id=log.product_id, user_id=log.user_id).first()
+    if not product:
+        return None
+
+    log.account_name = product.account_name
+    if log.trade_type == 'buy':
+        upsert_price_history(product.id, log.trade_date, log.price)
+
+    rebuild_product_from_trade_logs(product)
+    return product
+
+
 def get_realized_positions(user_id, account_name=None):
     account_name = normalize_account_name(account_name)
     logs = (
@@ -2133,7 +2149,8 @@ def get_trade_logs():
 def update_trade_log(log_id):
     try:
         data = request.get_json() or {}
-        log = TradeLog.query.filter_by(id=log_id, user_id=current_user_id()).first()
+        user_id = current_user_id()
+        log = TradeLog.query.filter_by(id=log_id, user_id=user_id).first()
         if not log:
             return jsonify({'error': '매매일지 기록을 찾을 수 없습니다.'}), 404
 
@@ -2164,6 +2181,9 @@ def update_trade_log(log_id):
             if data.get('price') not in (None, ''):
                 log.price = parse_positive_float(data.get('price'), '가격/기준가')
             log.total_amount = trade_amount(log.quantity, log.price, log.unit_type)
+
+        if log.trade_type in ('buy', 'sell'):
+            sync_product_from_trade_log(log)
 
         db.session.commit()
         return jsonify({'message': '매매일지 기록이 수정되었습니다.', 'log': log.to_dict()}), 200

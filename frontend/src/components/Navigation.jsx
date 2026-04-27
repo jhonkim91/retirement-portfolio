@@ -24,10 +24,10 @@ function Navigation({ setUser }) {
         <Link to="/" className="navbar-logo">자산관리 대장</Link>
         <div className="nav-menu">
           <Link to="/" className={linkClass('/')}>현황</Link>
-          <Link to="/trade-logs" className={linkClass('/trade-logs')}>매매일지</Link>
-          <Link to="/stock-screener" className={linkClass('/stock-screener')}>스크리너</Link>
-          <Link to="/stock-research" className={linkClass('/stock-research')}>종목 정보</Link>
           <Link to="/portfolio" className={linkClass('/portfolio')}>상품 추이</Link>
+          <Link to="/trade-logs" className={linkClass('/trade-logs')}>매매일지</Link>
+          <Link to="/stock-research" className={linkClass('/stock-research')}>종목 정보</Link>
+          <Link to="/stock-screener" className={linkClass('/stock-screener')}>스크리너</Link>
         </div>
         <div className="nav-user">
           <span className="user-name">{user.username}</span>
