@@ -1,7 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import AccountSelector from '../components/AccountSelector';
-import { ACCOUNT_STORAGE_KEY, DEFAULT_ACCOUNT_NAME, portfolioAPI } from '../utils/api';
+import {
+  DEFAULT_ACCOUNT_NAME,
+  portfolioAPI,
+  readStoredAccountName,
+  writeStoredAccountName
+} from '../utils/api';
 import '../styles/Portfolio.css';
 
 const emptyProductForm = (today) => ({
@@ -15,7 +20,7 @@ const emptyProductForm = (today) => ({
   notes: ''
 });
 
-const getInitialAccountName = () => localStorage.getItem(ACCOUNT_STORAGE_KEY) || DEFAULT_ACCOUNT_NAME;
+const getInitialAccountName = () => readStoredAccountName() || DEFAULT_ACCOUNT_NAME;
 const PERIOD_UNIT_OPTIONS = [
   { value: 'year', label: '년' },
   { value: 'month', label: '개월' },
@@ -185,7 +190,7 @@ function Portfolio() {
   }, [products, selectedTrendProductIds]);
 
   const changeAccountName = (value) => {
-    localStorage.setItem(ACCOUNT_STORAGE_KEY, value);
+    writeStoredAccountName(value);
     setAccountName(value);
     setMessage('');
     setSelectedTrendProductIds([]);

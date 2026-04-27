@@ -7,8 +7,33 @@ const API_BASE_URL = process.env.REACT_APP_API_URL || `${window.location.protoco
 export const DEFAULT_ACCOUNT_NAME = '퇴직연금';
 export const ACCOUNT_STORAGE_KEY = 'selected_account_name';
 
+const getStoredUser = () => {
+  try {
+    return JSON.parse(localStorage.getItem('user') || '{}');
+  } catch (error) {
+    return {};
+  }
+};
+
+const getAccountStorageScope = () => {
+  const user = getStoredUser();
+  return user?.id || user?.username || 'default';
+};
+
+export const getScopedAccountStorageKey = () => `${ACCOUNT_STORAGE_KEY}:${getAccountStorageScope()}`;
+export const readStoredAccountName = () => localStorage.getItem(getScopedAccountStorageKey()) || DEFAULT_ACCOUNT_NAME;
+export const writeStoredAccountName = (accountName) => {
+  const nextValue = accountName || DEFAULT_ACCOUNT_NAME;
+  localStorage.setItem(getScopedAccountStorageKey(), nextValue);
+  localStorage.removeItem(ACCOUNT_STORAGE_KEY);
+};
+export const clearStoredAccountName = () => {
+  localStorage.removeItem(getScopedAccountStorageKey());
+  localStorage.removeItem(ACCOUNT_STORAGE_KEY);
+};
+
 const getToken = () => localStorage.getItem('access_token');
-export const accountNameOrDefault = (accountName) => accountName || localStorage.getItem(ACCOUNT_STORAGE_KEY) || DEFAULT_ACCOUNT_NAME;
+export const accountNameOrDefault = (accountName) => accountName || readStoredAccountName() || DEFAULT_ACCOUNT_NAME;
 const accountQuery = (accountName) => `account_name=${encodeURIComponent(accountNameOrDefault(accountName))}`;
 
 const apiCall = async (endpoint, method = 'GET', body = null) => {
@@ -26,6 +51,7 @@ const apiCall = async (endpoint, method = 'GET', body = null) => {
   if (response.status === 401 && endpoint !== '/auth/login') {
     localStorage.removeItem('access_token');
     localStorage.removeItem('user');
+    clearStoredAccountName();
     window.location.href = '/login';
   }
   if (!response.ok) {

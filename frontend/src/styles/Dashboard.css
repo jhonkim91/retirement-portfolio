@@ -35,10 +35,11 @@
 .allocation-bar-track { height: 12px; border-radius: 999px; background: #e9eff5; overflow: hidden; }
 .allocation-bar-fill { height: 100%; border-radius: 999px; }
 .allocation-amount { color: #697586; font-size: 13px; }
-.holding-allocation-item { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto 56px; gap: 8px; align-items: center; color: #52606d; font-size: 13px; }
+.holding-allocation-item { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto 64px; gap: 8px; align-items: center; color: #52606d; font-size: 13px; }
 .allocation-legend-item .dot, .holding-allocation-item .dot { width: 10px; height: 10px; border-radius: 999px; }
 .holding-name { color: #102a43; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .allocation-legend-item strong, .holding-allocation-item strong { color: #102a43; text-align: right; }
+.holding-allocation-item small { grid-column: 2 / -1; color: #697586; font-size: 12px; }
 .holding-treemap-desktop { margin-bottom: 12px; border-radius: 8px; overflow: hidden; background: #f8fafc; min-height: 480px; }
 .holding-treemap-desktop text { letter-spacing: 0; paint-order: stroke fill; stroke: rgba(15, 23, 42, 0.08); stroke-width: 0.6px; }
 .profit-bar-label { fill: #102a43; font-size: 12px; font-weight: 700; }

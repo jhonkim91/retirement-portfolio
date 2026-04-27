@@ -1,5 +1,6 @@
 import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { clearStoredAccountName } from '../utils/api';
 import '../styles/Navigation.css';
 
 function Navigation({ setUser }) {
@@ -10,6 +11,7 @@ function Navigation({ setUser }) {
   const handleLogout = () => {
     localStorage.removeItem('access_token');
     localStorage.removeItem('user');
+    clearStoredAccountName();
     setUser(null);
     navigate('/login');
   };

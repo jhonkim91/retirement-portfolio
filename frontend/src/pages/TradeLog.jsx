@@ -1,9 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import AccountSelector from '../components/AccountSelector';
-import { ACCOUNT_STORAGE_KEY, DEFAULT_ACCOUNT_NAME, tradeLogAPI } from '../utils/api';
+import {
+  DEFAULT_ACCOUNT_NAME,
+  readStoredAccountName,
+  tradeLogAPI,
+  writeStoredAccountName
+} from '../utils/api';
 import '../styles/TradeLog.css';
 
-const getInitialAccountName = () => localStorage.getItem(ACCOUNT_STORAGE_KEY) || DEFAULT_ACCOUNT_NAME;
+const getInitialAccountName = () => readStoredAccountName() || DEFAULT_ACCOUNT_NAME;
 
 const formatCurrency = (value) => new Intl.NumberFormat('ko-KR', {
   style: 'currency',
@@ -106,7 +111,7 @@ function TradeLog() {
   }, [logs, realizedSummary]);
 
   const changeAccountName = (value) => {
-    localStorage.setItem(ACCOUNT_STORAGE_KEY, value);
+    writeStoredAccountName(value);
     setAccountName(value);
     setEditingLogId(null);
   };

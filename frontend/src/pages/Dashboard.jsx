@@ -12,7 +12,12 @@ import {
   YAxis
 } from 'recharts';
 import AccountSelector from '../components/AccountSelector';
-import { ACCOUNT_STORAGE_KEY, DEFAULT_ACCOUNT_NAME, portfolioAPI } from '../utils/api';
+import {
+  DEFAULT_ACCOUNT_NAME,
+  portfolioAPI,
+  readStoredAccountName,
+  writeStoredAccountName
+} from '../utils/api';
 import '../styles/Dashboard.css';
 
 const COLORS = { risk: '#d94841', safe: '#256f68' };
@@ -32,12 +37,19 @@ const PRODUCT_COLOR_PALETTE = [
 ];
 const CASH_COLOR = '#7b8794';
 
-const getInitialAccountName = () => localStorage.getItem(ACCOUNT_STORAGE_KEY) || DEFAULT_ACCOUNT_NAME;
+const getInitialAccountName = () => readStoredAccountName() || DEFAULT_ACCOUNT_NAME;
 
 const formatCurrency = (value) => new Intl.NumberFormat('ko-KR', {
   style: 'currency',
   currency: 'KRW',
   maximumFractionDigits: 0
+}).format(value || 0);
+
+const formatCompactCurrency = (value) => new Intl.NumberFormat('ko-KR', {
+  style: 'currency',
+  currency: 'KRW',
+  notation: 'compact',
+  maximumFractionDigits: 1
 }).format(value || 0);
 
 const formatPercent = (value) => `${Number(value || 0).toFixed(2)}%`;
@@ -135,6 +147,8 @@ function HoldingTreemapCell({
   const lineHeight = isLarge ? 18 : 15;
   const resolvedPercent = percentByName?.get(safeName);
   const percent = Number(resolvedPercent ?? payload?.percent ?? 0).toFixed(1);
+  const amount = Number(payload?.amount || 0);
+  const showAmount = width > 132 && height > 110;
   const textX = x + 16;
   const textY = y + (showPercent ? 28 : 34);
 
@@ -182,6 +196,18 @@ function HoldingTreemapCell({
           {percent}%
         </text>
       )}
+      {showAmount && (
+        <text
+          x={textX}
+          y={textY + labelLines.length * lineHeight + (showPercent ? 28 : 16)}
+          textAnchor="start"
+          fill="#f8fafc"
+          fontSize={11}
+          fontWeight={500}
+        >
+          {formatCompactCurrency(amount)}
+        </text>
+      )}
     </g>
   );
 }
@@ -225,7 +251,7 @@ function Dashboard() {
   }, [summary?.total_cash, accountName]);
 
   const changeAccountName = (value) => {
-    localStorage.setItem(ACCOUNT_STORAGE_KEY, value);
+    writeStoredAccountName(value);
     setAccountName(value);
     setNotice('');
     setError('');
@@ -509,6 +535,7 @@ function Dashboard() {
                     <span className="holding-name">{item.name}</span>
                     <span>{item.asset_type === 'risk' ? '위험' : '안전'}</span>
                     <strong>{item.value.toFixed(1)}%</strong>
+                    <small>{formatCurrency(item.amount)}</small>
                   </div>
                 ))}
               </div>

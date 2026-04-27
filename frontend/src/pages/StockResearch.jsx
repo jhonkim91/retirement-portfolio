@@ -1,10 +1,15 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import AccountSelector from '../components/AccountSelector';
 import StockResearchPanel from '../components/StockResearchPanel';
-import { ACCOUNT_STORAGE_KEY, DEFAULT_ACCOUNT_NAME, portfolioAPI } from '../utils/api';
+import {
+  DEFAULT_ACCOUNT_NAME,
+  portfolioAPI,
+  readStoredAccountName,
+  writeStoredAccountName
+} from '../utils/api';
 import '../styles/StockResearch.css';
 
-const getInitialAccountName = () => localStorage.getItem(ACCOUNT_STORAGE_KEY) || DEFAULT_ACCOUNT_NAME;
+const getInitialAccountName = () => readStoredAccountName() || DEFAULT_ACCOUNT_NAME;
 
 function StockResearch() {
   const [accountName, setAccountName] = useState(getInitialAccountName);
@@ -30,7 +35,7 @@ function StockResearch() {
   }, [loadProducts]);
 
   const changeAccountName = (value) => {
-    localStorage.setItem(ACCOUNT_STORAGE_KEY, value);
+    writeStoredAccountName(value);
     setAccountName(value);
   };
 
