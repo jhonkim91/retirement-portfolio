@@ -9,7 +9,7 @@ from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from sqlalchemy import inspect, text
 
-from models import AccountProfile, db, Product, DEFAULT_ACCOUNT_NAME
+from models import AccountProfile, db, Product, User, DEFAULT_ACCOUNT_NAME
 from routes import api
 from scheduler import start_scheduler
 
