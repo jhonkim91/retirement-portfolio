@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import AccountSelector from '../components/AccountSelector';
 import StockResearchPanel from '../components/StockResearchPanel';
 import {
@@ -12,10 +13,12 @@ import '../styles/StockResearch.css';
 const getInitialAccountName = () => readStoredAccountName() || DEFAULT_ACCOUNT_NAME;
 
 function StockResearch() {
+  const location = useLocation();
   const [accountName, setAccountName] = useState(getInitialAccountName);
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [prefillProduct, setPrefillProduct] = useState(location.state?.prefillProduct || null);
 
   const loadProducts = useCallback(async () => {
     try {
@@ -34,6 +37,12 @@ function StockResearch() {
     loadProducts();
   }, [loadProducts]);
 
+  useEffect(() => {
+    if (location.state?.prefillProduct) {
+      setPrefillProduct(location.state.prefillProduct);
+    }
+  }, [location.state]);
+
   const changeAccountName = (value) => {
     writeStoredAccountName(value);
     setAccountName(value);
@@ -50,7 +59,7 @@ function StockResearch() {
       {loading ? (
         <div className="stock-research-loading">보유 종목을 불러오는 중...</div>
       ) : (
-        <StockResearchPanel products={products} />
+        <StockResearchPanel products={products} initialProduct={prefillProduct} />
       )}
     </main>
   );

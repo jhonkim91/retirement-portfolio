@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   CartesianGrid,
   Line,
@@ -8,6 +8,7 @@ import {
   XAxis,
   YAxis
 } from 'recharts';
+import { useNavigate } from 'react-router-dom';
 import { screenerAPI } from '../utils/api';
 import '../styles/StockScreener.css';
 
@@ -32,6 +33,7 @@ const formatPercent = (value) => {
 };
 
 function StockScreener() {
+  const navigate = useNavigate();
   const [market, setMarket] = useState('KOSPI');
   const [pages, setPages] = useState('2');
   const [limit, setLimit] = useState('18');
@@ -48,6 +50,25 @@ function StockScreener() {
   const [scanResult, setScanResult] = useState(null);
   const [selectedItem, setSelectedItem] = useState(null);
   const [chartSeries, setChartSeries] = useState([]);
+  const [presetName, setPresetName] = useState('');
+  const [savedPresets, setSavedPresets] = useState([]);
+  const [favorites, setFavorites] = useState([]);
+
+  const presetStorageKey = 'stock_screener_presets_v1';
+  const favoriteStorageKey = 'stock_screener_favorites_v1';
+
+  useEffect(() => {
+    try {
+      setSavedPresets(JSON.parse(localStorage.getItem(presetStorageKey) || '[]'));
+    } catch (error) {
+      setSavedPresets([]);
+    }
+    try {
+      setFavorites(JSON.parse(localStorage.getItem(favoriteStorageKey) || '[]'));
+    } catch (error) {
+      setFavorites([]);
+    }
+  }, []);
 
   const resultRows = scanResult?.results || [];
 
@@ -73,6 +94,96 @@ function StockScreener() {
     } finally {
       setChartLoading(false);
     }
+  };
+
+  const currentPresetPayload = useMemo(() => ({
+    market,
+    pages,
+    limit,
+    rsiMin,
+    rsiMax,
+    minReturn20d,
+    maxReturn20d,
+    requireMaCross,
+    requireBbBreakout,
+    requireMacdPositive
+  }), [
+    market,
+    pages,
+    limit,
+    rsiMin,
+    rsiMax,
+    minReturn20d,
+    maxReturn20d,
+    requireMaCross,
+    requireBbBreakout,
+    requireMacdPositive
+  ]);
+
+  const favoriteCodes = useMemo(
+    () => new Set(favorites.map((item) => item.code)),
+    [favorites]
+  );
+
+  const savePreset = () => {
+    const name = presetName.trim();
+    if (!name) {
+      setMessage('프리셋 이름을 먼저 입력해 주세요.');
+      return;
+    }
+    const nextPresets = [
+      { name, ...currentPresetPayload },
+      ...savedPresets.filter((item) => item.name !== name)
+    ].slice(0, 8);
+    setSavedPresets(nextPresets);
+    localStorage.setItem(presetStorageKey, JSON.stringify(nextPresets));
+    setPresetName('');
+    setMessage('스크리너 조건을 프리셋으로 저장했습니다.');
+  };
+
+  const applyPreset = (preset) => {
+    setMarket(preset.market || 'KOSPI');
+    setPages(String(preset.pages || '2'));
+    setLimit(String(preset.limit || '18'));
+    setRsiMin(String(preset.rsiMin || '45'));
+    setRsiMax(String(preset.rsiMax || '70'));
+    setMinReturn20d(String(preset.minReturn20d || '-8'));
+    setMaxReturn20d(String(preset.maxReturn20d || '30'));
+    setRequireMaCross(Boolean(preset.requireMaCross));
+    setRequireBbBreakout(Boolean(preset.requireBbBreakout));
+    setRequireMacdPositive(Boolean(preset.requireMacdPositive));
+    setMessage(`프리셋 "${preset.name}"을 불러왔습니다.`);
+  };
+
+  const removePreset = (presetNameValue) => {
+    const nextPresets = savedPresets.filter((item) => item.name !== presetNameValue);
+    setSavedPresets(nextPresets);
+    localStorage.setItem(presetStorageKey, JSON.stringify(nextPresets));
+  };
+
+  const toggleFavorite = (item) => {
+    const exists = favoriteCodes.has(item.code);
+    const nextFavorites = exists
+      ? favorites.filter((favorite) => favorite.code !== item.code)
+      : [{ code: item.code, name: item.name, exchange: item.exchange, savedAt: new Date().toISOString() }, ...favorites].slice(0, 24);
+    setFavorites(nextFavorites);
+    localStorage.setItem(favoriteStorageKey, JSON.stringify(nextFavorites));
+    setMessage(exists ? '관심종목에서 제거했습니다.' : '관심종목에 담았습니다.');
+  };
+
+  const moveToResearch = () => {
+    if (!selectedItem) return;
+    navigate('/stock-research', {
+      state: {
+        prefillProduct: {
+          name: selectedItem.name,
+          code: selectedItem.code,
+          exchange: selectedItem.exchange,
+          type: selectedItem.type || 'stock/ETF',
+          source: 'Screener'
+        }
+      }
+    });
   };
 
   const runScan = async (event) => {
@@ -168,6 +279,50 @@ function StockScreener() {
           </div>
         </form>
 
+        <div className="screener-preset-row">
+          <div className="screener-preset-form">
+            <input
+              type="text"
+              maxLength="24"
+              placeholder="프리셋 이름"
+              value={presetName}
+              onChange={(event) => setPresetName(event.target.value)}
+            />
+            <button type="button" onClick={savePreset}>프리셋 저장</button>
+          </div>
+          {savedPresets.length > 0 && (
+            <div className="screener-preset-list">
+              {savedPresets.map((preset) => (
+                <div key={preset.name} className="screener-preset-chip">
+                  <button type="button" onClick={() => applyPreset(preset)}>{preset.name}</button>
+                  <span role="button" tabIndex={0} onClick={() => removePreset(preset.name)} onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      removePreset(preset.name);
+                    }
+                  }}>×</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {favorites.length > 0 && (
+          <section className="screener-favorites">
+            <div className="screener-results-header">
+              <h2>관심종목</h2>
+              <span>{favorites.length}개</span>
+            </div>
+            <div className="screener-favorite-list">
+              {favorites.map((item) => (
+                <button key={item.code} type="button" className="screener-favorite-chip" onClick={() => loadChart(item)}>
+                  {item.name}
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+
         {message && <div className="stock-screener-message">{message}</div>}
 
         {scanResult && (
@@ -208,6 +363,15 @@ function StockScreener() {
                         <small key={`${item.code}-${signal}`}>{signal}</small>
                       )) : <small>추가 신호 없음</small>}
                     </div>
+                    <div className="screener-card-actions">
+                      <span>{favoriteCodes.has(item.code) ? '관심종목' : '후보 종목'}</span>
+                      <button type="button" onClick={(event) => {
+                        event.stopPropagation();
+                        toggleFavorite(item);
+                      }}>
+                        {favoriteCodes.has(item.code) ? '해제' : '담기'}
+                      </button>
+                    </div>
                   </button>
                 ))}
               </div>
@@ -220,6 +384,14 @@ function StockScreener() {
                 <h2>{selectedItem ? selectedItem.name : '선택 종목'}</h2>
                 <p>{selectedItem ? `${selectedItem.code} · ${selectedItem.exchange}` : '왼쪽에서 종목을 선택하면 차트와 지표 요약이 나옵니다.'}</p>
               </div>
+              {selectedItem && (
+                <div className="screener-detail-actions">
+                  <button type="button" onClick={() => toggleFavorite(selectedItem)}>
+                    {favoriteCodes.has(selectedItem.code) ? '관심종목 해제' : '관심종목 담기'}
+                  </button>
+                  <button type="button" className="secondary" onClick={moveToResearch}>종목 정보로 보기</button>
+                </div>
+              )}
             </div>
 
             {selectedItem && selectionSummary && (

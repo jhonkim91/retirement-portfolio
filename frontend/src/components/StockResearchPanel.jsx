@@ -138,7 +138,7 @@ const buildPromptText = ({ selectedProduct, quote, holding, mode }) => {
   return lines.join('\n');
 };
 
-function StockResearchPanel({ products = [], onUseProduct, useProductLabel = '대장 입력' }) {
+function StockResearchPanel({ products = [], initialProduct = null, onUseProduct, useProductLabel = '대장 입력' }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [searchSuggestions, setSearchSuggestions] = useState([]);
@@ -226,6 +226,13 @@ function StockResearchPanel({ products = [], onUseProduct, useProductLabel = '�
       clearTimeout(timer);
     };
   }, [query]);
+
+  useEffect(() => {
+    if (!initialProduct?.code) return;
+    if (selectedProduct && sameText(selectedProduct.code, initialProduct.code)) return;
+    selectProduct(initialProduct);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialProduct?.code]);
 
   const loadQuote = async (product) => {
     setQuote(null);
