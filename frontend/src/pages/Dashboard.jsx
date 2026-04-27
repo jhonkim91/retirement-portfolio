@@ -7,7 +7,6 @@ import {
   LabelList,
   ResponsiveContainer,
   Tooltip,
-  Treemap,
   XAxis,
   YAxis
 } from 'recharts';
@@ -43,14 +42,14 @@ const formatCurrency = (value) => new Intl.NumberFormat('ko-KR', {
   style: 'currency',
   currency: 'KRW',
   maximumFractionDigits: 0
-}).format(value || 0);
+}).format(Number(value || 0));
 
 const formatCompactCurrency = (value) => new Intl.NumberFormat('ko-KR', {
   style: 'currency',
   currency: 'KRW',
   notation: 'compact',
-  maximumFractionDigits: 1
-}).format(value || 0);
+  maximumFractionDigits: 0
+}).format(Number(value || 0));
 
 const formatPercent = (value) => `${Number(value || 0).toFixed(2)}%`;
 
@@ -58,6 +57,12 @@ const assetTypeLabel = (value) => {
   if (value === 'risk') return '위험자산';
   if (value === 'safe') return '안전자산';
   return value || '-';
+};
+
+const assetTypeShortLabel = (value) => {
+  if (value === 'risk') return '위험';
+  if (value === 'safe') return '안전';
+  return '-';
 };
 
 const getProductColor = (index) => {
@@ -97,7 +102,7 @@ const wrapChartLabel = (value, maxChars = 12) => {
 };
 
 function ProfitYAxisTick({ x, y, payload }) {
-  const lines = wrapChartLabel(payload?.value, 10);
+  const lines = wrapChartLabel(payload?.value, 12);
   const lineHeight = 14;
   const baseY = -((lines.length - 1) * lineHeight) / 2;
 
@@ -121,97 +126,6 @@ function ProfitYAxisTick({ x, y, payload }) {
   );
 }
 
-function HoldingTreemapCell({
-  x,
-  y,
-  width,
-  height,
-  depth,
-  name,
-  fill,
-  payload,
-  root,
-  percentByName
-}) {
-  if (depth !== 1) return null;
-
-  const area = width * height;
-  const showLabel = width > 96 && height > 64;
-  const showPercent = width > 120 && height > 88;
-  const isLarge = area > 26000;
-  const isMedium = area > 14000;
-  const fontSize = isLarge ? 15 : isMedium ? 13 : 11;
-  const percentSize = isLarge ? 12 : 11;
-  const safeName = String(name || payload?.name || '');
-  const labelLines = wrapChartLabel(safeName, isLarge ? 16 : 12);
-  const lineHeight = isLarge ? 18 : 15;
-  const resolvedPercent = percentByName?.get(safeName);
-  const percent = Number(resolvedPercent ?? payload?.percent ?? 0).toFixed(1);
-  const amount = Number(payload?.amount || 0);
-  const showAmount = width > 132 && height > 110;
-  const textX = x + 16;
-  const textY = y + (showPercent ? 28 : 34);
-
-  return (
-    <g>
-      <rect
-        x={x}
-        y={y}
-        width={width}
-        height={height}
-        fill={fill || payload?.fill || '#33658a'}
-        stroke={root?.stroke || '#f8fafc'}
-        strokeWidth={2}
-        rx={4}
-      />
-      {showLabel && (
-        <text
-          x={textX}
-          y={textY}
-          textAnchor="start"
-          fill="#f8fafc"
-          fontSize={fontSize}
-          fontWeight={600}
-        >
-          {labelLines.map((line, index) => (
-            <tspan
-              key={`${safeName}-${index}`}
-              x={textX}
-              dy={index === 0 ? 0 : lineHeight}
-            >
-              {line}
-            </tspan>
-          ))}
-        </text>
-      )}
-      {showPercent && (
-        <text
-          x={textX}
-          y={textY + labelLines.length * lineHeight + 8}
-          textAnchor="start"
-          fill="#f8fafc"
-          fontSize={percentSize}
-          fontWeight={700}
-        >
-          {percent}%
-        </text>
-      )}
-      {showAmount && (
-        <text
-          x={textX}
-          y={textY + labelLines.length * lineHeight + (showPercent ? 28 : 16)}
-          textAnchor="start"
-          fill="#f8fafc"
-          fontSize={11}
-          fontWeight={500}
-        >
-          {formatCompactCurrency(amount)}
-        </text>
-      )}
-    </g>
-  );
-}
-
 function Dashboard() {
   const [accountName, setAccountName] = useState(getInitialAccountName);
   const [summary, setSummary] = useState(null);
@@ -227,12 +141,12 @@ function Dashboard() {
   const fetchDashboardData = useCallback(async () => {
     try {
       setError('');
-      const [summaryRes, productsRes] = await Promise.all([
+      const [summaryResponse, productsResponse] = await Promise.all([
         portfolioAPI.getSummary(accountName),
         portfolioAPI.getProducts(accountName)
       ]);
-      setSummary(summaryRes);
-      setProducts(productsRes);
+      setSummary(summaryResponse);
+      setProducts(productsResponse);
     } catch (err) {
       setError(err.message || '현황을 불러오지 못했습니다.');
     } finally {
@@ -261,17 +175,25 @@ function Dashboard() {
   const allocation = useMemo(() => ([
     {
       name: '위험자산',
-      value: summary?.asset_allocation?.risk?.percentage || 0,
-      amount: summary?.asset_allocation?.risk?.value || 0,
+      value: Number(summary?.asset_allocation?.risk?.percentage || 0),
+      amount: Number(summary?.asset_allocation?.risk?.value || 0),
       key: 'risk'
     },
     {
       name: '안전자산',
-      value: summary?.asset_allocation?.safe?.percentage || 0,
-      amount: summary?.asset_allocation?.safe?.value || 0,
+      value: Number(summary?.asset_allocation?.safe?.percentage || 0),
+      amount: Number(summary?.asset_allocation?.safe?.value || 0),
       key: 'safe'
     }
   ]), [summary]);
+
+  const productColorMap = useMemo(() => {
+    const map = new Map();
+    products.forEach((product, index) => {
+      map.set(String(product.id), getProductColor(index));
+    });
+    return map;
+  }, [products]);
 
   const displayProducts = useMemo(() => {
     const rows = [...products];
@@ -295,52 +217,74 @@ function Dashboard() {
     return rows;
   }, [products, summary]);
 
-  const productColorMap = useMemo(() => {
-    const map = new Map();
-    products.forEach((product, index) => {
-      map.set(String(product.id), getProductColor(index));
-    });
-    return map;
-  }, [products]);
-
   const holdingAllocation = useMemo(() => {
-    const total = Number(summary?.total_current_value || 0);
-    if (!total) return [];
+    const positiveRows = displayProducts
+      .map((product) => ({
+        ...product,
+        amount: Number(product.current_value || 0)
+      }))
+      .filter((product) => product.amount > 0);
 
-    return displayProducts
-      .filter((product) => Number(product.current_value || 0) > 0)
+    const totalAmount = positiveRows.reduce((sum, product) => sum + product.amount, 0);
+    if (!totalAmount) return [];
+
+    return positiveRows
       .map((product) => ({
         key: product.id,
         name: product.product_name,
-        amount: Number(product.current_value || 0),
-        value: Number(product.current_value || 0) / total * 100,
-        asset_type: product.asset_type,
-        fill: product.is_cash ? CASH_COLOR : (productColorMap.get(String(product.id)) || getProductColor(0))
-      }));
-  }, [displayProducts, productColorMap, summary]);
+        amount: product.amount,
+        percent: (product.amount / totalAmount) * 100,
+        assetType: product.asset_type,
+        fill: product.is_cash ? CASH_COLOR : (productColorMap.get(String(product.id)) || getProductColor(0)),
+        isCash: Boolean(product.is_cash)
+      }))
+      .sort((left, right) => right.amount - left.amount);
+  }, [displayProducts, productColorMap]);
 
-  const holdingTreemapData = useMemo(() => (
-    holdingAllocation.map((item) => ({
-      ...item,
-      size: item.amount,
-      percent: item.value
-    }))
-  ), [holdingAllocation]);
+  const holdingTileItems = useMemo(() => {
+    const maxAmount = holdingAllocation[0]?.amount || 1;
 
-  const holdingPercentMap = useMemo(() => (
-    new Map(holdingAllocation.map((item) => [item.name, item.value]))
-  ), [holdingAllocation]);
+    return holdingAllocation.map((item, index) => {
+      const ratio = item.amount / maxAmount;
+      const area = item.percent;
+      let sizeClass = 'size-sm';
+      if (area >= 24 || ratio >= 0.75) sizeClass = 'size-lg';
+      else if (area >= 12 || ratio >= 0.45) sizeClass = 'size-md';
+
+      return {
+        ...item,
+        colSpan: Math.max(2, Math.min(7, Math.round(ratio * 5) + (index === 0 ? 2 : 0))),
+        rowSpan: Math.max(2, Math.min(4, Math.round(ratio * 3) + (index < 2 ? 1 : 0))),
+        labelLines: wrapChartLabel(item.name, sizeClass === 'size-lg' ? 16 : 12),
+        sizeClass
+      };
+    });
+  }, [holdingAllocation]);
+
+  const sortedDisplayProducts = useMemo(() => {
+    const rows = [...displayProducts];
+    return rows.sort((left, right) => {
+      if (left.is_cash && right.is_cash) return 0;
+      if (left.is_cash) return 1;
+      if (right.is_cash) return -1;
+
+      const profitGap = Number(right.profit_rate || 0) - Number(left.profit_rate || 0);
+      if (profitGap !== 0) return profitGap;
+
+      return Number(right.current_value || 0) - Number(left.current_value || 0);
+    });
+  }, [displayProducts]);
 
   const profitData = useMemo(() => (
     products
-      .map((product, index) => ({
+      .map((product) => ({
         key: product.id,
         name: product.product_name,
         profitRate: Number(product.profit_rate || 0),
-        fill: getProductColor(index)
+        fill: productColorMap.get(String(product.id)) || getProductColor(0)
       }))
       .sort((left, right) => right.profitRate - left.profitRate)
-  ), [products]);
+  ), [productColorMap, products]);
 
   const profitChartHeight = Math.max(280, profitData.length * 60);
 
@@ -351,9 +295,13 @@ function Dashboard() {
       setNotice('');
       const result = await portfolioAPI.syncPrices(accountName);
       await fetchDashboardData();
-      const failed = result.items.filter((item) => !item.success);
-      if (failed.length > 0) {
-        setNotice(failed.map((item) => `${item.product_code}: ${item.reason || '자동 시세를 확인하지 못했습니다.'}`).join(' / '));
+      const failedItems = result.items.filter((item) => !item.success);
+      if (failedItems.length > 0) {
+        setNotice(
+          failedItems
+            .map((item) => `${item.product_code}: ${item.reason || '자동 시세를 확인하지 못했습니다.'}`)
+            .join(' / ')
+        );
       } else {
         setNotice(result.message || '가격 동기화를 마쳤습니다.');
       }
@@ -417,7 +365,7 @@ function Dashboard() {
 
         <div className="summary-cards">
           <div className="card">
-            <h3>원금 합계</h3>
+            <h3>현재 원금 합계</h3>
             <p className="amount">{formatCurrency(summary?.total_investment)}</p>
           </div>
 
@@ -456,7 +404,7 @@ function Dashboard() {
             ) : (
               <>
                 <p className="amount">{formatCurrency(summary?.total_cash)}</p>
-                <span className="cash-card-hint">터치해서 수정</span>
+                <span className="cash-card-hint">카드를 눌러 수정</span>
               </>
             )}
           </div>
@@ -467,7 +415,7 @@ function Dashboard() {
           </div>
 
           <div className="card">
-            <h3>원금 대비 손익금</h3>
+            <h3>원금 대비 수익금</h3>
             <p className={`amount ${(summary?.total_profit_loss || 0) >= 0 ? 'profit' : 'loss'}`}>
               {formatCurrency(summary?.total_profit_loss)}
             </p>
@@ -494,12 +442,12 @@ function Dashboard() {
                       <span className="dot" style={{ backgroundColor: COLORS[entry.key] }} />
                       <span className="holding-name">{entry.name}</span>
                     </span>
-                    <strong>{Number(entry.value || 0).toFixed(1)}%</strong>
+                    <strong>{entry.value.toFixed(1)}%</strong>
                   </div>
                   <div className="allocation-bar-track">
                     <div
                       className="allocation-bar-fill"
-                      style={{ width: `${Math.min(Number(entry.value || 0), 100)}%`, backgroundColor: COLORS[entry.key] }}
+                      style={{ width: `${Math.min(entry.value, 100)}%`, backgroundColor: COLORS[entry.key] }}
                     />
                   </div>
                   <span className="allocation-amount">{formatCurrency(entry.amount)}</span>
@@ -516,25 +464,40 @@ function Dashboard() {
           ) : (
             <>
               <div className="holding-treemap-desktop">
-                <ResponsiveContainer width="100%" height={480}>
-                  <Treemap
-                    data={holdingTreemapData}
-                    dataKey="size"
-                    stroke="#f8fafc"
-                    fill="#8884d8"
-                    content={<HoldingTreemapCell percentByName={holdingPercentMap} />}
-                  >
-                    <Tooltip formatter={(tooltipValue, tooltipName, item) => [`${Number(item?.payload?.percent || 0).toFixed(2)}% (${formatCurrency(item?.payload?.amount)})`, item?.payload?.name || tooltipName]} />
-                  </Treemap>
-                </ResponsiveContainer>
+                <div className="holding-tile-grid">
+                  {holdingTileItems.map((item) => (
+                    <article
+                      key={item.key}
+                      className={`holding-tile ${item.sizeClass}`}
+                      style={{
+                        backgroundColor: item.fill,
+                        gridColumn: `span ${item.colSpan}`,
+                        gridRow: `span ${item.rowSpan}`
+                      }}
+                    >
+                      <div className="holding-tile-body">
+                        <div className="holding-tile-name">
+                          {item.labelLines.map((line, index) => (
+                            <span key={`${item.key}-${index}`}>{line}</span>
+                          ))}
+                        </div>
+                        <div className="holding-tile-metrics">
+                          <strong>{item.percent.toFixed(1)}%</strong>
+                          <span>{formatCompactCurrency(item.amount)}</span>
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                </div>
               </div>
+
               <div className="holding-allocation-list">
                 {holdingAllocation.map((item) => (
                   <div className="holding-allocation-item" key={item.key}>
                     <span className="dot" style={{ backgroundColor: item.fill }} />
                     <span className="holding-name">{item.name}</span>
-                    <span>{item.asset_type === 'risk' ? '위험' : '안전'}</span>
-                    <strong>{item.value.toFixed(1)}%</strong>
+                    <span>{assetTypeShortLabel(item.assetType)}</span>
+                    <strong>{item.percent.toFixed(1)}%</strong>
                     <small>{formatCurrency(item.amount)}</small>
                   </div>
                 ))}
@@ -609,7 +572,7 @@ function Dashboard() {
 
       <section className="products-table">
         <h2>보유 상품</h2>
-        {displayProducts.length === 0 ? (
+        {sortedDisplayProducts.length === 0 ? (
           <p className="no-data">등록된 보유 상품이 없습니다.</p>
         ) : (
           <>
@@ -620,14 +583,14 @@ function Dashboard() {
                     <th>상품명</th>
                     <th>자산 구분</th>
                     <th>매입일</th>
-                    <th>구매액</th>
-                    <th>평가액</th>
-                    <th>손익금</th>
+                    <th>구매금액</th>
+                    <th>현재가치</th>
+                    <th>수익금</th>
                     <th>수익률</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {displayProducts.map((product) => (
+                  {sortedDisplayProducts.map((product) => (
                     <tr key={product.id}>
                       <td>{product.product_name}<span className="code">{product.product_code}</span></td>
                       <td>{assetTypeLabel(product.asset_type)}</td>
@@ -647,7 +610,7 @@ function Dashboard() {
             </div>
 
             <div className="mobile-product-cards">
-              {displayProducts.map((product) => (
+              {sortedDisplayProducts.map((product) => (
                 <article className="mobile-product-card" key={product.id}>
                   <div className="mobile-product-header">
                     <div>
@@ -662,15 +625,15 @@ function Dashboard() {
                       <strong>{product.purchase_date}</strong>
                     </div>
                     <div>
-                      <span>구매액</span>
+                      <span>구매금액</span>
                       <strong>{product.is_cash ? '-' : formatCurrency(product.total_purchase_value)}</strong>
                     </div>
                     <div>
-                      <span>평가액</span>
+                      <span>현재가치</span>
                       <strong>{formatCurrency(product.current_value)}</strong>
                     </div>
                     <div>
-                      <span>손익금</span>
+                      <span>수익금</span>
                       <strong className={product.is_cash ? '' : ((product.profit_loss || 0) >= 0 ? 'profit' : 'loss')}>
                         {product.is_cash ? '-' : formatCurrency(product.profit_loss)}
                       </strong>
