@@ -5,6 +5,8 @@ import {
   CartesianGrid,
   Cell,
   LabelList,
+  Pie,
+  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -241,25 +243,10 @@ function Dashboard() {
       .sort((left, right) => right.amount - left.amount);
   }, [displayProducts, productColorMap]);
 
-  const holdingTileItems = useMemo(() => {
-    const maxAmount = holdingAllocation[0]?.amount || 1;
-
-    return holdingAllocation.map((item, index) => {
-      const ratio = item.amount / maxAmount;
-      const area = item.percent;
-      let sizeClass = 'size-sm';
-      if (area >= 24 || ratio >= 0.75) sizeClass = 'size-lg';
-      else if (area >= 12 || ratio >= 0.45) sizeClass = 'size-md';
-
-      return {
-        ...item,
-        colSpan: Math.max(2, Math.min(7, Math.round(ratio * 5) + (index === 0 ? 2 : 0))),
-        rowSpan: Math.max(2, Math.min(4, Math.round(ratio * 3) + (index < 2 ? 1 : 0))),
-        labelLines: wrapChartLabel(item.name, sizeClass === 'size-lg' ? 16 : 12),
-        sizeClass
-      };
-    });
-  }, [holdingAllocation]);
+  const holdingTotalAmount = useMemo(
+    () => holdingAllocation.reduce((sum, item) => sum + item.amount, 0),
+    [holdingAllocation]
+  );
 
   const sortedDisplayProducts = useMemo(() => {
     const rows = [...displayProducts];
@@ -463,44 +450,54 @@ function Dashboard() {
             <p className="no-data">등록된 보유 상품이 없습니다.</p>
           ) : (
             <>
-              <div className="holding-treemap-desktop">
-                <div className="holding-tile-grid">
-                  {holdingTileItems.map((item) => (
-                    <article
-                      key={item.key}
-                      className={`holding-tile ${item.sizeClass}`}
-                      style={{
-                        backgroundColor: item.fill,
-                        gridColumn: `span ${item.colSpan}`,
-                        gridRow: `span ${item.rowSpan}`
-                      }}
-                    >
-                      <div className="holding-tile-body">
-                        <div className="holding-tile-name">
-                          {item.labelLines.map((line, index) => (
-                            <span key={`${item.key}-${index}`}>{line}</span>
-                          ))}
-                        </div>
-                        <div className="holding-tile-metrics">
-                          <strong>{item.percent.toFixed(1)}%</strong>
-                          <span>{formatCompactCurrency(item.amount)}</span>
-                        </div>
-                      </div>
-                    </article>
+              <div className="holding-ring-layout">
+                <div className="holding-ring-chart">
+                  <ResponsiveContainer width="100%" height={320}>
+                    <PieChart>
+                      <Pie
+                        data={holdingAllocation}
+                        dataKey="amount"
+                        nameKey="name"
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={82}
+                        outerRadius={128}
+                        paddingAngle={2}
+                        stroke="#ffffff"
+                        strokeWidth={2}
+                      >
+                        {holdingAllocation.map((entry) => (
+                          <Cell key={entry.key} fill={entry.fill} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        formatter={(value, _name, item) => {
+                          const payload = item?.payload || {};
+                          return [
+                            `${formatCurrency(value)} / ${Number(payload.percent || 0).toFixed(1)}%`,
+                            payload.name || '보유 종목'
+                          ];
+                        }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="holding-ring-center">
+                    <span>총 평가액</span>
+                    <strong>{formatCompactCurrency(holdingTotalAmount)}</strong>
+                  </div>
+                </div>
+
+                <div className="holding-allocation-list">
+                  {holdingAllocation.map((item) => (
+                    <div className="holding-allocation-item" key={item.key}>
+                      <span className="dot" style={{ backgroundColor: item.fill }} />
+                      <span className="holding-name">{item.name}</span>
+                      <span>{assetTypeShortLabel(item.assetType)}</span>
+                      <strong>{item.percent.toFixed(1)}%</strong>
+                      <small>{formatCurrency(item.amount)}</small>
+                    </div>
                   ))}
                 </div>
-              </div>
-
-              <div className="holding-allocation-list">
-                {holdingAllocation.map((item) => (
-                  <div className="holding-allocation-item" key={item.key}>
-                    <span className="dot" style={{ backgroundColor: item.fill }} />
-                    <span className="holding-name">{item.name}</span>
-                    <span>{assetTypeShortLabel(item.assetType)}</span>
-                    <strong>{item.percent.toFixed(1)}%</strong>
-                    <small>{formatCurrency(item.amount)}</small>
-                  </div>
-                ))}
               </div>
             </>
           )}
