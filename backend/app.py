@@ -219,7 +219,7 @@ with app.app_context():
 scheduler = start_scheduler(app)
 
 if __name__ == '__main__':
-    print('퇴직연금 관리대장 서버가 시작되었습니다.')
+    print('자산관리 대장 서버가 시작되었습니다.')
     print('PC: http://localhost:5000')
     print('휴대폰: 같은 와이파이에서 http://PC_IP:5000')
     app.run(debug=False, host='0.0.0.0', port=5000, use_reloader=False)

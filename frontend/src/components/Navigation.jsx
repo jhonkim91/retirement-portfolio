@@ -21,7 +21,7 @@ function Navigation({ setUser }) {
   return (
     <nav className="navbar">
       <div className="navbar-container">
-        <Link to="/" className="navbar-logo">퇴직연금 관리대장</Link>
+        <Link to="/" className="navbar-logo">자산관리 대장</Link>
         <div className="nav-menu">
           <Link to="/" className={linkClass('/')}>현황</Link>
           <Link to="/trade-logs" className={linkClass('/trade-logs')}>매매일지</Link>

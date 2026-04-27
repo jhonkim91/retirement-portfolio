@@ -47,8 +47,8 @@ function Login({ setUser }) {
   return (
     <div className="login-container">
       <div className="login-box">
-        <h1>퇴직연금 관리대장</h1>
-        <p className="subtitle">사용자별로 분리해 보는 개인 퇴직연금 기록</p>
+        <h1>자산관리 대장</h1>
+        <p className="subtitle">퇴직연금과 주식 통장을 함께 관리하는 개인 자산 기록</p>
         <form onSubmit={handleSubmit}>
           <div className="form-group">
             <label>사용자명</label>
