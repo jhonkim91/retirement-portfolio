@@ -13,7 +13,7 @@ from models import db, User, Product, PriceHistory, TradeLog, CashBalance, DEFAU
 
 api = Blueprint('api', __name__, url_prefix='/api')
 market_client = StockAPIClient()
-API_VERSION = '2026-04-27-market-sync-v1'
+API_VERSION = '2026-04-27-trend-cost-basis-v1'
 MARKET_TIMEZONE = ZoneInfo('Asia/Seoul')
 MARKET_SYNC_TTL_SECONDS = 60 * 5
 _market_sync_cache = {}
@@ -158,6 +158,32 @@ def normalize_unit_type(value):
 
 def trade_amount(quantity, price, unit_type):
     return Product.amount_for(quantity, price, unit_type)
+
+
+def get_product_buy_logs(product):
+    buy_logs = (
+        TradeLog.query
+        .filter_by(
+            user_id=product.user_id,
+            account_name=product.account_name,
+            product_id=product.id,
+            trade_type='buy'
+        )
+        .order_by(TradeLog.trade_date.asc(), TradeLog.id.asc())
+        .all()
+    )
+
+    if buy_logs:
+        return buy_logs
+
+    synthetic_amount = trade_amount(product.quantity, product.purchase_price, product.unit_type)
+    return [type('SyntheticBuyLog', (), {
+        'trade_date': product.purchase_date,
+        'quantity': product.quantity,
+        'price': product.purchase_price,
+        'total_amount': synthetic_amount,
+        'id': 0
+    })()]
 
 
 def get_realized_positions(user_id, account_name=None):
@@ -1502,23 +1528,44 @@ def get_portfolio_trends():
             histories = PriceHistory.query.filter_by(product_id=product.id)
             if product.status == 'sold' and product.sale_date:
                 histories = histories.filter(PriceHistory.record_date <= product.sale_date)
+            buy_logs = get_product_buy_logs(product)
+            buy_index = 0
+            cumulative_quantity = 0.0
+            cumulative_purchase_value = 0.0
+
             for history in histories.order_by(PriceHistory.record_date).all():
-                purchase_value = Product.amount_for(product.quantity, product.purchase_price, product.unit_type)
-                evaluation_value = Product.amount_for(product.quantity, history.price, product.unit_type)
+                while buy_index < len(buy_logs) and buy_logs[buy_index].trade_date <= history.record_date:
+                    buy_log = buy_logs[buy_index]
+                    buy_quantity = float(buy_log.quantity or 0)
+                    buy_amount = float(buy_log.total_amount or trade_amount(buy_quantity, buy_log.price, product.unit_type))
+                    cumulative_quantity += buy_quantity
+                    cumulative_purchase_value += buy_amount
+                    buy_index += 1
+
+                if cumulative_quantity <= 0:
+                    continue
+
+                effective_purchase_price = Product.price_for_amount(
+                    cumulative_purchase_value,
+                    cumulative_quantity,
+                    product.unit_type
+                )
+                purchase_value = cumulative_purchase_value
+                evaluation_value = Product.amount_for(cumulative_quantity, history.price, product.unit_type)
                 profit_loss = evaluation_value - purchase_value
                 profit_rate = (profit_loss / purchase_value * 100) if purchase_value else 0
-                price_profit_loss = float(history.price or 0) - float(product.purchase_price or 0)
-                price_return_rate = (price_profit_loss / float(product.purchase_price) * 100) if product.purchase_price else 0
+                price_profit_loss = float(history.price or 0) - float(effective_purchase_price or 0)
+                price_return_rate = (price_profit_loss / float(effective_purchase_price) * 100) if effective_purchase_price else 0
                 rows.append({
                     'product_id': product.id,
                     'product_name': product.product_name,
                     'product_code': product.product_code,
                     'asset_type': product.asset_type,
                     'status': product.status,
-                    'quantity': product.quantity,
+                    'quantity': round(cumulative_quantity, 4),
                     'unit_type': product.unit_type,
                     'unit_label': '좌' if product.unit_type == 'unit' else '수',
-                    'purchase_price': product.purchase_price,
+                    'purchase_price': round(effective_purchase_price, 4),
                     'purchase_value': round(purchase_value, 2),
                     'price': history.price,
                     'evaluation_value': round(evaluation_value, 2),
