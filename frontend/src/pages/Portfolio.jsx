@@ -303,6 +303,9 @@ function Portfolio() {
       return a.product_name.localeCompare(b.product_name);
     })
   ), [windowedTrends]);
+  const selectedTrendProducts = useMemo(() => (
+    products.filter((product) => selectedTrendProductSet.has(String(product.id)))
+  ), [products, selectedTrendProductSet]);
   const colors = ['#33658a', '#d94841', '#256f68', '#f6ae2d', '#7f4f24', '#6a4c93'];
   const formatCurrency = (value) => new Intl.NumberFormat('ko-KR', {
     style: 'currency',
@@ -838,10 +841,72 @@ function Portfolio() {
             </div>
           </div>
           <div className="trend-detail">
+            {selectedTrendProducts.length > 0 && (
+              <div className="trend-selected-summary">
+                <strong>선택한 상품</strong>
+                <div className="trend-selection-list">
+                  {selectedTrendProducts.map((product) => (
+                    <button
+                      key={product.id}
+                      type="button"
+                      className="trend-selection-chip"
+                      onClick={() => toggleTrendProduct(product.id)}
+                    >
+                      <span>{product.product_name}</span>
+                      <small>{product.product_code}</small>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <h3>상품 추이 상세</h3>
             {selectedTrendProductIds.length > 0 && trendRows.length === 0 && <p className="no-data">선택한 기간의 추이 데이터가 없습니다.</p>}
             {selectedTrendProductIds.length > 0 && trendRows.length > 0 && (
-              <div className="trend-table-wrapper">
+              <>
+                <div className="trend-mobile-list">
+                  {trendRows.map((row) => (
+                    <article className="trend-mobile-card" key={`mobile-${row.product_id}-${row.record_date}`}>
+                      <div className="trend-mobile-top">
+                        <div>
+                          <strong>{row.product_name}</strong>
+                          <span className="trend-code">{row.product_code}</span>
+                        </div>
+                        <div className="trend-mobile-date">{row.record_date}</div>
+                      </div>
+                      <div className="trend-mobile-grid">
+                        <div>
+                          <span>매입가</span>
+                          <strong>{formatCurrency(row.purchase_price)}</strong>
+                        </div>
+                        <div>
+                          <span>기준가</span>
+                          <strong>{formatCurrency(row.price)}</strong>
+                        </div>
+                        <div>
+                          <span>수량</span>
+                          <strong>{formatQuantity(row.quantity)}{row.unit_label || unitLabel(row.unit_type)}</strong>
+                        </div>
+                        <div>
+                          <span>평가액</span>
+                          <strong>{formatCurrency(row.evaluation_value)}</strong>
+                        </div>
+                        <div>
+                          <span>손익</span>
+                          <strong className={(row.profit_loss || 0) >= 0 ? 'profit-text' : 'loss-text'}>
+                            {formatCurrency(row.profit_loss)}
+                          </strong>
+                        </div>
+                        <div>
+                          <span>기준가 수익률</span>
+                          <strong className={getPriceReturnRate(row) >= 0 ? 'profit-text' : 'loss-text'}>
+                            {formatPercent(getPriceReturnRate(row))}
+                          </strong>
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+                <div className="trend-table-wrapper">
                 <table className="trend-table">
                   <thead>
                     <tr>
@@ -876,7 +941,8 @@ function Portfolio() {
                     ))}
                   </tbody>
                 </table>
-              </div>
+                </div>
+              </>
             )}
           </div>
         </div>
