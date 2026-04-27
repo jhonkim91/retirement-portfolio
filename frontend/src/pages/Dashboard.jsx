@@ -433,31 +433,33 @@ function Dashboard() {
       </section>
 
       <section className="charts-section">
-        <div className="chart-container chart-wide allocation-wide">
-          <h2>자산구분 비중</h2>
-          <div className="allocation-summary">
-            {allocation.map((entry) => (
-              <div className="allocation-legend-item" key={entry.key}>
-                <div className="allocation-box" style={{ borderColor: `${COLORS[entry.key]}33` }}>
-                  <div className="allocation-box-top">
-                    <span className="allocation-label">
-                      <span className="dot" style={{ backgroundColor: COLORS[entry.key] }} />
-                      <span className="holding-name">{entry.name}</span>
-                    </span>
-                    <strong>{entry.value.toFixed(1)}%</strong>
+        {summary?.account_type !== 'brokerage' && (
+          <div className="chart-container chart-wide allocation-wide">
+            <h2>자산구분 비중</h2>
+            <div className="allocation-summary">
+              {allocation.map((entry) => (
+                <div className="allocation-legend-item" key={entry.key}>
+                  <div className="allocation-box" style={{ borderColor: `${COLORS[entry.key]}33` }}>
+                    <div className="allocation-box-top">
+                      <span className="allocation-label">
+                        <span className="dot" style={{ backgroundColor: COLORS[entry.key] }} />
+                        <span className="holding-name">{entry.name}</span>
+                      </span>
+                      <strong>{entry.value.toFixed(1)}%</strong>
+                    </div>
+                    <div className="allocation-bar-track">
+                      <div
+                        className="allocation-bar-fill"
+                        style={{ width: `${Math.min(entry.value, 100)}%`, backgroundColor: COLORS[entry.key] }}
+                      />
+                    </div>
+                    <span className="allocation-amount">{formatCurrency(entry.amount)}</span>
                   </div>
-                  <div className="allocation-bar-track">
-                    <div
-                      className="allocation-bar-fill"
-                      style={{ width: `${Math.min(entry.value, 100)}%`, backgroundColor: COLORS[entry.key] }}
-                    />
-                  </div>
-                  <span className="allocation-amount">{formatCurrency(entry.amount)}</span>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="chart-container chart-wide">
           <h2>보유종목 비중</h2>

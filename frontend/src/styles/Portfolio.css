@@ -10,6 +10,7 @@
 .product-entry-panel .subtitle { margin: 0 0 14px; font-size: 13px; line-height: 1.45; }
 .product-form { display: grid; gap: 0; }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+.form-row-single { grid-template-columns: 1fr; }
 .form-group { margin-bottom: 14px; }
 .form-group label { display: block; margin-bottom: 6px; font-size: 14px; font-weight: 700; }
 .form-group input, .form-group select, .form-group textarea, .inline-actions input, .filter-section select { width: 100%; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 11px; font: inherit; }
