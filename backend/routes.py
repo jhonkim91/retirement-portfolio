@@ -63,7 +63,13 @@ def get_account_profile(user_id, account_name):
         return profile
 
     inferred_type = 'brokerage' if ('주식' in account_name or 'stock' in account_name.lower()) else 'retirement'
-    profile = AccountProfile(user_id=user_id, account_name=account_name, account_type=inferred_type)
+    has_default = AccountProfile.query.filter_by(user_id=user_id, is_default=True).first() is not None
+    profile = AccountProfile(
+        user_id=user_id,
+        account_name=account_name,
+        account_type=inferred_type,
+        is_default=(account_name == DEFAULT_ACCOUNT_NAME and not has_default)
+    )
     db.session.add(profile)
     db.session.flush()
     return profile
@@ -93,7 +99,7 @@ def maybe_sync_account_prices(user_id, account_name, force=False):
 
 
 def list_user_accounts(user_id):
-    account_names = {DEFAULT_ACCOUNT_NAME}
+    account_names = set()
     sources = (
         (Product, Product.account_name),
         (TradeLog, TradeLog.account_name),
@@ -114,17 +120,26 @@ def list_user_accounts(user_id):
             if normalized:
                 account_names.add(normalized)
 
+    for (account_name,) in db.session.query(AccountProfile.account_name).filter_by(user_id=user_id).distinct().all():
+        normalized = normalize_account_name(account_name)
+        if normalized:
+            account_names.add(normalized)
+
+    if not account_names:
+        account_names.add(DEFAULT_ACCOUNT_NAME)
+
     account_profiles = []
-    ordered_names = [DEFAULT_ACCOUNT_NAME, *sorted(name for name in account_names if name != DEFAULT_ACCOUNT_NAME)]
+    ordered_names = sorted(account_names)
     for account_name in ordered_names:
         profile = get_account_profile(user_id, account_name)
         account_profiles.append({
             'account_name': account_name,
             'account_type': normalize_account_type(profile.account_type),
             'account_type_label': get_account_type_label(profile.account_type),
-            'is_default': account_name == DEFAULT_ACCOUNT_NAME
+            'is_default': bool(profile.is_default)
         })
 
+    account_profiles.sort(key=lambda item: (0 if item['is_default'] else 1, item['account_name']))
     return account_profiles
 
 
@@ -1093,8 +1108,9 @@ def get_accounts():
         user_id = current_user_id()
         account_profiles = list_user_accounts(user_id)
         db.session.commit()
+        default_profile = next((item for item in account_profiles if item.get('is_default')), None)
         return jsonify({
-            'default_account_name': DEFAULT_ACCOUNT_NAME,
+            'default_account_name': default_profile['account_name'] if default_profile else DEFAULT_ACCOUNT_NAME,
             'accounts': [item['account_name'] for item in account_profiles],
             'account_profiles': account_profiles
         }), 200
@@ -1145,8 +1161,9 @@ def delete_account(account_name):
     try:
         user_id = current_user_id()
         normalized_name = normalize_account_name(account_name)
-        if normalized_name == DEFAULT_ACCOUNT_NAME:
-            return jsonify({'error': '기본 퇴직연금 통장은 삭제할 수 없습니다.'}), 400
+        profile = AccountProfile.query.filter_by(user_id=user_id, account_name=normalized_name).first()
+        if profile and profile.is_default:
+            return jsonify({'error': '기본 통장은 삭제할 수 없습니다.'}), 400
 
         product_ids = [
             product_id
@@ -1164,9 +1181,11 @@ def delete_account(account_name):
 
         account_profiles = list_user_accounts(user_id)
         db.session.commit()
+        default_profile = next((item for item in account_profiles if item.get('is_default')), None)
         return jsonify({
             'message': '통장과 관련 데이터가 삭제되었습니다.',
             'deleted_account_name': normalized_name,
+            'default_account_name': default_profile['account_name'] if default_profile else DEFAULT_ACCOUNT_NAME,
             'accounts': [item['account_name'] for item in account_profiles],
             'account_profiles': account_profiles
         }), 200
@@ -1181,15 +1200,11 @@ def rename_account(account_name):
     try:
         user_id = current_user_id()
         current_name = normalize_account_name(account_name)
-        if current_name == DEFAULT_ACCOUNT_NAME:
-            return jsonify({'error': '기본 퇴직연금 통장은 이름을 변경할 수 없습니다.'}), 400
 
         data = request.get_json() or {}
         next_name = normalize_account_name(data.get('account_name'))
         if not next_name:
             return jsonify({'error': '새 통장 이름을 입력하세요.'}), 400
-        if next_name == DEFAULT_ACCOUNT_NAME:
-            return jsonify({'error': '기본 통장 이름으로는 변경할 수 없습니다.'}), 400
         if next_name == current_name:
             return jsonify({'message': '통장 이름이 이미 같습니다.', 'account_name': current_name}), 200
 
@@ -1212,16 +1227,22 @@ def rename_account(account_name):
         profile = AccountProfile.query.filter_by(user_id=user_id, account_name=current_name).first()
         if profile:
             profile.account_name = next_name
+            if profile.is_default:
+                profile.account_type = 'retirement'
         else:
-            get_account_profile(user_id, next_name)
+            replacement_profile = get_account_profile(user_id, next_name)
+            replacement_profile.account_type = 'retirement' if current_name == DEFAULT_ACCOUNT_NAME else replacement_profile.account_type
+            replacement_profile.is_default = (current_name == DEFAULT_ACCOUNT_NAME)
 
         db.session.commit()
         account_profiles = list_user_accounts(user_id)
         db.session.commit()
+        default_profile = next((item for item in account_profiles if item.get('is_default')), None)
         return jsonify({
             'message': '통장 이름을 변경했습니다.',
             'previous_account_name': current_name,
             'account_name': next_name,
+            'default_account_name': default_profile['account_name'] if default_profile else DEFAULT_ACCOUNT_NAME,
             'accounts': [item['account_name'] for item in account_profiles],
             'account_profiles': account_profiles
         }), 200

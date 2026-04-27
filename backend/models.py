@@ -34,6 +34,7 @@ class AccountProfile(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     account_name = db.Column(db.String(80), nullable=False, default=DEFAULT_ACCOUNT_NAME)
     account_type = db.Column(db.String(20), nullable=False, default='retirement')  # 'retirement' or 'brokerage'
+    is_default = db.Column(db.Boolean, nullable=False, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -43,6 +44,7 @@ class AccountProfile(db.Model):
             'user_id': self.user_id,
             'account_name': self.account_name,
             'account_type': self.account_type,
+            'is_default': bool(self.is_default),
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }

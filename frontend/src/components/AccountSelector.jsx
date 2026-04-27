@@ -51,11 +51,16 @@ function AccountSelector({ value, onChange }) {
     [accounts, value]
   );
 
+  const defaultAccountName = useMemo(
+    () => accounts.find((account) => account.is_default)?.account_name || accounts[0]?.account_name || DEFAULT_ACCOUNT_NAME,
+    [accounts]
+  );
+
   useEffect(() => {
     if (!loading && accountNames.length > 0 && !accountNames.includes(value)) {
-      onChange(accountNames.includes(DEFAULT_ACCOUNT_NAME) ? DEFAULT_ACCOUNT_NAME : accountNames[0]);
+      onChange(defaultAccountName);
     }
-  }, [accountNames, loading, onChange, value]);
+  }, [accountNames, defaultAccountName, loading, onChange, value]);
 
   const canSubmit = useMemo(
     () => newAccountName.trim().length > 0 && !saving,
@@ -99,7 +104,7 @@ function AccountSelector({ value, onChange }) {
   };
 
   const openRenameForm = () => {
-    if (!selectedAccount || selectedAccount.is_default) return;
+    if (!selectedAccount) return;
     setRenameAccountName(selectedAccount.account_name);
     setShowCreateForm(false);
     setShowRenameForm((prev) => !prev);
@@ -109,7 +114,7 @@ function AccountSelector({ value, onChange }) {
   const submitRenameAccount = async (event) => {
     event.preventDefault();
     const nextName = renameAccountName.trim();
-    if (!selectedAccount || selectedAccount.is_default) return;
+    if (!selectedAccount) return;
     if (!nextName) {
       setMessage('새 통장 이름을 입력하세요.');
       return;
@@ -143,7 +148,12 @@ function AccountSelector({ value, onChange }) {
       setAccounts(nextProfiles);
       closePanels();
       setMessage(response.message || '통장을 삭제했습니다.');
-      onChange(DEFAULT_ACCOUNT_NAME);
+      onChange(
+        response?.default_account_name
+          || nextProfiles.find((account) => account.is_default)?.account_name
+          || nextProfiles[0]?.account_name
+          || DEFAULT_ACCOUNT_NAME
+      );
     } catch (error) {
       setMessage(error.message || '통장 삭제에 실패했습니다.');
     } finally {
@@ -157,7 +167,7 @@ function AccountSelector({ value, onChange }) {
         <label htmlFor="account-select">통장</label>
         <select
           id="account-select"
-          value={accountNames.includes(value) ? value : DEFAULT_ACCOUNT_NAME}
+          value={accountNames.includes(value) ? value : (selectedAccount?.account_name || DEFAULT_ACCOUNT_NAME)}
           onChange={(event) => onChange(event.target.value)}
           disabled={loading}
         >
@@ -201,8 +211,7 @@ function AccountSelector({ value, onChange }) {
               type="button"
               className="account-rename-button"
               onClick={openRenameForm}
-              disabled={selectedAccount?.is_default || renaming}
-              title={selectedAccount?.is_default ? '기본 퇴직연금 통장은 이름을 변경할 수 없습니다.' : ''}
+              disabled={renaming}
             >
               {renaming ? '변경 중...' : '이름 변경'}
             </button>
@@ -211,7 +220,7 @@ function AccountSelector({ value, onChange }) {
               className="account-delete-button"
               onClick={removeSelectedAccount}
               disabled={selectedAccount?.is_default || deleting}
-              title={selectedAccount?.is_default ? '기본 퇴직연금 통장은 삭제할 수 없습니다.' : ''}
+              title={selectedAccount?.is_default ? '기본 통장은 삭제할 수 없습니다.' : ''}
             >
               {deleting ? '삭제 중...' : '통장 삭제'}
             </button>

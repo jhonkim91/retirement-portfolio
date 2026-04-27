@@ -52,6 +52,7 @@ def ensure_schema():
     product_columns = {column['name'] for column in inspector.get_columns('products')}
     trade_columns = {column['name'] for column in inspector.get_columns('trade_logs')}
     cash_columns = {column['name'] for column in inspector.get_columns('cash_balances')}
+    account_profile_columns = {column['name'] for column in inspector.get_columns('account_profiles')} if inspector.has_table('account_profiles') else set()
 
     if 'unit_type' not in product_columns:
         db.session.execute(text("ALTER TABLE products ADD COLUMN unit_type VARCHAR(20) DEFAULT 'share' NOT NULL"))
@@ -63,6 +64,8 @@ def ensure_schema():
         db.session.execute(text(f"ALTER TABLE trade_logs ADD COLUMN account_name VARCHAR(80) DEFAULT '{DEFAULT_ACCOUNT_NAME}' NOT NULL"))
     if 'account_name' not in cash_columns:
         db.session.execute(text(f"ALTER TABLE cash_balances ADD COLUMN account_name VARCHAR(80) DEFAULT '{DEFAULT_ACCOUNT_NAME}' NOT NULL"))
+    if inspector.has_table('account_profiles') and 'is_default' not in account_profile_columns:
+        db.session.execute(text("ALTER TABLE account_profiles ADD COLUMN is_default BOOLEAN DEFAULT FALSE NOT NULL"))
 
     if dialect == 'postgresql':
         db.session.execute(text("ALTER TABLE products ALTER COLUMN quantity TYPE DOUBLE PRECISION USING quantity::double precision"))
@@ -165,8 +168,36 @@ def ensure_schema():
         db.session.add(AccountProfile(
             user_id=row.user_id,
             account_name=account_name,
-            account_type=inferred_type
+            account_type=inferred_type,
+            is_default=(account_name == DEFAULT_ACCOUNT_NAME)
         ))
+
+    user_ids = {
+        user_id
+        for (user_id,) in db.session.query(User.id).all()
+    }
+    for user_id in user_ids:
+        user_profiles = AccountProfile.query.filter_by(user_id=user_id).order_by(AccountProfile.id.asc()).all()
+        if not user_profiles:
+            db.session.add(AccountProfile(
+                user_id=user_id,
+                account_name=DEFAULT_ACCOUNT_NAME,
+                account_type='retirement',
+                is_default=True
+            ))
+            continue
+
+        default_profiles = [profile for profile in user_profiles if profile.is_default]
+        if not default_profiles:
+            fallback = next((profile for profile in user_profiles if profile.account_name == DEFAULT_ACCOUNT_NAME), user_profiles[0])
+            fallback.is_default = True
+            default_profiles = [fallback]
+
+        primary_default = default_profiles[0]
+        for extra_profile in default_profiles[1:]:
+            extra_profile.is_default = False
+        if primary_default.account_type != 'retirement':
+            primary_default.account_type = 'retirement'
 
     db.session.commit()
 
