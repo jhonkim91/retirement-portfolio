@@ -149,5 +149,10 @@ export const tradeLogAPI = {
 
 export const screenerAPI = {
   scan: (payload) => apiCall('/screener/scan', 'POST', payload),
-  getChart: (code, days = 120) => apiCall(`/screener/chart?code=${encodeURIComponent(code)}&days=${encodeURIComponent(days)}`)
+  getChart: (code, days = 120) => apiCall(`/screener/chart?code=${encodeURIComponent(code)}&days=${encodeURIComponent(days)}`),
+  compare: (codes) => apiCall('/screener/compare', 'POST', { codes }),
+  getScreens: () => apiCall('/screener/screens'),
+  saveScreen: (payload) => apiCall('/screener/screens', 'POST', payload),
+  deleteScreen: (screenId) => apiCall(`/screener/screens/${screenId}`, 'DELETE'),
+  getDartProfile: (code) => apiCall(`/products/dart-profile?code=${encodeURIComponent(code)}`)
 };

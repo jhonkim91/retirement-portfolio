@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   CartesianGrid,
   Line,
@@ -19,6 +19,10 @@ const MARKET_OPTIONS = [
   { value: 'ALL', label: '전체' }
 ];
 
+const presetStorageKey = 'stock_screener_presets_v1';
+const favoriteStorageKey = 'stock_screener_favorites_v1';
+const MAX_COMPARE_ITEMS = 4;
+
 const formatCurrency = (value) => {
   if (value === null || value === undefined || value === '') return '-';
   return new Intl.NumberFormat('ko-KR', {
@@ -28,9 +32,27 @@ const formatCurrency = (value) => {
   }).format(Number(value));
 };
 
+const formatCompactCurrency = (value) => {
+  if (value === null || value === undefined || value === '') return '-';
+  return new Intl.NumberFormat('ko-KR', {
+    style: 'currency',
+    currency: 'KRW',
+    notation: 'compact',
+    maximumFractionDigits: 1
+  }).format(Number(value));
+};
+
 const formatPercent = (value) => {
   if (value === null || value === undefined || value === '') return '-';
   return `${Number(value).toFixed(2)}%`;
+};
+
+const readLocalList = (storageKey) => {
+  try {
+    return JSON.parse(localStorage.getItem(storageKey) || '[]');
+  } catch (error) {
+    return [];
+  }
 };
 
 function StockScreener() {
@@ -47,31 +69,74 @@ function StockScreener() {
   const [requireMacdPositive, setRequireMacdPositive] = useState(true);
   const [loading, setLoading] = useState(false);
   const [chartLoading, setChartLoading] = useState(false);
+  const [dartLoading, setDartLoading] = useState(false);
+  const [compareLoading, setCompareLoading] = useState(false);
+  const [screenSaving, setScreenSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [scanResult, setScanResult] = useState(null);
   const [selectedItem, setSelectedItem] = useState(null);
   const [chartSeries, setChartSeries] = useState([]);
+  const [dartProfile, setDartProfile] = useState(null);
+  const [compareCodes, setCompareCodes] = useState([]);
+  const [compareData, setCompareData] = useState(null);
   const [presetName, setPresetName] = useState('');
+  const [screenName, setScreenName] = useState('');
+  const [screenNotes, setScreenNotes] = useState('');
   const [savedPresets, setSavedPresets] = useState([]);
   const [favorites, setFavorites] = useState([]);
+  const [savedScreens, setSavedScreens] = useState([]);
 
-  const presetStorageKey = 'stock_screener_presets_v1';
-  const favoriteStorageKey = 'stock_screener_favorites_v1';
-
-  useEffect(() => {
+  const loadSavedScreens = useCallback(async () => {
     try {
-      setSavedPresets(JSON.parse(localStorage.getItem(presetStorageKey) || '[]'));
+      const response = await screenerAPI.getScreens();
+      setSavedScreens(response?.screens || []);
     } catch (error) {
-      setSavedPresets([]);
-    }
-    try {
-      setFavorites(JSON.parse(localStorage.getItem(favoriteStorageKey) || '[]'));
-    } catch (error) {
-      setFavorites([]);
+      setSavedScreens([]);
     }
   }, []);
 
+  useEffect(() => {
+    setSavedPresets(readLocalList(presetStorageKey));
+    setFavorites(readLocalList(favoriteStorageKey));
+    loadSavedScreens();
+  }, [loadSavedScreens]);
+
   const resultRows = scanResult?.results || [];
+
+  const filtersPayload = useMemo(() => ({
+    rsi_min: Number(rsiMin || 0),
+    rsi_max: Number(rsiMax || 100),
+    min_return_20d: Number(minReturn20d || -100),
+    max_return_20d: Number(maxReturn20d || 1000),
+    require_ma_cross: requireMaCross,
+    require_bb_breakout: requireBbBreakout,
+    require_macd_positive: requireMacdPositive
+  }), [
+    maxReturn20d,
+    minReturn20d,
+    requireBbBreakout,
+    requireMaCross,
+    requireMacdPositive,
+    rsiMax,
+    rsiMin
+  ]);
+
+  const currentScanPayload = useMemo(() => ({
+    market,
+    pages: Number(pages || 2),
+    limit: Number(limit || 18),
+    filters: filtersPayload
+  }), [filtersPayload, limit, market, pages]);
+
+  const favoriteCodes = useMemo(
+    () => new Set(favorites.map((item) => item.code)),
+    [favorites]
+  );
+
+  const compareCodeSet = useMemo(
+    () => new Set(compareCodes),
+    [compareCodes]
+  );
 
   const selectionSummary = useMemo(() => {
     if (!selectedItem) return null;
@@ -79,52 +144,91 @@ function StockScreener() {
       { label: '현재가', value: formatCurrency(selectedItem.price) },
       { label: 'RSI(14)', value: selectedItem.rsi14 === null || selectedItem.rsi14 === undefined ? '-' : Number(selectedItem.rsi14).toFixed(1) },
       { label: '20일 수익률', value: formatPercent(selectedItem.return_20d) },
-      { label: 'MACD 히스토그램', value: selectedItem.macd_histogram === null || selectedItem.macd_histogram === undefined ? '-' : Number(selectedItem.macd_histogram).toFixed(2) }
+      { label: '60일 수익률', value: formatPercent(selectedItem.return_60d) },
+      { label: 'MACD 히스토그램', value: selectedItem.macd_histogram === null || selectedItem.macd_histogram === undefined ? '-' : Number(selectedItem.macd_histogram).toFixed(2) },
+      { label: '볼린저 %B', value: formatPercent(selectedItem.bb_percent) }
     ];
   }, [selectedItem]);
 
-  const loadChart = async (item) => {
-    setSelectedItem(item);
-    setChartSeries([]);
-    setChartLoading(true);
+  async function executeScan(payload, options = {}) {
+    setLoading(true);
+    if (!options.keepMessage) setMessage('');
     try {
-      const response = await screenerAPI.getChart(item.code, 120);
-      setChartSeries(response.series || []);
+      const response = await screenerAPI.scan(payload);
+      setScanResult(response);
+      const nextSelectedCode = options.selectedCode || compareCodes[0] || response?.results?.[0]?.code;
+      const nextSelectedItem = (response?.results || []).find((item) => item.code === nextSelectedCode) || response?.results?.[0] || null;
+      if (nextSelectedItem) {
+        await loadSelectedItemDetails(nextSelectedItem);
+      } else {
+        setSelectedItem(null);
+        setChartSeries([]);
+        setDartProfile(null);
+      }
+      return response;
     } catch (error) {
-      setMessage(error.message || '차트 이력을 불러오지 못했습니다.');
+      setMessage(error.message || '스크리너 실행에 실패했습니다.');
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadSelectedItemDetails(item) {
+    if (!item) {
+      setSelectedItem(null);
+      setChartSeries([]);
+      setDartProfile(null);
+      return;
+    }
+
+    setSelectedItem(item);
+    setChartLoading(true);
+    setDartLoading(true);
+    try {
+      const [chartResponse, dartResponse] = await Promise.all([
+        screenerAPI.getChart(item.code, 120),
+        screenerAPI.getDartProfile(item.code)
+      ]);
+      setChartSeries(chartResponse?.series || []);
+      setDartProfile(dartResponse || null);
+    } catch (error) {
+      setMessage(error.message || '종목 상세 데이터를 불러오지 못했습니다.');
     } finally {
       setChartLoading(false);
+      setDartLoading(false);
     }
-  };
+  }
 
-  const currentPresetPayload = useMemo(() => ({
-    market,
-    pages,
-    limit,
-    rsiMin,
-    rsiMax,
-    minReturn20d,
-    maxReturn20d,
-    requireMaCross,
-    requireBbBreakout,
-    requireMacdPositive
-  }), [
-    market,
-    pages,
-    limit,
-    rsiMin,
-    rsiMax,
-    minReturn20d,
-    maxReturn20d,
-    requireMaCross,
-    requireBbBreakout,
-    requireMacdPositive
-  ]);
+  useEffect(() => {
+    if (compareCodes.length === 0) {
+      setCompareData(null);
+      return;
+    }
 
-  const favoriteCodes = useMemo(
-    () => new Set(favorites.map((item) => item.code)),
-    [favorites]
-  );
+    let active = true;
+    const loadCompare = async () => {
+      setCompareLoading(true);
+      try {
+        const response = await screenerAPI.compare(compareCodes);
+        if (active) {
+          setCompareData(response || null);
+        }
+      } catch (error) {
+        if (active) {
+          setCompareData(null);
+          setMessage(error.message || '비교 데이터를 불러오지 못했습니다.');
+        }
+      } finally {
+        if (active) setCompareLoading(false);
+      }
+    };
+
+    loadCompare();
+    return () => {
+      active = false;
+    };
+  }, [compareCodes]);
 
   const savePreset = () => {
     const name = presetName.trim();
@@ -133,7 +237,11 @@ function StockScreener() {
       return;
     }
     const nextPresets = [
-      { name, ...currentPresetPayload },
+      {
+        name,
+        ...currentScanPayload,
+        filters: { ...filtersPayload }
+      },
       ...savedPresets.filter((item) => item.name !== name)
     ].slice(0, 8);
     setSavedPresets(nextPresets);
@@ -144,20 +252,20 @@ function StockScreener() {
 
   const applyPreset = (preset) => {
     setMarket(preset.market || 'KOSPI');
-    setPages(String(preset.pages || '2'));
-    setLimit(String(preset.limit || '18'));
-    setRsiMin(String(preset.rsiMin || '45'));
-    setRsiMax(String(preset.rsiMax || '70'));
-    setMinReturn20d(String(preset.minReturn20d || '-8'));
-    setMaxReturn20d(String(preset.maxReturn20d || '30'));
-    setRequireMaCross(Boolean(preset.requireMaCross));
-    setRequireBbBreakout(Boolean(preset.requireBbBreakout));
-    setRequireMacdPositive(Boolean(preset.requireMacdPositive));
+    setPages(String(preset.pages || 2));
+    setLimit(String(preset.limit || 18));
+    setRsiMin(String(preset.filters?.rsi_min ?? 45));
+    setRsiMax(String(preset.filters?.rsi_max ?? 70));
+    setMinReturn20d(String(preset.filters?.min_return_20d ?? -8));
+    setMaxReturn20d(String(preset.filters?.max_return_20d ?? 30));
+    setRequireMaCross(Boolean(preset.filters?.require_ma_cross));
+    setRequireBbBreakout(Boolean(preset.filters?.require_bb_breakout));
+    setRequireMacdPositive(Boolean(preset.filters?.require_macd_positive));
     setMessage(`프리셋 "${preset.name}"을 불러왔습니다.`);
   };
 
-  const removePreset = (presetNameValue) => {
-    const nextPresets = savedPresets.filter((item) => item.name !== presetNameValue);
+  const removePreset = (name) => {
+    const nextPresets = savedPresets.filter((item) => item.name !== name);
     setSavedPresets(nextPresets);
     localStorage.setItem(presetStorageKey, JSON.stringify(nextPresets));
   };
@@ -171,6 +279,21 @@ function StockScreener() {
     localStorage.setItem(favoriteStorageKey, JSON.stringify(nextFavorites));
     setMessage(exists ? '관심종목에서 제거했습니다.' : '관심종목에 담았습니다.');
   };
+
+  const toggleCompare = (item) => {
+    const exists = compareCodeSet.has(item.code);
+    if (exists) {
+      setCompareCodes((prev) => prev.filter((code) => code !== item.code));
+      return;
+    }
+    if (compareCodes.length >= MAX_COMPARE_ITEMS) {
+      setMessage(`비교 종목은 최대 ${MAX_COMPARE_ITEMS}개까지 선택할 수 있습니다.`);
+      return;
+    }
+    setCompareCodes((prev) => [...prev, item.code]);
+  };
+
+  const clearCompare = () => setCompareCodes([]);
 
   const moveToResearch = () => {
     if (!selectedItem) return;
@@ -198,44 +321,89 @@ function StockScreener() {
     navigate('/');
   };
 
-  const runScan = async (event) => {
-    event.preventDefault();
-    setLoading(true);
-    setMessage('');
+  const saveCurrentScreen = async () => {
+    const name = screenName.trim();
+    if (!name) {
+      setMessage('저장 화면 이름을 입력해 주세요.');
+      return;
+    }
+
+    setScreenSaving(true);
     try {
-      const response = await screenerAPI.scan({
-        market,
-        pages: Number(pages || 2),
-        limit: Number(limit || 18),
-        filters: {
-          rsi_min: Number(rsiMin || 0),
-          rsi_max: Number(rsiMax || 100),
-          min_return_20d: Number(minReturn20d || -100),
-          max_return_20d: Number(maxReturn20d || 1000),
-          require_ma_cross: requireMaCross,
-          require_bb_breakout: requireBbBreakout,
-          require_macd_positive: requireMacdPositive
-        }
+      const response = await screenerAPI.saveScreen({
+        name,
+        market: currentScanPayload.market,
+        pages: currentScanPayload.pages,
+        limit: currentScanPayload.limit,
+        filters: currentScanPayload.filters,
+        result_codes: resultRows.map((row) => row.code),
+        compare_codes: compareCodes,
+        notes: screenNotes.trim()
       });
-      setScanResult(response);
-      if ((response.results || []).length > 0) {
-        await loadChart(response.results[0]);
-      } else {
-        setSelectedItem(null);
-        setChartSeries([]);
-      }
+      setSavedScreens(response?.screens || []);
+      setMessage(response?.message || '저장 화면을 추가했습니다.');
     } catch (error) {
-      setMessage(error.message || '스크리너 실행에 실패했습니다.');
+      setMessage(error.message || '저장 화면 저장에 실패했습니다.');
     } finally {
-      setLoading(false);
+      setScreenSaving(false);
     }
   };
+
+  const applySavedScreen = async (screen) => {
+    setMarket(screen.market || 'KOSPI');
+    setPages(String(screen.pages || 2));
+    setLimit(String(screen.limit || 18));
+    setRsiMin(String(screen.filters?.rsi_min ?? 45));
+    setRsiMax(String(screen.filters?.rsi_max ?? 70));
+    setMinReturn20d(String(screen.filters?.min_return_20d ?? -8));
+    setMaxReturn20d(String(screen.filters?.max_return_20d ?? 30));
+    setRequireMaCross(Boolean(screen.filters?.require_ma_cross));
+    setRequireBbBreakout(Boolean(screen.filters?.require_bb_breakout));
+    setRequireMacdPositive(Boolean(screen.filters?.require_macd_positive));
+    setScreenName(screen.name || '');
+    setScreenNotes(screen.notes || '');
+    setCompareCodes(screen.compare_codes || []);
+    await executeScan({
+      market: screen.market || 'KOSPI',
+      pages: Number(screen.pages || 2),
+      limit: Number(screen.limit || 18),
+      filters: screen.filters || {}
+    }, {
+      selectedCode: (screen.compare_codes || [])[0] || (screen.result_codes || [])[0],
+      keepMessage: true
+    });
+    setMessage(`저장 화면 "${screen.name}"을 불러왔습니다.`);
+  };
+
+  const deleteSavedScreen = async (screen) => {
+    try {
+      await screenerAPI.deleteScreen(screen.id);
+      const nextScreens = savedScreens.filter((item) => item.id !== screen.id);
+      setSavedScreens(nextScreens);
+      setMessage('저장 화면을 삭제했습니다.');
+    } catch (error) {
+      setMessage(error.message || '저장 화면 삭제에 실패했습니다.');
+    }
+  };
+
+  const runScan = async (event) => {
+    event.preventDefault();
+    await executeScan(currentScanPayload);
+  };
+
+  const renderDartMetric = (metric) => (
+    <div key={metric.key} className="screener-dart-metric">
+      <span>{metric.label}</span>
+      <strong>{formatCompactCurrency(metric.current)}</strong>
+      <small>전기 {formatCompactCurrency(metric.previous)}</small>
+    </div>
+  );
 
   return (
     <main className="stock-screener-page">
       <div className="stock-screener-header">
         <h1>주식 스크리너</h1>
-        <p>대표 종목군에서 기술지표 조건을 조합해 빠르게 후보를 추려보고, 바로 차트 흐름까지 확인합니다.</p>
+        <p>대표 종목군을 빠르게 추려서 차트, 공시, 비교 화면, 저장 화면까지 한 번에 이어봅니다.</p>
       </div>
 
       <section className="screener-panel">
@@ -319,6 +487,44 @@ function StockScreener() {
           )}
         </div>
 
+        <div className="screener-save-row">
+          <div className="screener-save-form">
+            <input
+              type="text"
+              maxLength="40"
+              placeholder="저장 화면 이름"
+              value={screenName}
+              onChange={(event) => setScreenName(event.target.value)}
+            />
+            <input
+              type="text"
+              maxLength="80"
+              placeholder="메모 (선택)"
+              value={screenNotes}
+              onChange={(event) => setScreenNotes(event.target.value)}
+            />
+            <button type="button" onClick={saveCurrentScreen} disabled={screenSaving}>
+              {screenSaving ? '저장 중...' : '화면 저장'}
+            </button>
+          </div>
+          {savedScreens.length > 0 && (
+            <div className="screener-screen-list">
+              {savedScreens.map((screen) => (
+                <article key={screen.id} className="screener-screen-card">
+                  <div>
+                    <strong>{screen.name}</strong>
+                    <span>{screen.market} · 비교 {screen.compare_codes?.length || 0}개</span>
+                  </div>
+                  <div className="screener-screen-actions">
+                    <button type="button" onClick={() => applySavedScreen(screen)}>불러오기</button>
+                    <button type="button" className="secondary" onClick={() => deleteSavedScreen(screen)}>삭제</button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </div>
+
         {favorites.length > 0 && (
           <section className="screener-favorites">
             <div className="screener-results-header">
@@ -327,7 +533,7 @@ function StockScreener() {
             </div>
             <div className="screener-favorite-list">
               {favorites.map((item) => (
-                <button key={item.code} type="button" className="screener-favorite-chip" onClick={() => loadChart(item)}>
+                <button key={item.code} type="button" className="screener-favorite-chip" onClick={() => loadSelectedItemDetails(item)}>
                   {item.name}
                 </button>
               ))}
@@ -340,9 +546,68 @@ function StockScreener() {
         {scanResult && (
           <div className="screener-meta">
             <span>{scanResult.coverage_note}</span>
-            <strong>스캔 {scanResult.scanned_count}종목 / 조건 충족 {scanResult.result_count}종목</strong>
+            <strong>스캔 {scanResult.scanned_count}종목 / 조건 통과 {scanResult.result_count}종목</strong>
           </div>
         )}
+
+        <section className="screener-compare-panel">
+          <div className="screener-results-header">
+            <h2>Compare View</h2>
+            <div className="screener-compare-actions">
+              <span>{compareCodes.length}/{MAX_COMPARE_ITEMS} 선택</span>
+              {compareCodes.length > 0 && (
+                <button type="button" onClick={clearCompare}>비교 초기화</button>
+              )}
+            </div>
+          </div>
+          {compareCodes.length === 0 ? (
+            <p className="screener-empty">결과 카드에서 비교 추가를 누르면 종목을 나란히 비교할 수 있습니다.</p>
+          ) : compareLoading ? (
+            <p className="screener-empty">비교 데이터를 불러오는 중...</p>
+          ) : (
+            <div className="screener-compare-grid">
+              {(compareData?.items || []).map((item) => (
+                <article key={item.code} className="screener-compare-card">
+                  <div className="screener-compare-top">
+                    <div>
+                      <strong>{item.name}</strong>
+                      <span>{item.code} · {item.exchange}</span>
+                    </div>
+                    <button type="button" onClick={() => setCompareCodes((prev) => prev.filter((code) => code !== item.code))}>제거</button>
+                  </div>
+                  <div className="screener-compare-metrics">
+                    <div><span>현재가</span><strong>{formatCurrency(item.quote?.price)}</strong></div>
+                    <div><span>RSI</span><strong>{item.snapshot?.rsi14 === null || item.snapshot?.rsi14 === undefined ? '-' : Number(item.snapshot.rsi14).toFixed(1)}</strong></div>
+                    <div><span>20일</span><strong>{formatPercent(item.snapshot?.return_20d)}</strong></div>
+                    <div><span>60일</span><strong>{formatPercent(item.snapshot?.return_60d)}</strong></div>
+                  </div>
+                  <div className="screener-compare-dart">
+                    <h3>Open DART</h3>
+                    {!item.dart?.enabled ? (
+                      <p>{item.dart?.reason || '공시 정보를 찾지 못했습니다.'}</p>
+                    ) : (
+                      <>
+                        <div className="screener-dart-metric-grid">
+                          {(item.dart.metrics || []).slice(0, 4).map(renderDartMetric)}
+                        </div>
+                        {(item.dart.disclosures || []).slice(0, 3).length > 0 && (
+                          <ul className="screener-dart-disclosures">
+                            {item.dart.disclosures.slice(0, 3).map((disclosure) => (
+                              <li key={`${item.code}-${disclosure.receipt_no}`}>
+                                <a href={disclosure.url} target="_blank" rel="noreferrer">{disclosure.report_name}</a>
+                                <span>{disclosure.receipt_date}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
 
         <div className="screener-workspace">
           <section className="screener-results">
@@ -359,7 +624,7 @@ function StockScreener() {
                     key={item.code}
                     type="button"
                     className={`screener-result-card ${selectedItem?.code === item.code ? 'active' : ''}`}
-                    onClick={() => loadChart(item)}
+                    onClick={() => loadSelectedItemDetails(item)}
                   >
                     <div className="screener-result-top">
                       <strong>{item.name}</strong>
@@ -378,17 +643,34 @@ function StockScreener() {
                     <div className="screener-card-actions">
                       <span>{favoriteCodes.has(item.code) ? '관심종목' : '후보 종목'}</span>
                       <div className="screener-card-action-buttons">
-                        <button type="button" className="secondary" onClick={(event) => {
-                          event.stopPropagation();
-                          moveToAnalytics(item);
-                        }}>
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            moveToAnalytics(item);
+                          }}
+                        >
                           분석 엔진
                         </button>
-                        <button type="button" onClick={(event) => {
-                          event.stopPropagation();
-                          toggleFavorite(item);
-                        }}>
-                          {favoriteCodes.has(item.code) ? '해제' : '담기'}
+                        <button
+                          type="button"
+                          className={compareCodeSet.has(item.code) ? 'secondary' : ''}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            toggleCompare(item);
+                          }}
+                        >
+                          {compareCodeSet.has(item.code) ? '비교 해제' : '비교 추가'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            toggleFavorite(item);
+                          }}
+                        >
+                          {favoriteCodes.has(item.code) ? '관심 해제' : '관심 담기'}
                         </button>
                       </div>
                     </div>
@@ -402,12 +684,15 @@ function StockScreener() {
             <div className="screener-detail-header">
               <div>
                 <h2>{selectedItem ? selectedItem.name : '선택 종목'}</h2>
-                <p>{selectedItem ? `${selectedItem.code} · ${selectedItem.exchange}` : '왼쪽에서 종목을 선택하면 차트와 지표 요약이 나옵니다.'}</p>
+                <p>{selectedItem ? `${selectedItem.code} · ${selectedItem.exchange}` : '왼쪽에서 종목을 선택하면 차트, 공시, 분석 연결이 열립니다.'}</p>
               </div>
               {selectedItem && (
                 <div className="screener-detail-actions">
                   <button type="button" onClick={() => toggleFavorite(selectedItem)}>
                     {favoriteCodes.has(selectedItem.code) ? '관심종목 해제' : '관심종목 담기'}
+                  </button>
+                  <button type="button" className="secondary" onClick={() => toggleCompare(selectedItem)}>
+                    {compareCodeSet.has(selectedItem.code) ? 'Compare 해제' : 'Compare 추가'}
                   </button>
                   <button type="button" className="secondary" onClick={() => moveToAnalytics(selectedItem)}>분석 엔진으로 보기</button>
                   <button type="button" className="secondary" onClick={moveToResearch}>종목 정보로 보기</button>
@@ -448,12 +733,51 @@ function StockScreener() {
             </div>
 
             {selectedItem && (
+              <div className="screener-dart-card">
+                <div className="screener-dart-head">
+                  <h3>Open DART 공시 요약</h3>
+                  <span>{dartProfile?.enabled ? dartProfile.source : '공시 확인 필요'}</span>
+                </div>
+                {dartLoading ? (
+                  <p className="screener-empty">공시 정보를 불러오는 중...</p>
+                ) : !dartProfile?.enabled ? (
+                  <p className="screener-dart-empty">{dartProfile?.reason || '공시 대상 법인을 찾지 못했습니다.'}</p>
+                ) : (
+                  <>
+                    <div className="screener-dart-company">
+                      <strong>{dartProfile.company?.corp_name || dartProfile.corp_name}</strong>
+                      <span>{dartProfile.company?.ceo_name || '-'} · {dartProfile.company?.corp_cls || '-'}</span>
+                      <span>{dartProfile.financials?.business_year || '-'}년 기준</span>
+                    </div>
+                    <div className="screener-dart-metric-grid">
+                      {(dartProfile.metrics || []).length > 0 ? (
+                        dartProfile.metrics.map(renderDartMetric)
+                      ) : (
+                        <p className="screener-dart-empty">핵심 재무지표를 아직 추출하지 못했습니다.</p>
+                      )}
+                    </div>
+                    {(dartProfile.disclosures || []).slice(0, 5).length > 0 && (
+                      <ul className="screener-dart-disclosures">
+                        {dartProfile.disclosures.slice(0, 5).map((disclosure) => (
+                          <li key={disclosure.receipt_no}>
+                            <a href={disclosure.url} target="_blank" rel="noreferrer">{disclosure.report_name}</a>
+                            <span>{disclosure.receipt_date}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
+            {selectedItem && (
               <div className="screener-note-card">
                 <h3>읽는 포인트</h3>
                 <ul>
-                  <li>RSI는 과열 여부보다 지금 위치를 보기 위한 참고치로 쓰는 편이 좋습니다.</li>
-                  <li>볼린저 상단 돌파는 강세 신호일 수 있지만, 추격 매수 위험도 같이 커집니다.</li>
-                  <li>대표 종목군 스캔이라 전체 시장 완전 탐색보다는 빠른 1차 선별에 가깝습니다.</li>
+                  <li>스크리너는 빠른 1차 선별입니다. 비교 화면과 공시 요약을 함께 보고 종목을 좁히는 용도로 쓰면 좋습니다.</li>
+                  <li>Open DART 숫자는 최신 사업보고서/재무제표 공시 기준이라 장중 가격 데이터보다 느릴 수 있습니다.</li>
+                  <li>비교 화면을 저장해 두면 다음 번 스캔에서도 같은 후보군을 바로 복원할 수 있습니다.</li>
                 </ul>
               </div>
             )}

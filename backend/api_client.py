@@ -1,9 +1,13 @@
 from datetime import date, timedelta
 import html
 import json
+import os
 import re
 import time
 import urllib.parse
+import xml.etree.ElementTree as ET
+import zipfile
+from io import BytesIO
 
 import requests
 from bs4 import BeautifulSoup
@@ -14,6 +18,7 @@ class StockAPIClient:
         self.naver_headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
+        self.dart_api_key = os.getenv('OPENDART_API_KEY') or os.getenv('DART_API_KEY') or ''
         self._naver_market_cache = {
             'loaded_at': 0,
             'pages': {}
@@ -35,6 +40,249 @@ class StockAPIClient:
         bucket[key] = {
             'saved_at': time.time(),
             'value': value
+        }
+
+    def has_dart_api_key(self):
+        return bool(self.dart_api_key)
+
+    def get_dart_corp_code_map(self):
+        if not self.has_dart_api_key():
+            return {}
+
+        cached = self.get_cached_value('dart_corp_codes', 'all', 60 * 60 * 24)
+        if cached is not None:
+            return cached
+
+        try:
+            response = requests.get(
+                'https://opendart.fss.or.kr/api/corpCode.xml',
+                params={'crtfc_key': self.dart_api_key},
+                timeout=20
+            )
+            response.raise_for_status()
+            zipped = zipfile.ZipFile(BytesIO(response.content))
+            xml_name = next((name for name in zipped.namelist() if name.lower().endswith('.xml')), None)
+            if not xml_name:
+                return {}
+
+            mapping = {}
+            with zipped.open(xml_name) as file_obj:
+                root = ET.fromstring(file_obj.read())
+            for item in root.findall('list'):
+                stock_code = (item.findtext('stock_code') or '').strip()
+                corp_code = (item.findtext('corp_code') or '').strip()
+                corp_name = (item.findtext('corp_name') or '').strip()
+                if not stock_code or not corp_code:
+                    continue
+                mapping[stock_code] = {
+                    'corp_code': corp_code,
+                    'corp_name': corp_name
+                }
+            self.set_cached_value('dart_corp_codes', 'all', mapping)
+            return mapping
+        except Exception as e:
+            print(f'dart corp code error: {e}')
+            return {}
+
+    def get_dart_corp_entry(self, code):
+        cleaned = self.clean_code(code)
+        return self.get_dart_corp_code_map().get(cleaned)
+
+    def get_dart_company_info(self, code):
+        entry = self.get_dart_corp_entry(code)
+        if not entry or not self.has_dart_api_key():
+            return None
+
+        cache_key = entry['corp_code']
+        cached = self.get_cached_value('dart_company_info', cache_key, 60 * 60 * 24)
+        if cached is not None:
+            return cached
+
+        try:
+            response = requests.get(
+                'https://opendart.fss.or.kr/api/company.json',
+                params={
+                    'crtfc_key': self.dart_api_key,
+                    'corp_code': entry['corp_code']
+                },
+                timeout=20
+            )
+            data = response.json()
+            if response.status_code != 200 or data.get('status') != '000':
+                return None
+
+            result = {
+                'corp_code': entry['corp_code'],
+                'corp_name': data.get('corp_name') or entry.get('corp_name'),
+                'ceo_name': data.get('ceo_nm'),
+                'corp_cls': data.get('corp_cls'),
+                'jurir_no': data.get('jurir_no'),
+                'bizr_no': data.get('bizr_no'),
+                'adres': data.get('adres'),
+                'hm_url': data.get('hm_url'),
+                'est_dt': data.get('est_dt')
+            }
+            self.set_cached_value('dart_company_info', cache_key, result)
+            return result
+        except Exception as e:
+            print(f'dart company info error ({code}): {e}')
+            return None
+
+    def parse_dart_amount(self, value):
+        text = str(value or '').replace(',', '').strip()
+        if not text:
+            return None
+        try:
+            return float(text)
+        except ValueError:
+            return None
+
+    def summarize_dart_financial_rows(self, rows, statement_type):
+        account_aliases = {
+            'revenue': {'매출액', '영업수익', '수익(매출액)', '보험영업수익'},
+            'operating_income': {'영업이익', '영업손익'},
+            'net_income': {'당기순이익', '당기순이익(손실)', '반기순이익', '분기순이익'},
+            'assets': {'자산총계'},
+            'liabilities': {'부채총계'},
+            'equity': {'자본총계'}
+        }
+
+        values = {}
+        for row in rows:
+            account_name = str(row.get('account_nm') or '').strip()
+            current_amount = self.parse_dart_amount(row.get('thstrm_amount'))
+            prior_amount = self.parse_dart_amount(row.get('frmtrm_amount'))
+            for key, aliases in account_aliases.items():
+                if account_name in aliases and key not in values:
+                    values[key] = {
+                        'current': current_amount,
+                        'previous': prior_amount,
+                        'account_name': account_name
+                    }
+
+        if not values:
+            return None
+
+        return {
+            'statement_type': statement_type,
+            'metrics': values
+        }
+
+    def get_dart_financials(self, code, max_year_lookback=2):
+        entry = self.get_dart_corp_entry(code)
+        if not entry or not self.has_dart_api_key():
+            return None
+
+        cache_key = entry['corp_code']
+        cached = self.get_cached_value('dart_financials', cache_key, 60 * 60 * 8)
+        if cached is not None:
+            return cached
+
+        current_year = date.today().year
+        for year in range(current_year, current_year - max_year_lookback - 1, -1):
+            for fs_div, statement_type in (('OFS', 'separate'), ('CFS', 'consolidated')):
+                try:
+                    response = requests.get(
+                        'https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json',
+                        params={
+                            'crtfc_key': self.dart_api_key,
+                            'corp_code': entry['corp_code'],
+                            'bsns_year': str(year),
+                            'reprt_code': '11011',
+                            'fs_div': fs_div
+                        },
+                        timeout=20
+                    )
+                    data = response.json()
+                    if response.status_code != 200 or data.get('status') != '000':
+                        continue
+
+                    summary = self.summarize_dart_financial_rows(data.get('list') or [], statement_type)
+                    if not summary:
+                        continue
+
+                    result = {
+                        'corp_code': entry['corp_code'],
+                        'corp_name': entry.get('corp_name'),
+                        'business_year': year,
+                        'reprt_code': '11011',
+                        **summary
+                    }
+                    self.set_cached_value('dart_financials', cache_key, result)
+                    return result
+                except Exception as e:
+                    print(f'dart financial error ({code} {year} {fs_div}): {e}')
+        return None
+
+    def get_dart_recent_disclosures(self, code, days=180, page_count=10):
+        entry = self.get_dart_corp_entry(code)
+        if not entry or not self.has_dart_api_key():
+            return []
+
+        cache_key = f"{entry['corp_code']}:{int(days)}:{int(page_count)}"
+        cached = self.get_cached_value('dart_disclosures', cache_key, 60 * 60 * 4)
+        if cached is not None:
+            return cached
+
+        try:
+            end_date = date.today()
+            start_date = end_date - timedelta(days=max(int(days or 180), 30))
+            response = requests.get(
+                'https://opendart.fss.or.kr/api/list.json',
+                params={
+                    'crtfc_key': self.dart_api_key,
+                    'corp_code': entry['corp_code'],
+                    'bgn_de': start_date.strftime('%Y%m%d'),
+                    'end_de': end_date.strftime('%Y%m%d'),
+                    'page_count': max(1, min(int(page_count or 10), 20))
+                },
+                timeout=20
+            )
+            data = response.json()
+            if response.status_code != 200 or data.get('status') != '000':
+                return []
+
+            rows = []
+            for item in data.get('list') or []:
+                receipt_no = str(item.get('rcept_no') or '').strip()
+                rows.append({
+                    'receipt_no': receipt_no,
+                    'report_name': item.get('report_nm'),
+                    'filed_by': item.get('flr_nm'),
+                    'receipt_date': item.get('rcept_dt'),
+                    'url': f'https://dart.fss.or.kr/dsaf001/main.do?rcpNo={receipt_no}' if receipt_no else ''
+                })
+            self.set_cached_value('dart_disclosures', cache_key, rows)
+            return rows
+        except Exception as e:
+            print(f'dart disclosure error ({code}): {e}')
+            return []
+
+    def get_dart_snapshot(self, code):
+        if not self.has_dart_api_key():
+            return {
+                'enabled': False,
+                'reason': 'Open DART API key is not configured.'
+            }
+
+        entry = self.get_dart_corp_entry(code)
+        if not entry:
+            return {
+                'enabled': False,
+                'reason': 'Open DART 공시 대상 법인을 찾지 못했습니다.'
+            }
+
+        company = self.get_dart_company_info(code)
+        financials = self.get_dart_financials(code)
+        disclosures = self.get_dart_recent_disclosures(code)
+        return {
+            'enabled': True,
+            'source': 'Open DART',
+            'corp_code': entry['corp_code'],
+            'corp_name': entry.get('corp_name'),
+            'company': company,
+            'financials': financials,
+            'disclosures': disclosures
         }
 
     def decode_embedded_json_text(self, value):

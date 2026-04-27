@@ -1,5 +1,6 @@
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
+import uuid
 
 db = SQLAlchemy()
 DEFAULT_ACCOUNT_NAME = '퇴직연금'
@@ -17,6 +18,10 @@ class User(db.Model):
     portfolios = db.relationship('Product', backref='user', lazy=True, cascade='all, delete-orphan')
     trade_logs = db.relationship('TradeLog', backref='user', lazy=True, cascade='all, delete-orphan')
     trade_events = db.relationship('TradeEvent', backref='created_by_user', lazy=True, cascade='all, delete-orphan')
+    import_batches = db.relationship('ImportBatch', backref='user', lazy=True, cascade='all, delete-orphan')
+    trade_snapshots = db.relationship('TradeSnapshot', backref='user', lazy=True, cascade='all, delete-orphan')
+    reconciliation_results = db.relationship('ReconciliationResult', backref='user', lazy=True, cascade='all, delete-orphan')
+    screener_screens = db.relationship('ScreenerScreen', backref='user', lazy=True, cascade='all, delete-orphan')
     
     def to_dict(self):
         return {
@@ -229,4 +234,143 @@ class TradeEvent(db.Model):
             'occurred_at': self.occurred_at.isoformat() if self.occurred_at else None,
             'created_by': self.created_by,
             'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+
+class ImportBatch(db.Model):
+    __tablename__ = 'import_batches'
+
+    id = db.Column(db.String(64), primary_key=True, default=lambda: uuid.uuid4().hex)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    account_name = db.Column(db.String(80), nullable=False, default=DEFAULT_ACCOUNT_NAME)
+    batch_type = db.Column(db.String(32), nullable=False, default='manual')
+    source_name = db.Column(db.String(64), nullable=False, default='ui')
+    status = db.Column(db.String(20), nullable=False, default='pending')
+    row_count = db.Column(db.Integer, nullable=False, default=0)
+    imported_count = db.Column(db.Integer, nullable=False, default=0)
+    skipped_count = db.Column(db.Integer, nullable=False, default=0)
+    error_count = db.Column(db.Integer, nullable=False, default=0)
+    notes_json = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    completed_at = db.Column(db.DateTime, nullable=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'account_name': self.account_name,
+            'batch_type': self.batch_type,
+            'source_name': self.source_name,
+            'status': self.status,
+            'row_count': self.row_count,
+            'imported_count': self.imported_count,
+            'skipped_count': self.skipped_count,
+            'error_count': self.error_count,
+            'notes_json': self.notes_json,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'completed_at': self.completed_at.isoformat() if self.completed_at else None
+        }
+
+
+class TradeSnapshot(db.Model):
+    __tablename__ = 'trade_snapshots'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    account_name = db.Column(db.String(80), nullable=False, default=DEFAULT_ACCOUNT_NAME)
+    import_batch_id = db.Column(db.String(64), nullable=True)
+    trade_event_id = db.Column(db.Integer, nullable=True)
+    product_id = db.Column(db.Integer, nullable=True)
+    snapshot_kind = db.Column(db.String(32), nullable=False, default='post_event')
+    snapshot_date = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    quantity = db.Column(db.Float, nullable=True)
+    purchase_price = db.Column(db.Float, nullable=True)
+    current_price = db.Column(db.Float, nullable=True)
+    market_value = db.Column(db.Float, nullable=True)
+    cost_basis = db.Column(db.Float, nullable=True)
+    cash_balance = db.Column(db.Float, nullable=True)
+    payload_json = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'account_name': self.account_name,
+            'import_batch_id': self.import_batch_id,
+            'trade_event_id': self.trade_event_id,
+            'product_id': self.product_id,
+            'snapshot_kind': self.snapshot_kind,
+            'snapshot_date': self.snapshot_date.isoformat() if self.snapshot_date else None,
+            'quantity': self.quantity,
+            'purchase_price': self.purchase_price,
+            'current_price': self.current_price,
+            'market_value': self.market_value,
+            'cost_basis': self.cost_basis,
+            'cash_balance': self.cash_balance,
+            'payload_json': self.payload_json,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+
+class ReconciliationResult(db.Model):
+    __tablename__ = 'reconciliation_results'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    account_name = db.Column(db.String(80), nullable=False, default=DEFAULT_ACCOUNT_NAME)
+    import_batch_id = db.Column(db.String(64), nullable=True)
+    trade_event_id = db.Column(db.Integer, nullable=True)
+    scope = db.Column(db.String(32), nullable=False, default='account')
+    status = db.Column(db.String(20), nullable=False, default='ok')
+    mismatch_count = db.Column(db.Integer, nullable=False, default=0)
+    details_json = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'account_name': self.account_name,
+            'import_batch_id': self.import_batch_id,
+            'trade_event_id': self.trade_event_id,
+            'scope': self.scope,
+            'status': self.status,
+            'mismatch_count': self.mismatch_count,
+            'details_json': self.details_json,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+
+class ScreenerScreen(db.Model):
+    __tablename__ = 'screener_screens'
+    __table_args__ = (db.UniqueConstraint('user_id', 'name', name='uq_screener_screen_user_name'),)
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    name = db.Column(db.String(80), nullable=False)
+    market = db.Column(db.String(20), nullable=False, default='KOSPI')
+    pages = db.Column(db.Integer, nullable=False, default=2)
+    limit = db.Column(db.Integer, nullable=False, default=18)
+    filters_json = db.Column(db.Text, nullable=False)
+    result_codes_json = db.Column(db.Text, nullable=True)
+    compare_codes_json = db.Column(db.Text, nullable=True)
+    notes = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'name': self.name,
+            'market': self.market,
+            'pages': self.pages,
+            'limit': self.limit,
+            'filters_json': self.filters_json,
+            'result_codes_json': self.result_codes_json,
+            'compare_codes_json': self.compare_codes_json,
+            'notes': self.notes,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }

@@ -22,7 +22,21 @@ from reportlab.pdfbase.pdfmetrics import registerFont
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from api_client import StockAPIClient
-from models import AccountProfile, db, User, Product, PriceHistory, TradeLog, CashBalance, TradeEvent, DEFAULT_ACCOUNT_NAME
+from models import (
+    AccountProfile,
+    CashBalance,
+    DEFAULT_ACCOUNT_NAME,
+    ImportBatch,
+    PriceHistory,
+    Product,
+    ReconciliationResult,
+    ScreenerScreen,
+    TradeEvent,
+    TradeLog,
+    TradeSnapshot,
+    User,
+    db
+)
 
 api = Blueprint('api', __name__, url_prefix='/api')
 market_client = StockAPIClient()
@@ -361,6 +375,187 @@ def serialize_product(product):
 
 def canonical_json(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+
+
+def parse_json_text(value, fallback):
+    raw = str(value or '').strip()
+    if not raw:
+        return fallback
+    try:
+        return json.loads(raw)
+    except Exception:
+        return fallback
+
+
+def create_import_batch(user_id, account_name, batch_type='manual_write', source_name='ui', row_count=1, notes=None):
+    batch = ImportBatch(
+        user_id=user_id,
+        account_name=normalize_account_name(account_name),
+        batch_type=str(batch_type or 'manual_write').strip() or 'manual_write',
+        source_name=str(source_name or 'ui').strip() or 'ui',
+        status='pending',
+        row_count=max(int(row_count or 0), 0),
+        notes_json=canonical_json(notes or {})
+    )
+    db.session.add(batch)
+    db.session.flush()
+    return batch
+
+
+def finalize_import_batch(batch, status='completed', imported_count=0, skipped_count=0, error_count=0, notes=None):
+    if not batch:
+        return None
+    batch.status = status
+    batch.imported_count = max(int(imported_count or 0), 0)
+    batch.skipped_count = max(int(skipped_count or 0), 0)
+    batch.error_count = max(int(error_count or 0), 0)
+    if notes is not None:
+        batch.notes_json = canonical_json(notes)
+    batch.completed_at = datetime.utcnow()
+    return batch
+
+
+def capture_trade_snapshot(
+    user_id,
+    account_name,
+    *,
+    import_batch_id=None,
+    trade_event_id=None,
+    product=None,
+    snapshot_payload=None,
+    snapshot_kind='post_event',
+    snapshot_date=None
+):
+    payload = snapshot_payload or serialize_product(product) or {}
+    balance = CashBalance.query.filter_by(user_id=user_id, account_name=normalize_account_name(account_name)).first() if user_id else None
+    cash_balance = balance.amount if balance else 0
+    quantity = payload.get('quantity') if isinstance(payload, dict) else None
+    purchase_price = payload.get('purchase_price') if isinstance(payload, dict) else None
+    current_price = None
+    market_value = None
+    cost_basis = None
+
+    if isinstance(payload, dict):
+        current_price = payload.get('current_price')
+        if current_price in (None, ''):
+            current_price = payload.get('price')
+        market_value = payload.get('current_value')
+        if market_value in (None, ''):
+            market_value = payload.get('evaluation_value')
+        cost_basis = payload.get('total_purchase_value')
+        if cost_basis in (None, ''):
+            cost_basis = payload.get('purchase_value')
+
+    snapshot = TradeSnapshot(
+        user_id=user_id,
+        account_name=normalize_account_name(account_name),
+        import_batch_id=import_batch_id,
+        trade_event_id=trade_event_id,
+        product_id=(product.id if product else payload.get('id') if isinstance(payload, dict) else None),
+        snapshot_kind=snapshot_kind,
+        snapshot_date=snapshot_date or datetime.utcnow(),
+        quantity=coerce_float(quantity),
+        purchase_price=coerce_float(purchase_price),
+        current_price=coerce_float(current_price),
+        market_value=coerce_float(market_value),
+        cost_basis=coerce_float(cost_basis),
+        cash_balance=coerce_float(cash_balance),
+        payload_json=canonical_json(payload if isinstance(payload, dict) else {'value': payload})
+    )
+    db.session.add(snapshot)
+    db.session.flush()
+    return snapshot
+
+
+def compute_account_reconciliation(user_id, account_name):
+    normalized_account_name = normalize_account_name(account_name)
+    details = []
+    tolerance = 0.0001
+
+    products = Product.query.filter_by(user_id=user_id, account_name=normalized_account_name).all()
+    for product in products:
+        buy_logs = [log for log in get_product_trade_logs(product) if log.trade_type == 'buy']
+        sell_logs = [log for log in get_product_trade_logs(product) if log.trade_type == 'sell']
+        if not buy_logs:
+            details.append({
+                'type': 'missing_buy_logs',
+                'product_id': product.id,
+                'product_name': product.product_name,
+                'message': '보유 상품에 연결된 매수 로그가 없습니다.'
+            })
+            continue
+
+        expected_quantity = sum(float(log.quantity or 0) for log in buy_logs)
+        expected_cost = sum(float(log.total_amount or 0) for log in buy_logs)
+        expected_unit_type = normalize_unit_type(buy_logs[-1].unit_type or product.unit_type)
+        expected_purchase_price = Product.price_for_amount(expected_cost, expected_quantity, expected_unit_type)
+        expected_status = 'sold' if sell_logs else 'holding'
+
+        if abs(float(product.quantity or 0) - expected_quantity) > tolerance:
+            details.append({
+                'type': 'quantity_mismatch',
+                'product_id': product.id,
+                'product_name': product.product_name,
+                'expected': round(expected_quantity, 4),
+                'actual': round(float(product.quantity or 0), 4)
+            })
+
+        if abs(float(product.purchase_price or 0) - expected_purchase_price) > 0.01:
+            details.append({
+                'type': 'cost_basis_mismatch',
+                'product_id': product.id,
+                'product_name': product.product_name,
+                'expected': round(expected_purchase_price, 4),
+                'actual': round(float(product.purchase_price or 0), 4)
+            })
+
+        if str(product.status or '') != expected_status:
+            details.append({
+                'type': 'status_mismatch',
+                'product_id': product.id,
+                'product_name': product.product_name,
+                'expected': expected_status,
+                'actual': product.status
+            })
+
+    orphan_logs = (
+        TradeLog.query
+        .filter_by(user_id=user_id, account_name=normalized_account_name)
+        .filter(TradeLog.trade_type.in_(('buy', 'sell')))
+        .filter(TradeLog.product_id.is_(None))
+        .all()
+    )
+    for log in orphan_logs:
+        details.append({
+            'type': 'orphan_trade_log',
+            'trade_log_id': log.id,
+            'product_name': log.product_name,
+            'trade_type': log.trade_type,
+            'trade_date': log.trade_date.isoformat() if log.trade_date else None
+        })
+
+    return {
+        'status': 'ok' if not details else 'warning',
+        'mismatch_count': len(details),
+        'details': details
+    }
+
+
+def store_reconciliation_result(user_id, account_name, *, import_batch_id=None, trade_event_id=None, scope='account'):
+    summary = compute_account_reconciliation(user_id, account_name)
+    result = ReconciliationResult(
+        user_id=user_id,
+        account_name=normalize_account_name(account_name),
+        import_batch_id=import_batch_id,
+        trade_event_id=trade_event_id,
+        scope=scope,
+        status=summary['status'],
+        mismatch_count=summary['mismatch_count'],
+        details_json=canonical_json(summary['details'])
+    )
+    db.session.add(result)
+    db.session.flush()
+    return result, summary
 
 
 def get_latest_trade_event(user_id, account_name=None, trade_log_id=None):
@@ -783,6 +978,62 @@ def build_screener_chart(code, lookback_days=120):
         })
 
     return chart_rows[-lookback_days:]
+
+
+def build_dart_metric_rows(dart_snapshot):
+    financials = (dart_snapshot or {}).get('financials') or {}
+    metrics = financials.get('metrics') or {}
+    labels = {
+        'revenue': '매출',
+        'operating_income': '영업이익',
+        'net_income': '순이익',
+        'assets': '자산총계',
+        'liabilities': '부채총계',
+        'equity': '자본총계'
+    }
+
+    rows = []
+    for key, label in labels.items():
+        metric = metrics.get(key)
+        if not metric:
+            continue
+        rows.append({
+            'key': key,
+            'label': label,
+            'current': metric.get('current'),
+            'previous': metric.get('previous'),
+            'account_name': metric.get('account_name')
+        })
+    return rows
+
+
+def build_screener_compare_item(code):
+    cleaned_code = market_client.clean_code(code)
+    if not cleaned_code:
+        raise ValueError('종목 코드가 필요합니다.')
+
+    search_matches = market_client.search_products(cleaned_code, 6)
+    product_match = next((item for item in search_matches if market_client.clean_code(item.get('code')) == cleaned_code), None)
+    end_date = date.today()
+    start_date = end_date - timedelta(days=220)
+    histories = market_client.get_historical_prices(cleaned_code, start_date, end_date)
+    snapshot = build_screener_snapshot(histories) if histories else None
+    quote = build_quote_snapshot(cleaned_code)
+    dart_snapshot = market_client.get_dart_snapshot(cleaned_code)
+
+    return {
+        'name': (product_match or {}).get('name') or cleaned_code,
+        'code': cleaned_code,
+        'exchange': (product_match or {}).get('exchange') or 'KRX',
+        'type': (product_match or {}).get('type') or 'stock/ETF',
+        'quote': quote,
+        'snapshot': snapshot,
+        'chart': build_screener_chart(cleaned_code, 120) if histories else [],
+        'dart': {
+            **dart_snapshot,
+            'metrics': build_dart_metric_rows(dart_snapshot)
+        }
+    }
 
 
 def build_quote_snapshot(code):
@@ -1524,6 +1775,9 @@ def delete_account(account_name):
         Product.query.filter_by(user_id=user_id, account_name=normalized_name).delete(synchronize_session=False)
         TradeLog.query.filter_by(user_id=user_id, account_name=normalized_name).delete(synchronize_session=False)
         TradeEvent.query.filter_by(user_id=user_id, account_name=normalized_name).delete(synchronize_session=False)
+        TradeSnapshot.query.filter_by(user_id=user_id, account_name=normalized_name).delete(synchronize_session=False)
+        ReconciliationResult.query.filter_by(user_id=user_id, account_name=normalized_name).delete(synchronize_session=False)
+        ImportBatch.query.filter_by(user_id=user_id, account_name=normalized_name).delete(synchronize_session=False)
         CashBalance.query.filter_by(user_id=user_id, account_name=normalized_name).delete(synchronize_session=False)
         AccountProfile.query.filter_by(user_id=user_id, account_name=normalized_name).delete(synchronize_session=False)
         db.session.commit()
@@ -1566,6 +1820,22 @@ def rename_account(account_name):
             synchronize_session=False
         )
         TradeLog.query.filter_by(user_id=user_id, account_name=current_name).update(
+            {'account_name': next_name},
+            synchronize_session=False
+        )
+        TradeEvent.query.filter_by(user_id=user_id, account_name=current_name).update(
+            {'account_name': next_name},
+            synchronize_session=False
+        )
+        TradeSnapshot.query.filter_by(user_id=user_id, account_name=current_name).update(
+            {'account_name': next_name},
+            synchronize_session=False
+        )
+        ReconciliationResult.query.filter_by(user_id=user_id, account_name=current_name).update(
+            {'account_name': next_name},
+            synchronize_session=False
+        )
+        ImportBatch.query.filter_by(user_id=user_id, account_name=current_name).update(
             {'account_name': next_name},
             synchronize_session=False
         )
@@ -1779,6 +2049,218 @@ def get_screener_chart():
         return jsonify({'error': str(e)}), 500
 
 
+@api.route('/screener/compare', methods=['POST'])
+@jwt_required()
+def get_screener_compare():
+    try:
+        data = request.get_json() or {}
+        codes = []
+        for value in data.get('codes') or []:
+            cleaned = market_client.clean_code(value)
+            if cleaned and cleaned not in codes:
+                codes.append(cleaned)
+        codes = codes[:4]
+        if not codes:
+            return jsonify({'error': '비교할 종목 코드를 1개 이상 선택하세요.'}), 400
+
+        rows = [build_screener_compare_item(code) for code in codes]
+        return jsonify({
+            'compare_count': len(rows),
+            'items': rows,
+            'generated_at': datetime.now(MARKET_TIMEZONE).isoformat()
+        }), 200
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/screener/screens', methods=['GET'])
+@jwt_required()
+def list_screener_screens():
+    try:
+        rows = (
+            ScreenerScreen.query
+            .filter_by(user_id=current_user_id())
+            .order_by(ScreenerScreen.updated_at.desc(), ScreenerScreen.id.desc())
+            .all()
+        )
+        return jsonify({'screens': [build_screener_screen_response(row) for row in rows]}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/screener/screens', methods=['POST'])
+@jwt_required()
+def save_screener_screen():
+    try:
+        user_id = current_user_id()
+        data = request.get_json() or {}
+        name = str(data.get('name') or '').strip()
+        if not name:
+            return jsonify({'error': '저장할 화면 이름을 입력하세요.'}), 400
+
+        market = str(data.get('market') or 'KOSPI').strip().upper()
+        pages = max(1, min(int(data.get('pages') or 2), 5))
+        limit = max(5, min(int(data.get('limit') or 24), 60))
+        filters = data.get('filters') or {}
+        result_codes = [market_client.clean_code(code) for code in (data.get('result_codes') or []) if market_client.clean_code(code)]
+        compare_codes = [market_client.clean_code(code) for code in (data.get('compare_codes') or []) if market_client.clean_code(code)]
+        notes = str(data.get('notes') or '').strip()
+
+        screen = ScreenerScreen.query.filter_by(user_id=user_id, name=name).first()
+        created = screen is None
+        if created:
+            screen = ScreenerScreen(user_id=user_id, name=name)
+            db.session.add(screen)
+
+        screen.market = market
+        screen.pages = pages
+        screen.limit = limit
+        screen.filters_json = canonical_json(filters)
+        screen.result_codes_json = canonical_json(result_codes)
+        screen.compare_codes_json = canonical_json(compare_codes[:4])
+        screen.notes = notes or None
+        db.session.commit()
+
+        rows = (
+            ScreenerScreen.query
+            .filter_by(user_id=user_id)
+            .order_by(ScreenerScreen.updated_at.desc(), ScreenerScreen.id.desc())
+            .all()
+        )
+        return jsonify({
+            'message': '저장 화면을 추가했습니다.' if created else '저장 화면을 업데이트했습니다.',
+            'screen': build_screener_screen_response(screen),
+            'screens': [build_screener_screen_response(row) for row in rows]
+        }), 201 if created else 200
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/screener/screens/<int:screen_id>', methods=['DELETE'])
+@jwt_required()
+def delete_screener_screen(screen_id):
+    try:
+        screen = ScreenerScreen.query.filter_by(id=screen_id, user_id=current_user_id()).first()
+        if not screen:
+            return jsonify({'error': '저장 화면을 찾을 수 없습니다.'}), 404
+        db.session.delete(screen)
+        db.session.commit()
+        return jsonify({'message': '저장 화면을 삭제했습니다.'}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/products/dart-profile', methods=['GET'])
+@jwt_required()
+def get_product_dart_profile():
+    try:
+        code = request.args.get('code', '').strip()
+        if not code:
+            return jsonify({'error': '종목 코드를 입력하세요.'}), 400
+        return jsonify(market_client.get_dart_snapshot(code)), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/import-batches', methods=['GET'])
+@jwt_required()
+def list_import_batches():
+    try:
+        user_id = current_user_id()
+        account_name = current_account_name()
+        limit = max(10, min(int(request.args.get('limit') or 60), 200))
+        rows = (
+            ImportBatch.query
+            .filter_by(user_id=user_id, account_name=account_name)
+            .order_by(ImportBatch.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+        return jsonify({'batches': [build_import_batch_response(row) for row in rows]}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/trade-snapshots', methods=['GET'])
+@jwt_required()
+def list_trade_snapshots():
+    try:
+        user_id = current_user_id()
+        account_name = current_account_name()
+        limit = max(10, min(int(request.args.get('limit') or 80), 200))
+        rows = (
+            TradeSnapshot.query
+            .filter_by(user_id=user_id, account_name=account_name)
+            .order_by(TradeSnapshot.snapshot_date.desc(), TradeSnapshot.id.desc())
+            .limit(limit)
+            .all()
+        )
+        return jsonify({'snapshots': [build_trade_snapshot_response(row) for row in rows]}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/trade-logs/reconciliation', methods=['GET'])
+@jwt_required()
+def list_reconciliation_results():
+    try:
+        user_id = current_user_id()
+        account_name = current_account_name()
+        limit = max(10, min(int(request.args.get('limit') or 60), 200))
+        rows = (
+            ReconciliationResult.query
+            .filter_by(user_id=user_id, account_name=account_name)
+            .order_by(ReconciliationResult.created_at.desc(), ReconciliationResult.id.desc())
+            .limit(limit)
+            .all()
+        )
+        return jsonify({'results': [build_reconciliation_result_response(row) for row in rows]}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/trade-logs/reconciliation/run', methods=['POST'])
+@jwt_required()
+def run_trade_log_reconciliation():
+    try:
+        user_id = current_user_id()
+        account_name = current_account_name()
+        batch = create_import_batch(
+            user_id,
+            account_name,
+            batch_type='manual_reconciliation',
+            source_name='ui',
+            row_count=0,
+            notes={'reason': 'manual_reconciliation'}
+        )
+        result, summary = store_reconciliation_result(user_id, account_name, import_batch_id=batch.id, scope='account')
+        finalize_import_batch(
+            batch,
+            imported_count=0,
+            notes={
+                'reason': 'manual_reconciliation',
+                'reconciliation_status': result.status,
+                'mismatch_count': summary['mismatch_count']
+            }
+        )
+        db.session.commit()
+        return jsonify({
+            'message': '정합성 점검을 실행했습니다.',
+            'result': build_reconciliation_result_response(result),
+            'batch': build_import_batch_response(batch)
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
 @api.route('/cash', methods=['GET'])
 @jwt_required()
 def get_cash():
@@ -1820,6 +2302,14 @@ def add_cash_deposit():
         deposit_date = datetime.strptime(data.get('deposit_date') or date.today().isoformat(), '%Y-%m-%d').date()
         user_id = current_user_id()
         account_name = current_account_name()
+        batch = create_import_batch(
+            user_id,
+            account_name,
+            batch_type='manual_deposit',
+            source_name='ui',
+            row_count=1,
+            notes={'reason': 'cash_deposit'}
+        )
 
         log = TradeLog(
             user_id=user_id,
@@ -1837,15 +2327,45 @@ def add_cash_deposit():
         )
         db.session.add(log)
         db.session.flush()
-        append_trade_event(
+        event = append_trade_event(
             user_id=user_id,
             account_name=account_name,
             event_type='trade_created',
             trade_log_id=log.id,
+            import_batch_id=batch.id,
             payload={
                 'trade_log': serialize_trade_log(log),
                 'product': None,
                 'reason': 'cash_deposit'
+            }
+        )
+        capture_trade_snapshot(
+            user_id,
+            account_name,
+            import_batch_id=batch.id,
+            trade_event_id=event.id,
+            snapshot_payload={
+                'product_name': log.product_name,
+                'trade_type': log.trade_type,
+                'total_amount': log.total_amount,
+                'cash_balance': get_cash_balance(user_id, account_name).amount
+            },
+            snapshot_kind='cash_deposit'
+        )
+        reconciliation_result, reconciliation_summary = store_reconciliation_result(
+            user_id,
+            account_name,
+            import_batch_id=batch.id,
+            trade_event_id=event.id
+        )
+        finalize_import_batch(
+            batch,
+            imported_count=1,
+            notes={
+                'reason': 'cash_deposit',
+                'trade_event_id': event.id,
+                'reconciliation_status': reconciliation_result.status,
+                'mismatch_count': reconciliation_summary['mismatch_count']
             }
         )
         db.session.commit()
@@ -1888,6 +2408,14 @@ def add_product():
         purchase_price = parse_positive_float(data['purchase_price'], '매입가/기준가')
         purchase_date = parse_trade_date(data['purchase_date'])
         account_name = current_account_name()
+        batch = create_import_batch(
+            current_user_id(),
+            account_name,
+            batch_type='manual_product_add',
+            source_name='ui',
+            row_count=1,
+            notes={'reason': 'product_added'}
+        )
 
         product = Product(
             user_id=current_user_id(),
@@ -1923,16 +2451,42 @@ def add_product():
         )
         db.session.add(trade_log)
         db.session.flush()
-        append_trade_event(
+        event = append_trade_event(
             user_id=product.user_id,
             account_name=product.account_name,
             event_type='trade_created',
             trade_log_id=trade_log.id,
             product_id=product.id,
+            import_batch_id=batch.id,
             payload={
                 'trade_log': serialize_trade_log(trade_log),
                 'product': serialize_product(product),
                 'reason': 'product_added'
+            }
+        )
+        capture_trade_snapshot(
+            product.user_id,
+            product.account_name,
+            import_batch_id=batch.id,
+            trade_event_id=event.id,
+            product=product,
+            snapshot_kind='product_added'
+        )
+        reconciliation_result, reconciliation_summary = store_reconciliation_result(
+            product.user_id,
+            product.account_name,
+            import_batch_id=batch.id,
+            trade_event_id=event.id
+        )
+        finalize_import_batch(
+            batch,
+            imported_count=1,
+            notes={
+                'reason': 'product_added',
+                'trade_event_id': event.id,
+                'product_id': product.id,
+                'reconciliation_status': reconciliation_result.status,
+                'mismatch_count': reconciliation_summary['mismatch_count']
             }
         )
         db.session.commit()
@@ -2015,6 +2569,14 @@ def add_product_buy(product_id):
         product = Product.query.filter_by(id=product_id, user_id=current_user_id(), status='holding').first()
         if not product:
             return jsonify({'error': '보유 중인 상품을 찾을 수 없습니다.'}), 404
+        batch = create_import_batch(
+            product.user_id,
+            product.account_name,
+            batch_type='manual_additional_buy',
+            source_name='ui',
+            row_count=1,
+            notes={'reason': 'additional_buy', 'product_id': product.id}
+        )
 
         quantity = parse_positive_float(data.get('quantity'), '추가 수량/좌수')
         price = parse_positive_float(data.get('purchase_price'), '추가 매입가/기준가')
@@ -2046,16 +2608,42 @@ def add_product_buy(product_id):
         )
         db.session.add(trade_log)
         db.session.flush()
-        append_trade_event(
+        event = append_trade_event(
             user_id=product.user_id,
             account_name=product.account_name,
             event_type='trade_created',
             trade_log_id=trade_log.id,
             product_id=product.id,
+            import_batch_id=batch.id,
             payload={
                 'trade_log': serialize_trade_log(trade_log),
                 'product': serialize_product(product),
                 'reason': 'additional_buy'
+            }
+        )
+        capture_trade_snapshot(
+            product.user_id,
+            product.account_name,
+            import_batch_id=batch.id,
+            trade_event_id=event.id,
+            product=product,
+            snapshot_kind='additional_buy'
+        )
+        reconciliation_result, reconciliation_summary = store_reconciliation_result(
+            product.user_id,
+            product.account_name,
+            import_batch_id=batch.id,
+            trade_event_id=event.id
+        )
+        finalize_import_batch(
+            batch,
+            imported_count=1,
+            notes={
+                'reason': 'additional_buy',
+                'trade_event_id': event.id,
+                'product_id': product.id,
+                'reconciliation_status': reconciliation_result.status,
+                'mismatch_count': reconciliation_summary['mismatch_count']
             }
         )
         db.session.commit()
@@ -2078,6 +2666,14 @@ def sell_product(product_id):
             return jsonify({'error': '상품을 찾을 수 없습니다.'}), 404
         if product.status == 'sold':
             return jsonify({'error': '이미 매도 완료된 상품입니다.'}), 400
+        batch = create_import_batch(
+            product.user_id,
+            product.account_name,
+            batch_type='manual_sell',
+            source_name='ui',
+            row_count=1,
+            notes={'reason': 'sell_completed', 'product_id': product.id}
+        )
 
         product.status = 'sold'
         product.sale_price = parse_positive_float(data.get('sale_price'), '매도가/기준가')
@@ -2099,16 +2695,42 @@ def sell_product(product_id):
         )
         db.session.add(trade_log)
         db.session.flush()
-        append_trade_event(
+        event = append_trade_event(
             user_id=product.user_id,
             account_name=product.account_name,
             event_type='trade_created',
             trade_log_id=trade_log.id,
             product_id=product.id,
+            import_batch_id=batch.id,
             payload={
                 'trade_log': serialize_trade_log(trade_log),
                 'product': serialize_product(product),
                 'reason': 'sell_completed'
+            }
+        )
+        capture_trade_snapshot(
+            product.user_id,
+            product.account_name,
+            import_batch_id=batch.id,
+            trade_event_id=event.id,
+            product=product,
+            snapshot_kind='sell_completed'
+        )
+        reconciliation_result, reconciliation_summary = store_reconciliation_result(
+            product.user_id,
+            product.account_name,
+            import_batch_id=batch.id,
+            trade_event_id=event.id
+        )
+        finalize_import_batch(
+            batch,
+            imported_count=1,
+            notes={
+                'reason': 'sell_completed',
+                'trade_event_id': event.id,
+                'product_id': product.id,
+                'reconciliation_status': reconciliation_result.status,
+                'mismatch_count': reconciliation_summary['mismatch_count']
             }
         )
         db.session.commit()
@@ -2121,7 +2743,7 @@ def sell_product(product_id):
         return jsonify({'error': str(e)}), 500
 
 
-def delete_user_product(user_id, product_id):
+def delete_user_product(user_id, product_id, import_batch_id=None):
     product = Product.query.filter_by(id=product_id, user_id=user_id).first()
     if not product:
         return None, 0
@@ -2156,16 +2778,32 @@ def delete_user_product(user_id, product_id):
         .all()
     )
     for log in related_logs:
-        append_trade_event(
+        event = append_trade_event(
             user_id=user_id,
             account_name=log.account_name,
             event_type='trade_deleted',
             trade_log_id=log.id,
             product_id=log.product_id,
+            import_batch_id=import_batch_id,
             payload={
                 'deleted': serialize_trade_log(log),
                 'product_deleted': serialize_product(product)
             }
+        )
+        capture_trade_snapshot(
+            user_id,
+            log.account_name,
+            import_batch_id=import_batch_id,
+            trade_event_id=event.id,
+            snapshot_payload={
+                'product_name': log.product_name,
+                'trade_type': log.trade_type,
+                'total_amount': log.total_amount,
+                'quantity': log.quantity,
+                'price': log.price,
+                'deleted_product': serialize_product(product)
+            },
+            snapshot_kind='product_deleted'
         )
         db.session.delete(log)
     deleted_logs = len(related_logs)
@@ -2179,10 +2817,34 @@ def delete_user_product(user_id, product_id):
 def delete_product(product_id):
     try:
         user_id = current_user_id()
-        product, deleted_logs = delete_user_product(user_id, product_id)
+        product = Product.query.filter_by(id=product_id, user_id=user_id).first()
         if not product:
             return jsonify({'error': '상품을 찾을 수 없습니다.'}), 404
+        batch = create_import_batch(
+            user_id,
+            product.account_name,
+            batch_type='manual_product_delete',
+            source_name='ui',
+            row_count=1,
+            notes={'reason': 'product_delete', 'product_id': product_id}
+        )
+        product, deleted_logs = delete_user_product(user_id, product_id, batch.id)
 
+        reconciliation_result, reconciliation_summary = store_reconciliation_result(
+            user_id,
+            product.account_name,
+            import_batch_id=batch.id
+        )
+        finalize_import_batch(
+            batch,
+            imported_count=deleted_logs,
+            notes={
+                'reason': 'product_delete',
+                'deleted_logs': deleted_logs,
+                'reconciliation_status': reconciliation_result.status,
+                'mismatch_count': reconciliation_summary['mismatch_count']
+            }
+        )
         db.session.commit()
         return jsonify({
             'message': '상품과 관련 매매일지, 가격 이력을 삭제했습니다.',
@@ -2198,10 +2860,34 @@ def delete_product(product_id):
 def delete_product_with_post(product_id):
     try:
         user_id = current_user_id()
-        product, deleted_logs = delete_user_product(user_id, product_id)
+        product = Product.query.filter_by(id=product_id, user_id=user_id).first()
         if not product:
             return jsonify({'error': '상품을 찾을 수 없습니다.'}), 404
+        batch = create_import_batch(
+            user_id,
+            product.account_name,
+            batch_type='manual_product_delete',
+            source_name='ui',
+            row_count=1,
+            notes={'reason': 'product_delete', 'product_id': product_id}
+        )
+        product, deleted_logs = delete_user_product(user_id, product_id, batch.id)
 
+        reconciliation_result, reconciliation_summary = store_reconciliation_result(
+            user_id,
+            product.account_name,
+            import_batch_id=batch.id
+        )
+        finalize_import_batch(
+            batch,
+            imported_count=deleted_logs,
+            notes={
+                'reason': 'product_delete',
+                'deleted_logs': deleted_logs,
+                'reconciliation_status': reconciliation_result.status,
+                'mismatch_count': reconciliation_summary['mismatch_count']
+            }
+        )
         db.session.commit()
         return jsonify({
             'message': '상품과 관련 매매일지, 가격 이력을 삭제했습니다.',
@@ -2379,6 +3065,32 @@ def build_trade_event_response(event):
         'trade_updated': '수정',
         'trade_deleted': '삭제'
     }.get(row['event_type'], row['event_type'])
+    return row
+
+
+def build_import_batch_response(batch):
+    row = batch.to_dict()
+    row['notes'] = parse_json_text(row.pop('notes_json'), {})
+    return row
+
+
+def build_trade_snapshot_response(snapshot):
+    row = snapshot.to_dict()
+    row['payload'] = parse_json_text(row.pop('payload_json'), {})
+    return row
+
+
+def build_reconciliation_result_response(result):
+    row = result.to_dict()
+    row['details'] = parse_json_text(row.pop('details_json'), [])
+    return row
+
+
+def build_screener_screen_response(screen):
+    row = screen.to_dict()
+    row['filters'] = parse_json_text(row.pop('filters_json'), {})
+    row['result_codes'] = parse_json_text(row.pop('result_codes_json'), [])
+    row['compare_codes'] = parse_json_text(row.pop('compare_codes_json'), [])
     return row
 
 
@@ -2612,6 +3324,14 @@ def update_trade_log(log_id):
         log = TradeLog.query.filter_by(id=log_id, user_id=user_id).first()
         if not log:
             return jsonify({'error': '매매일지 기록을 찾을 수 없습니다.'}), 404
+        batch = create_import_batch(
+            user_id,
+            log.account_name,
+            batch_type='manual_trade_update',
+            source_name='ui',
+            row_count=1,
+            notes={'reason': 'trade_update', 'trade_log_id': log_id}
+        )
         before_log = serialize_trade_log(log)
 
         if data.get('product_name'):
@@ -2647,16 +3367,43 @@ def update_trade_log(log_id):
             product = sync_product_from_trade_log(log)
 
         db.session.flush()
-        append_trade_event(
+        event = append_trade_event(
             user_id=user_id,
             account_name=log.account_name,
             event_type='trade_updated',
             trade_log_id=log.id,
             product_id=log.product_id,
+            import_batch_id=batch.id,
             payload={
                 'before': before_log,
                 'after': serialize_trade_log(log),
                 'product': serialize_product(product)
+            }
+        )
+        capture_trade_snapshot(
+            user_id,
+            log.account_name,
+            import_batch_id=batch.id,
+            trade_event_id=event.id,
+            product=product,
+            snapshot_payload=serialize_trade_log(log) if not product else None,
+            snapshot_kind='trade_updated'
+        )
+        reconciliation_result, reconciliation_summary = store_reconciliation_result(
+            user_id,
+            log.account_name,
+            import_batch_id=batch.id,
+            trade_event_id=event.id
+        )
+        finalize_import_batch(
+            batch,
+            imported_count=1,
+            notes={
+                'reason': 'trade_update',
+                'trade_event_id': event.id,
+                'trade_log_id': log.id,
+                'reconciliation_status': reconciliation_result.status,
+                'mismatch_count': reconciliation_summary['mismatch_count']
             }
         )
         db.session.commit()
@@ -2677,27 +3424,61 @@ def delete_trade_log(log_id):
         log = TradeLog.query.filter_by(id=log_id, user_id=user_id).first()
         if not log:
             return jsonify({'error': '매매일지 기록을 찾을 수 없습니다.'}), 404
+        batch = create_import_batch(
+            user_id,
+            log.account_name,
+            batch_type='manual_trade_delete',
+            source_name='ui',
+            row_count=1,
+            notes={'reason': 'trade_delete', 'trade_log_id': log_id}
+        )
 
         deleted_snapshot = serialize_trade_log(log)
         product = None
         if log.trade_type in ('buy', 'sell') and log.product_id:
             product = Product.query.filter_by(id=log.product_id, user_id=user_id).first()
 
-        append_trade_event(
+        event = append_trade_event(
             user_id=user_id,
             account_name=log.account_name,
             event_type='trade_deleted',
             trade_log_id=log.id,
             product_id=log.product_id,
+            import_batch_id=batch.id,
             payload={
                 'deleted': deleted_snapshot,
                 'product_before_rebuild': serialize_product(product)
             }
         )
+        capture_trade_snapshot(
+            user_id,
+            log.account_name,
+            import_batch_id=batch.id,
+            trade_event_id=event.id,
+            snapshot_payload=deleted_snapshot,
+            snapshot_kind='trade_deleted'
+        )
         db.session.delete(log)
         if product:
             rebuild_product_from_trade_logs(product)
 
+        reconciliation_result, reconciliation_summary = store_reconciliation_result(
+            user_id,
+            log.account_name,
+            import_batch_id=batch.id,
+            trade_event_id=event.id
+        )
+        finalize_import_batch(
+            batch,
+            imported_count=1,
+            notes={
+                'reason': 'trade_delete',
+                'trade_event_id': event.id,
+                'trade_log_id': log.id,
+                'reconciliation_status': reconciliation_result.status,
+                'mismatch_count': reconciliation_summary['mismatch_count']
+            }
+        )
         db.session.commit()
         return jsonify({'message': '매매일지 기록을 삭제했습니다.'}), 200
     except ValueError as e:
