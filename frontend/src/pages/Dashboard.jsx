@@ -124,16 +124,16 @@ function HoldingTreemapCell({
   if (depth !== 1) return null;
 
   const area = width * height;
-  const showLabel = width > 56 && height > 34;
-  const showPercent = width > 72 && height > 50;
-  const isLarge = area > 16000;
-  const isMedium = area > 7000;
-  const fontSize = isLarge ? 26 : isMedium ? 16 : 11;
-  const percentSize = isLarge ? 14 : 11;
+  const showLabel = width > 84 && height > 52;
+  const showPercent = width > 96 && height > 72;
+  const isLarge = area > 22000;
+  const isMedium = area > 11000;
+  const fontSize = isLarge ? 18 : isMedium ? 14 : 11;
+  const percentSize = isLarge ? 13 : 11;
   const safeName = String(name || payload?.name || '');
-  const displayName = safeName.length > 22 && !isLarge
-    ? `${safeName.slice(0, 22)}...`
-    : safeName;
+  const labelLines = wrapChartLabel(safeName, isLarge ? 14 : 10);
+  const lineHeight = isLarge ? 22 : 16;
+  const percent = Number(payload?.percent ?? 0).toFixed(1);
 
   return (
     <g>
@@ -150,13 +150,21 @@ function HoldingTreemapCell({
       {showLabel && (
         <text
           x={x + width / 2}
-          y={y + height / 2 - (showPercent ? 8 : 0)}
+          y={y + height / 2 - (showPercent ? 12 : 0)}
           textAnchor="middle"
           fill="#f8fafc"
           fontSize={fontSize}
           fontWeight={700}
         >
-          {displayName}
+          {labelLines.map((line, index) => (
+            <tspan
+              key={`${safeName}-${index}`}
+              x={x + width / 2}
+              dy={index === 0 ? 0 : lineHeight}
+            >
+              {line}
+            </tspan>
+          ))}
         </text>
       )}
       {showPercent && (
@@ -168,7 +176,7 @@ function HoldingTreemapCell({
           fontSize={percentSize}
           fontWeight={700}
         >
-          {Number(value || payload?.value || 0).toFixed(1)}%
+          {percent}%
         </text>
       )}
     </g>
@@ -285,7 +293,8 @@ function Dashboard() {
   const holdingTreemapData = useMemo(() => (
     holdingAllocation.map((item) => ({
       ...item,
-      size: item.amount
+      size: item.amount,
+      percent: item.value
     }))
   ), [holdingAllocation]);
 
@@ -441,7 +450,7 @@ function Dashboard() {
       </section>
 
       <section className="charts-section">
-        <div className="chart-container chart-container-compact">
+        <div className="chart-container chart-wide allocation-wide">
           <h2>자산구분 비중</h2>
           <div className="allocation-summary">
             {allocation.map((entry) => (
@@ -454,6 +463,12 @@ function Dashboard() {
                     </span>
                     <strong>{Number(entry.value || 0).toFixed(1)}%</strong>
                   </div>
+                  <div className="allocation-bar-track">
+                    <div
+                      className="allocation-bar-fill"
+                      style={{ width: `${Math.min(Number(entry.value || 0), 100)}%`, backgroundColor: COLORS[entry.key] }}
+                    />
+                  </div>
                   <span className="allocation-amount">{formatCurrency(entry.amount)}</span>
                 </div>
               </div>
@@ -461,14 +476,14 @@ function Dashboard() {
           </div>
         </div>
 
-        <div className="chart-container">
+        <div className="chart-container chart-wide">
           <h2>보유종목 비중</h2>
           {holdingAllocation.length === 0 ? (
             <p className="no-data">등록된 보유 상품이 없습니다.</p>
           ) : (
             <>
               <div className="holding-treemap-desktop">
-                <ResponsiveContainer width="100%" height={420}>
+                <ResponsiveContainer width="100%" height={480}>
                   <Treemap
                     data={holdingTreemapData}
                     dataKey="size"
@@ -476,7 +491,7 @@ function Dashboard() {
                     fill="#8884d8"
                     content={<HoldingTreemapCell />}
                   >
-                    <Tooltip formatter={(value, name, item) => [`${Number(item?.payload?.value || 0).toFixed(2)}% (${formatCurrency(item?.payload?.amount)})`, item?.payload?.name || name]} />
+                    <Tooltip formatter={(tooltipValue, tooltipName, item) => [`${Number(item?.payload?.percent || 0).toFixed(2)}% (${formatCurrency(item?.payload?.amount)})`, item?.payload?.name || tooltipName]} />
                   </Treemap>
                 </ResponsiveContainer>
               </div>
