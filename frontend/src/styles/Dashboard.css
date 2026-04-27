@@ -22,14 +22,22 @@
 .amount { margin: 0; font-size: 24px; font-weight: 850; word-break: keep-all; }
 .profit { color: #b42318; font-weight: 800; }
 .loss { color: #177245; font-weight: 800; }
-.charts-section { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 24px; }
+.charts-section { display: grid; grid-template-columns: minmax(260px, .72fr) minmax(0, 1.28fr); gap: 18px; margin-bottom: 24px; }
 .chart-wide { grid-column: 1 / -1; }
 .chart-container, .products-table { padding: 18px; min-width: 0; overflow: hidden; }
-.allocation-legend-list, .holding-allocation-list { display: grid; gap: 8px; margin-top: 8px; }
-.allocation-legend-item, .holding-allocation-item { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto 56px; gap: 8px; align-items: center; color: #52606d; font-size: 13px; }
+.chart-container-compact { align-self: start; }
+.allocation-summary, .holding-allocation-list { display: grid; gap: 10px; margin-top: 8px; }
+.allocation-legend-item { display: grid; gap: 8px; color: #52606d; font-size: 13px; }
+.allocation-legend-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.allocation-label { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.allocation-bar-track { height: 10px; border-radius: 999px; background: #e9eff5; overflow: hidden; }
+.allocation-bar-fill { height: 100%; border-radius: 999px; }
+.allocation-amount { color: #697586; font-size: 12px; }
+.holding-allocation-item { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto 56px; gap: 8px; align-items: center; color: #52606d; font-size: 13px; }
 .allocation-legend-item .dot, .holding-allocation-item .dot { width: 10px; height: 10px; border-radius: 999px; }
 .holding-name { color: #102a43; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .allocation-legend-item strong, .holding-allocation-item strong { color: #102a43; text-align: right; }
+.holding-treemap-desktop { margin-bottom: 12px; border-radius: 8px; overflow: hidden; background: #f8fafc; }
 .profit-bar-label { fill: #102a43; font-size: 12px; font-weight: 700; }
 .profit-chart-scroll { overflow-x: auto; }
 .profit-chart-inner { min-width: 560px; }
@@ -60,7 +68,8 @@ td { font-size: 14px; }
 }
 
 @media (max-width: 900px) {
-  .summary-cards, .charts-section { grid-template-columns: 1fr 1fr; }
+  .summary-cards { grid-template-columns: 1fr 1fr; }
+  .charts-section { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 640px) {
@@ -74,11 +83,13 @@ td { font-size: 14px; }
   .chart-container, .products-table, .card { padding: 14px; }
   .amount { font-size: 20px; }
   .cash-card-actions { display: grid; grid-template-columns: 1fr 1fr; }
-  .allocation-legend-item, .holding-allocation-item { grid-template-columns: 12px minmax(0, 1fr) auto; }
-  .allocation-legend-item strong, .holding-allocation-item strong { grid-column: 2 / -1; text-align: left; }
+  .holding-allocation-item { grid-template-columns: 12px minmax(0, 1fr) auto; }
+  .allocation-legend-top { align-items: flex-start; }
+  .holding-allocation-item strong { grid-column: 2 / -1; text-align: left; }
   .profit-chart-desktop, .desktop-products-table { display: none; }
   .profit-chart-mobile, .mobile-product-cards { display: grid; }
   .mobile-product-cards { gap: 12px; }
+  .holding-treemap-desktop { margin-bottom: 10px; }
 }
 
 @media (max-width: 420px) {

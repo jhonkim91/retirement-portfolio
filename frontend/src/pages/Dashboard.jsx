@@ -1,5 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Bar, BarChart, CartesianGrid, Cell, LabelList, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  LabelList,
+  ResponsiveContainer,
+  Tooltip,
+  Treemap,
+  XAxis,
+  YAxis
+} from 'recharts';
 import AccountSelector from '../components/AccountSelector';
 import { ACCOUNT_STORAGE_KEY, DEFAULT_ACCOUNT_NAME, portfolioAPI } from '../utils/api';
 import '../styles/Dashboard.css';
@@ -23,10 +34,22 @@ const CASH_COLOR = '#7b8794';
 
 const getInitialAccountName = () => localStorage.getItem(ACCOUNT_STORAGE_KEY) || DEFAULT_ACCOUNT_NAME;
 
+const formatCurrency = (value) => new Intl.NumberFormat('ko-KR', {
+  style: 'currency',
+  currency: 'KRW',
+  maximumFractionDigits: 0
+}).format(value || 0);
+
+const formatPercent = (value) => `${Number(value || 0).toFixed(2)}%`;
+
+const assetTypeLabel = (value) => {
+  if (value === 'risk') return '위험자산';
+  if (value === 'safe') return '안전자산';
+  return value || '-';
+};
+
 const getProductColor = (index) => {
-  if (index < PRODUCT_COLOR_PALETTE.length) {
-    return PRODUCT_COLOR_PALETTE[index];
-  }
+  if (index < PRODUCT_COLOR_PALETTE.length) return PRODUCT_COLOR_PALETTE[index];
   const hue = Math.round((index * 137.508) % 360);
   return `hsl(${hue} 42% 48%)`;
 };
@@ -39,6 +62,7 @@ const wrapChartLabel = (value, maxChars = 12) => {
   if (words.length > 1) {
     const lines = [];
     let current = '';
+
     words.forEach((word) => {
       const next = current ? `${current} ${word}` : word;
       if (next.length <= maxChars || !current) {
@@ -48,6 +72,7 @@ const wrapChartLabel = (value, maxChars = 12) => {
         current = word;
       }
     });
+
     if (current) lines.push(current);
     return lines.slice(0, 2);
   }
@@ -84,14 +109,66 @@ function ProfitYAxisTick({ x, y, payload }) {
   );
 }
 
-const formatCurrency = (value) => new Intl.NumberFormat('ko-KR', {
-  style: 'currency',
-  currency: 'KRW',
-  maximumFractionDigits: 0
-}).format(value || 0);
+function HoldingTreemapCell({
+  x,
+  y,
+  width,
+  height,
+  payload,
+  root
+}) {
+  if (!payload || payload.depth !== 1) return null;
 
-const formatPercent = (value) => `${Number(value || 0).toFixed(2)}%`;
-const assetTypeLabel = (value) => (value === 'risk' ? '위험자산' : '안전자산');
+  const area = width * height;
+  const showLabel = width > 56 && height > 34;
+  const showPercent = width > 72 && height > 50;
+  const isLarge = area > 16000;
+  const isMedium = area > 7000;
+  const fontSize = isLarge ? 26 : isMedium ? 16 : 11;
+  const percentSize = isLarge ? 14 : 11;
+  const displayName = payload.name.length > 22 && !isLarge
+    ? `${payload.name.slice(0, 22)}...`
+    : payload.name;
+
+  return (
+    <g>
+      <rect
+        x={x}
+        y={y}
+        width={width}
+        height={height}
+        fill={payload.fill}
+        stroke={root?.stroke || '#f8fafc'}
+        strokeWidth={2}
+        rx={4}
+      />
+      {showLabel && (
+        <text
+          x={x + width / 2}
+          y={y + height / 2 - (showPercent ? 8 : 0)}
+          textAnchor="middle"
+          fill="#f8fafc"
+          fontSize={fontSize}
+          fontWeight={700}
+        >
+          {displayName}
+        </text>
+      )}
+      {showPercent && (
+        <text
+          x={x + width / 2}
+          y={y + height / 2 + (isLarge ? 20 : 14)}
+          textAnchor="middle"
+          fill="#f8fafc"
+          fontSize={percentSize}
+          fontWeight={700}
+        >
+          {Number(payload.value || 0).toFixed(1)}%
+        </text>
+      )}
+    </g>
+  );
+}
 
 function Dashboard() {
   const [accountName, setAccountName] = useState(getInitialAccountName);
@@ -157,6 +234,7 @@ function Dashboard() {
   const displayProducts = useMemo(() => {
     const rows = [...products];
     const cash = Number(summary?.total_cash || 0);
+
     if (cash > 0) {
       rows.push({
         id: 'cash',
@@ -164,9 +242,6 @@ function Dashboard() {
         product_code: '현금',
         asset_type: 'safe',
         purchase_date: '-',
-        purchase_price: null,
-        current_price: null,
-        quantity: null,
         current_value: cash,
         total_purchase_value: null,
         profit_loss: null,
@@ -174,15 +249,19 @@ function Dashboard() {
         is_cash: true
       });
     }
+
     return rows;
   }, [products, summary]);
 
-  const holdingAllocation = useMemo(() => {
-    const productColorMap = new Map();
+  const productColorMap = useMemo(() => {
+    const map = new Map();
     products.forEach((product, index) => {
-      productColorMap.set(String(product.id), getProductColor(index));
+      map.set(String(product.id), getProductColor(index));
     });
+    return map;
+  }, [products]);
 
+  const holdingAllocation = useMemo(() => {
     const total = Number(summary?.total_current_value || 0);
     if (!total) return [];
 
@@ -196,7 +275,14 @@ function Dashboard() {
         asset_type: product.asset_type,
         fill: product.is_cash ? CASH_COLOR : (productColorMap.get(String(product.id)) || getProductColor(0))
       }));
-  }, [displayProducts, products, summary]);
+  }, [displayProducts, productColorMap, summary]);
+
+  const holdingTreemapData = useMemo(() => (
+    holdingAllocation.map((item) => ({
+      ...item,
+      size: item.amount
+    }))
+  ), [holdingAllocation]);
 
   const profitData = useMemo(() => (
     products
@@ -259,7 +345,7 @@ function Dashboard() {
     }
   };
 
-  if (loading) return <div className="loading">현황을 불러오는 중..</div>;
+  if (loading) return <div className="loading">현황을 불러오는 중...</div>;
 
   return (
     <main className="dashboard">
@@ -269,11 +355,11 @@ function Dashboard() {
         <div className="header">
           <div>
             <h1>{accountName} 현황</h1>
-            <p>원금, 보유 상품, 현금을 함께 보면서 계좌 상태를 빠르게 확인합니다.</p>
+            <p>원금, 보유 상품, 현금을 한 번에 보면서 계좌 상태를 빠르게 확인합니다.</p>
           </div>
           <div className="header-actions">
             <button type="button" onClick={syncPrices} className="refresh-btn" disabled={syncing}>
-              {syncing ? '동기화 중..' : '가격 동기화'}
+              {syncing ? '동기화 중...' : '가격 동기화'}
             </button>
             <button type="button" onClick={fetchDashboardData} className="refresh-btn">새로고침</button>
           </div>
@@ -287,6 +373,7 @@ function Dashboard() {
             <h3>원금 합계</h3>
             <p className="amount">{formatCurrency(summary?.total_investment)}</p>
           </div>
+
           <div
             className={`card cash-card ${cashEditing ? 'editing' : ''}`}
             role="button"
@@ -312,7 +399,7 @@ function Dashboard() {
                 />
                 <div className="cash-card-actions">
                   <button type="button" className="cash-card-save" onClick={saveCash} disabled={cashLoading}>
-                    {cashLoading ? '저장 중..' : '저장'}
+                    {cashLoading ? '저장 중...' : '저장'}
                   </button>
                   <button type="button" className="cash-card-cancel" onClick={cancelCashEditor} disabled={cashLoading}>
                     취소
@@ -326,16 +413,19 @@ function Dashboard() {
               </>
             )}
           </div>
+
           <div className="card">
             <h3>현재 보유 평가액</h3>
             <p className="amount">{formatCurrency(summary?.total_current_value)}</p>
           </div>
+
           <div className="card">
-            <h3>원금 대비 수익금</h3>
+            <h3>원금 대비 손익금</h3>
             <p className={`amount ${(summary?.total_profit_loss || 0) >= 0 ? 'profit' : 'loss'}`}>
               {formatCurrency(summary?.total_profit_loss)}
             </p>
           </div>
+
           <div className="card">
             <h3>원금 대비 수익률</h3>
             <p className={`amount ${(summary?.total_profit_rate || 0) >= 0 ? 'profit' : 'loss'}`}>
@@ -346,23 +436,25 @@ function Dashboard() {
       </section>
 
       <section className="charts-section">
-        <div className="chart-container">
-          <h2>자산 구분 비중</h2>
-          <ResponsiveContainer width="100%" height={260}>
-            <PieChart>
-              <Pie data={allocation} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={82} labelLine={false}>
-                {allocation.map((entry) => <Cell key={entry.key} fill={COLORS[entry.key]} />)}
-              </Pie>
-              <Tooltip formatter={(value, name, item) => [`${Number(value).toFixed(2)}% (${formatCurrency(item.payload.amount)})`, name]} />
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="allocation-legend-list">
+        <div className="chart-container chart-container-compact">
+          <h2>자산구분 비중</h2>
+          <div className="allocation-summary">
             {allocation.map((entry) => (
               <div className="allocation-legend-item" key={entry.key}>
-                <span className="dot" style={{ backgroundColor: COLORS[entry.key] }} />
-                <span className="holding-name">{entry.name}</span>
-                <span>{formatCurrency(entry.amount)}</span>
-                <strong>{Number(entry.value || 0).toFixed(1)}%</strong>
+                <div className="allocation-legend-top">
+                  <span className="allocation-label">
+                    <span className="dot" style={{ backgroundColor: COLORS[entry.key] }} />
+                    <span className="holding-name">{entry.name}</span>
+                  </span>
+                  <strong>{Number(entry.value || 0).toFixed(1)}%</strong>
+                </div>
+                <div className="allocation-bar-track">
+                  <div
+                    className="allocation-bar-fill"
+                    style={{ width: `${Math.min(Number(entry.value || 0), 100)}%`, backgroundColor: COLORS[entry.key] }}
+                  />
+                </div>
+                <span className="allocation-amount">{formatCurrency(entry.amount)}</span>
               </div>
             ))}
           </div>
@@ -374,14 +466,19 @@ function Dashboard() {
             <p className="no-data">등록된 보유 상품이 없습니다.</p>
           ) : (
             <>
-              <ResponsiveContainer width="100%" height={240}>
-                <PieChart>
-                  <Pie data={holdingAllocation} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={78} labelLine={false}>
-                    {holdingAllocation.map((entry) => <Cell key={entry.key} fill={entry.fill} />)}
-                  </Pie>
-                  <Tooltip formatter={(value, name, item) => [`${Number(value).toFixed(2)}% (${formatCurrency(item.payload.amount)})`, name]} />
-                </PieChart>
-              </ResponsiveContainer>
+              <div className="holding-treemap-desktop">
+                <ResponsiveContainer width="100%" height={320}>
+                  <Treemap
+                    data={holdingTreemapData}
+                    dataKey="size"
+                    stroke="#f8fafc"
+                    fill="#8884d8"
+                    content={<HoldingTreemapCell />}
+                  >
+                    <Tooltip formatter={(value, name, item) => [`${Number(item?.payload?.value || 0).toFixed(2)}% (${formatCurrency(item?.payload?.amount)})`, item?.payload?.name || name]} />
+                  </Treemap>
+                </ResponsiveContainer>
+              </div>
               <div className="holding-allocation-list">
                 {holdingAllocation.map((item) => (
                   <div className="holding-allocation-item" key={item.key}>
@@ -475,7 +572,7 @@ function Dashboard() {
                     <th>매입일</th>
                     <th>구매액</th>
                     <th>평가액</th>
-                    <th>수익금</th>
+                    <th>손익금</th>
                     <th>수익률</th>
                   </tr>
                 </thead>
@@ -523,7 +620,7 @@ function Dashboard() {
                       <strong>{formatCurrency(product.current_value)}</strong>
                     </div>
                     <div>
-                      <span>수익금</span>
+                      <span>손익금</span>
                       <strong className={product.is_cash ? '' : ((product.profit_loss || 0) >= 0 ? 'profit' : 'loss')}>
                         {product.is_cash ? '-' : formatCurrency(product.profit_loss)}
                       </strong>
