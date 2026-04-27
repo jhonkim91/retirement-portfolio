@@ -273,6 +273,21 @@ function Dashboard() {
       .sort((left, right) => right.profitRate - left.profitRate)
   ), [productColorMap, products]);
 
+  const profitDomain = useMemo(() => {
+    if (profitData.length === 0) return [-10, 10];
+
+    const rates = profitData.map((entry) => Number(entry.profitRate || 0));
+    const rawMin = Math.min(...rates, 0);
+    const rawMax = Math.max(...rates, 0);
+    const span = Math.max(rawMax - rawMin, 10);
+    const padding = Math.max(span * 0.08, 4);
+    const min = Math.floor((rawMin - padding) / 5) * 5;
+    const max = Math.ceil((rawMax + padding) / 5) * 5;
+
+    if (min === max) return [min - 5, max + 5];
+    return [min, max];
+  }, [profitData]);
+
   const profitChartHeight = Math.max(280, profitData.length * 60);
 
   const syncPrices = async () => {
@@ -536,7 +551,11 @@ function Dashboard() {
                         margin={{ top: 8, right: 44, left: 12, bottom: 8 }}
                       >
                         <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis type="number" tickFormatter={(value) => `${Number(value).toFixed(0)}%`} />
+                        <XAxis
+                          type="number"
+                          domain={profitDomain}
+                          tickFormatter={(value) => `${Number(value).toFixed(0)}%`}
+                        />
                         <YAxis
                           type="category"
                           dataKey="name"
