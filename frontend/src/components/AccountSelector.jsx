@@ -12,10 +12,13 @@ function AccountSelector({ value, onChange }) {
   const [accounts, setAccounts] = useState([DEFAULT_PROFILE]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [renaming, setRenaming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [showRenameForm, setShowRenameForm] = useState(false);
   const [newAccountName, setNewAccountName] = useState('');
   const [newAccountType, setNewAccountType] = useState('retirement');
+  const [renameAccountName, setRenameAccountName] = useState('');
   const [message, setMessage] = useState('');
 
   const loadAccounts = useCallback(async () => {
@@ -58,6 +61,11 @@ function AccountSelector({ value, onChange }) {
     [newAccountName, saving]
   );
 
+  const canRename = useMemo(
+    () => renameAccountName.trim().length > 0 && !renaming,
+    [renameAccountName, renaming]
+  );
+
   const submitNewAccount = async (event) => {
     event.preventDefault();
     const accountName = newAccountName.trim();
@@ -74,6 +82,7 @@ function AccountSelector({ value, onChange }) {
       setNewAccountName('');
       setNewAccountType('retirement');
       setShowCreateForm(false);
+      setShowRenameForm(false);
       setMessage(response.message || '통장을 추가했습니다.');
       onChange(response.account_name || accountName);
     } catch (error) {
@@ -102,6 +111,39 @@ function AccountSelector({ value, onChange }) {
     }
   };
 
+  const openRenameForm = () => {
+    if (!selectedAccount || selectedAccount.is_default) return;
+    setRenameAccountName(selectedAccount.account_name);
+    setShowCreateForm(false);
+    setShowRenameForm((prev) => !prev);
+    setMessage('');
+  };
+
+  const submitRenameAccount = async (event) => {
+    event.preventDefault();
+    const nextName = renameAccountName.trim();
+    if (!selectedAccount || selectedAccount.is_default) return;
+    if (!nextName) {
+      setMessage('새 통장 이름을 입력하세요.');
+      return;
+    }
+
+    try {
+      setRenaming(true);
+      const response = await portfolioAPI.renameAccount(selectedAccount.account_name, nextName);
+      const nextProfiles = response?.account_profiles?.length ? response.account_profiles : [DEFAULT_PROFILE];
+      setAccounts(nextProfiles);
+      setShowRenameForm(false);
+      setRenameAccountName('');
+      setMessage(response.message || '통장 이름을 변경했습니다.');
+      onChange(response.account_name || nextName);
+    } catch (error) {
+      setMessage(error.message || '통장 이름 변경에 실패했습니다.');
+    } finally {
+      setRenaming(false);
+    }
+  };
+
   return (
     <div className="account-switcher-wrap">
       <div className="account-switcher">
@@ -123,10 +165,20 @@ function AccountSelector({ value, onChange }) {
           className="account-add-button"
           onClick={() => {
             setShowCreateForm((prev) => !prev);
+            setShowRenameForm(false);
             setMessage('');
           }}
         >
           통장 추가
+        </button>
+        <button
+          type="button"
+          className="account-rename-button"
+          onClick={openRenameForm}
+          disabled={selectedAccount?.is_default || renaming}
+          title={selectedAccount?.is_default ? '기본 퇴직연금 통장은 이름을 변경할 수 없습니다.' : ''}
+        >
+          {renaming ? '변경 중...' : '이름 변경'}
         </button>
         <button
           type="button"
@@ -153,6 +205,20 @@ function AccountSelector({ value, onChange }) {
           </select>
           <button type="submit" disabled={!canSubmit}>
             {saving ? '추가 중...' : '추가'}
+          </button>
+        </form>
+      )}
+      {showRenameForm && (
+        <form className="account-rename-form" onSubmit={submitRenameAccount}>
+          <input
+            type="text"
+            maxLength="80"
+            placeholder="새 통장 이름"
+            value={renameAccountName}
+            onChange={(event) => setRenameAccountName(event.target.value)}
+          />
+          <button type="submit" disabled={!canRename}>
+            {renaming ? '변경 중...' : '변경'}
           </button>
         </form>
       )}

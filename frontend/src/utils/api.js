@@ -71,6 +71,9 @@ export const portfolioAPI = {
     account_name: accountName,
     account_type: accountType
   }),
+  renameAccount: (currentAccountName, nextAccountName) => apiCall(`/accounts/${encodeURIComponent(currentAccountName)}`, 'PUT', {
+    account_name: nextAccountName
+  }),
   deleteAccount: (accountName) => apiCall(`/accounts/${encodeURIComponent(accountName)}`, 'DELETE'),
   getSummary: (accountName) => apiCall(`/portfolio/summary?${accountQuery(accountName)}`),
   getProducts: (accountName) => apiCall(`/portfolio/products?${accountQuery(accountName)}`),

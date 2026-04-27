@@ -1118,6 +1118,61 @@ def delete_account(account_name):
         return jsonify({'error': str(e)}), 500
 
 
+@api.route('/accounts/<path:account_name>', methods=['PUT'])
+@jwt_required()
+def rename_account(account_name):
+    try:
+        user_id = current_user_id()
+        current_name = normalize_account_name(account_name)
+        if current_name == DEFAULT_ACCOUNT_NAME:
+            return jsonify({'error': '기본 퇴직연금 통장은 이름을 변경할 수 없습니다.'}), 400
+
+        data = request.get_json() or {}
+        next_name = normalize_account_name(data.get('account_name'))
+        if not next_name:
+            return jsonify({'error': '새 통장 이름을 입력하세요.'}), 400
+        if next_name == DEFAULT_ACCOUNT_NAME:
+            return jsonify({'error': '기본 통장 이름으로는 변경할 수 없습니다.'}), 400
+        if next_name == current_name:
+            return jsonify({'message': '통장 이름이 이미 같습니다.', 'account_name': current_name}), 200
+
+        existing_names = {item['account_name'] for item in list_user_accounts(user_id)}
+        if next_name in existing_names:
+            return jsonify({'error': '이미 같은 이름의 통장이 있습니다.'}), 400
+
+        Product.query.filter_by(user_id=user_id, account_name=current_name).update(
+            {'account_name': next_name},
+            synchronize_session=False
+        )
+        TradeLog.query.filter_by(user_id=user_id, account_name=current_name).update(
+            {'account_name': next_name},
+            synchronize_session=False
+        )
+        CashBalance.query.filter_by(user_id=user_id, account_name=current_name).update(
+            {'account_name': next_name},
+            synchronize_session=False
+        )
+        profile = AccountProfile.query.filter_by(user_id=user_id, account_name=current_name).first()
+        if profile:
+            profile.account_name = next_name
+        else:
+            get_account_profile(user_id, next_name)
+
+        db.session.commit()
+        account_profiles = list_user_accounts(user_id)
+        db.session.commit()
+        return jsonify({
+            'message': '통장 이름을 변경했습니다.',
+            'previous_account_name': current_name,
+            'account_name': next_name,
+            'accounts': [item['account_name'] for item in account_profiles],
+            'account_profiles': account_profiles
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
 @api.route('/portfolio/products', methods=['GET'])
 @jwt_required()
 def get_products():
