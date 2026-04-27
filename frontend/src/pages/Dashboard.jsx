@@ -114,10 +114,14 @@ function HoldingTreemapCell({
   y,
   width,
   height,
+  depth,
+  name,
+  value,
+  fill,
   payload,
   root
 }) {
-  if (!payload || payload.depth !== 1) return null;
+  if (depth !== 1) return null;
 
   const area = width * height;
   const showLabel = width > 56 && height > 34;
@@ -126,9 +130,10 @@ function HoldingTreemapCell({
   const isMedium = area > 7000;
   const fontSize = isLarge ? 26 : isMedium ? 16 : 11;
   const percentSize = isLarge ? 14 : 11;
-  const displayName = payload.name.length > 22 && !isLarge
-    ? `${payload.name.slice(0, 22)}...`
-    : payload.name;
+  const safeName = String(name || payload?.name || '');
+  const displayName = safeName.length > 22 && !isLarge
+    ? `${safeName.slice(0, 22)}...`
+    : safeName;
 
   return (
     <g>
@@ -137,7 +142,7 @@ function HoldingTreemapCell({
         y={y}
         width={width}
         height={height}
-        fill={payload.fill}
+        fill={fill || payload?.fill || '#33658a'}
         stroke={root?.stroke || '#f8fafc'}
         strokeWidth={2}
         rx={4}
@@ -163,7 +168,7 @@ function HoldingTreemapCell({
           fontSize={percentSize}
           fontWeight={700}
         >
-          {Number(payload.value || 0).toFixed(1)}%
+          {Number(value || payload?.value || 0).toFixed(1)}%
         </text>
       )}
     </g>
@@ -441,20 +446,16 @@ function Dashboard() {
           <div className="allocation-summary">
             {allocation.map((entry) => (
               <div className="allocation-legend-item" key={entry.key}>
-                <div className="allocation-legend-top">
-                  <span className="allocation-label">
-                    <span className="dot" style={{ backgroundColor: COLORS[entry.key] }} />
-                    <span className="holding-name">{entry.name}</span>
-                  </span>
-                  <strong>{Number(entry.value || 0).toFixed(1)}%</strong>
+                <div className="allocation-box" style={{ borderColor: `${COLORS[entry.key]}33` }}>
+                  <div className="allocation-box-top">
+                    <span className="allocation-label">
+                      <span className="dot" style={{ backgroundColor: COLORS[entry.key] }} />
+                      <span className="holding-name">{entry.name}</span>
+                    </span>
+                    <strong>{Number(entry.value || 0).toFixed(1)}%</strong>
+                  </div>
+                  <span className="allocation-amount">{formatCurrency(entry.amount)}</span>
                 </div>
-                <div className="allocation-bar-track">
-                  <div
-                    className="allocation-bar-fill"
-                    style={{ width: `${Math.min(Number(entry.value || 0), 100)}%`, backgroundColor: COLORS[entry.key] }}
-                  />
-                </div>
-                <span className="allocation-amount">{formatCurrency(entry.amount)}</span>
               </div>
             ))}
           </div>
@@ -467,7 +468,7 @@ function Dashboard() {
           ) : (
             <>
               <div className="holding-treemap-desktop">
-                <ResponsiveContainer width="100%" height={320}>
+                <ResponsiveContainer width="100%" height={420}>
                   <Treemap
                     data={holdingTreemapData}
                     dataKey="size"
