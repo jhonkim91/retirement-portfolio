@@ -108,3 +108,8 @@ export const tradeLogAPI = {
     return apiCall(`/trade-logs${query ? `?${query}` : ''}`);
   }
 };
+
+export const screenerAPI = {
+  scan: (payload) => apiCall('/screener/scan', 'POST', payload),
+  getChart: (code, days = 120) => apiCall(`/screener/chart?code=${encodeURIComponent(code)}&days=${encodeURIComponent(days)}`)
+};

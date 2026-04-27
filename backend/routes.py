@@ -1,6 +1,8 @@
 ﻿from datetime import datetime, date
 import hashlib
+import json
 from datetime import timedelta
+import math
 import os
 from zoneinfo import ZoneInfo
 
@@ -13,10 +15,11 @@ from models import AccountProfile, db, User, Product, PriceHistory, TradeLog, Ca
 
 api = Blueprint('api', __name__, url_prefix='/api')
 market_client = StockAPIClient()
-API_VERSION = '2026-04-27-trend-cost-basis-v1'
+API_VERSION = '2026-04-27-stock-screener-v1'
 MARKET_TIMEZONE = ZoneInfo('Asia/Seoul')
 MARKET_SYNC_TTL_SECONDS = 60 * 5
 _market_sync_cache = {}
+_screener_cache = {}
 
 POSITIVE_NEWS_KEYWORDS = (
     '성장', '확대', '개선', '호조', '반등', '수혜', '강세', '증가', '흑자', '상향',
@@ -461,6 +464,191 @@ def sync_user_holdings(user_id, account_name=None):
 
 def refresh_user_holdings(user_id):
     sync_user_holdings(user_id)
+
+
+def to_rounded_float(value, digits=4):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(number) or math.isinf(number):
+        return None
+    return round(number, digits)
+
+
+def calculate_sma(values, period):
+    if len(values) < period or period <= 0:
+        return None
+    return sum(values[-period:]) / period
+
+
+def calculate_std(values, period):
+    if len(values) < period or period <= 1:
+        return None
+    window = values[-period:]
+    mean = sum(window) / period
+    variance = sum((value - mean) ** 2 for value in window) / period
+    return math.sqrt(variance)
+
+
+def calculate_rsi(values, period=14):
+    if len(values) <= period:
+        return None
+    gains = []
+    losses = []
+    for previous, current in zip(values[:-1], values[1:]):
+        delta = current - previous
+        gains.append(max(delta, 0))
+        losses.append(abs(min(delta, 0)))
+
+    avg_gain = sum(gains[:period]) / period
+    avg_loss = sum(losses[:period]) / period
+
+    for index in range(period, len(gains)):
+        avg_gain = ((avg_gain * (period - 1)) + gains[index]) / period
+        avg_loss = ((avg_loss * (period - 1)) + losses[index]) / period
+
+    if avg_loss == 0:
+        return 100.0
+    rs = avg_gain / avg_loss
+    return 100 - (100 / (1 + rs))
+
+
+def calculate_ema_series(values, period):
+    if len(values) < period or period <= 0:
+        return []
+    multiplier = 2 / (period + 1)
+    ema_values = [sum(values[:period]) / period]
+    for price in values[period:]:
+        ema_values.append((price - ema_values[-1]) * multiplier + ema_values[-1])
+    return ema_values
+
+
+def calculate_macd(values):
+    if len(values) < 35:
+        return {'macd': None, 'signal': None, 'histogram': None}
+    ema12 = calculate_ema_series(values, 12)
+    ema26 = calculate_ema_series(values, 26)
+    if not ema12 or not ema26:
+        return {'macd': None, 'signal': None, 'histogram': None}
+
+    aligned_ema12 = ema12[-len(ema26):]
+    macd_series = [fast - slow for fast, slow in zip(aligned_ema12, ema26)]
+    signal_series = calculate_ema_series(macd_series, 9)
+    if not signal_series:
+        return {
+            'macd': to_rounded_float(macd_series[-1]),
+            'signal': None,
+            'histogram': None
+        }
+    signal_value = signal_series[-1]
+    macd_value = macd_series[-1]
+    return {
+        'macd': to_rounded_float(macd_value),
+        'signal': to_rounded_float(signal_value),
+        'histogram': to_rounded_float(macd_value - signal_value)
+    }
+
+
+def build_screener_snapshot(histories):
+    closes = [float(row['price']) for row in histories if row.get('price') is not None]
+    if len(closes) < 30:
+        return None
+
+    latest_price = closes[-1]
+    ma5 = calculate_sma(closes, 5)
+    ma20 = calculate_sma(closes, 20)
+    ma60 = calculate_sma(closes, 60)
+    std20 = calculate_std(closes, 20)
+    upper_bb = ma20 + (std20 * 2) if ma20 is not None and std20 is not None else None
+    lower_bb = ma20 - (std20 * 2) if ma20 is not None and std20 is not None else None
+    rsi14 = calculate_rsi(closes, 14)
+    macd = calculate_macd(closes)
+    return_20d = ((latest_price / closes[-21]) - 1) * 100 if len(closes) > 21 and closes[-21] else None
+    return_60d = ((latest_price / closes[-61]) - 1) * 100 if len(closes) > 61 and closes[-61] else None
+    ma_gap = ((ma5 / ma20) - 1) * 100 if ma5 and ma20 else None
+    bb_percent = ((latest_price - lower_bb) / (upper_bb - lower_bb) * 100) if upper_bb and lower_bb and upper_bb > lower_bb else None
+
+    signals = []
+    if ma5 and ma20 and ma5 > ma20:
+        signals.append('MA5>MA20')
+    if upper_bb and latest_price >= upper_bb:
+        signals.append('볼린저 상단')
+    if macd.get('histogram') is not None and macd['histogram'] > 0:
+        signals.append('MACD+')
+    if rsi14 is not None and 45 <= rsi14 <= 65:
+        signals.append('RSI 중립 강세')
+
+    return {
+        'price': to_rounded_float(latest_price, 2),
+        'price_date': histories[-1]['date'].isoformat(),
+        'ma5': to_rounded_float(ma5, 2),
+        'ma20': to_rounded_float(ma20, 2),
+        'ma60': to_rounded_float(ma60, 2),
+        'upper_bb': to_rounded_float(upper_bb, 2),
+        'lower_bb': to_rounded_float(lower_bb, 2),
+        'bb_percent': to_rounded_float(bb_percent, 2),
+        'rsi14': to_rounded_float(rsi14, 2),
+        'return_20d': to_rounded_float(return_20d, 2),
+        'return_60d': to_rounded_float(return_60d, 2),
+        'ma_gap': to_rounded_float(ma_gap, 2),
+        'macd': macd['macd'],
+        'macd_signal': macd['signal'],
+        'macd_histogram': macd['histogram'],
+        'signal_count': len(signals),
+        'signals': signals
+    }
+
+
+def passes_screener_filters(snapshot, filters):
+    rsi_min = float(filters.get('rsi_min', 0))
+    rsi_max = float(filters.get('rsi_max', 100))
+    min_return = float(filters.get('min_return_20d', -100))
+    max_return = float(filters.get('max_return_20d', 1000))
+    require_ma_cross = bool(filters.get('require_ma_cross'))
+    require_bb_breakout = bool(filters.get('require_bb_breakout'))
+    require_macd_positive = bool(filters.get('require_macd_positive'))
+
+    rsi14 = snapshot.get('rsi14')
+    if rsi14 is None or rsi14 < rsi_min or rsi14 > rsi_max:
+        return False
+
+    return_20d = snapshot.get('return_20d')
+    if return_20d is None or return_20d < min_return or return_20d > max_return:
+        return False
+
+    if require_ma_cross and not (snapshot.get('ma5') and snapshot.get('ma20') and snapshot['ma5'] > snapshot['ma20']):
+        return False
+    if require_bb_breakout and not (snapshot.get('upper_bb') and snapshot.get('price') and snapshot['price'] >= snapshot['upper_bb']):
+        return False
+    if require_macd_positive and not ((snapshot.get('macd_histogram') or 0) > 0):
+        return False
+
+    return True
+
+
+def build_screener_chart(code, lookback_days=120):
+    end_date = date.today()
+    start_date = end_date - timedelta(days=max(lookback_days, 60) + 40)
+    histories = market_client.get_historical_prices(code, start_date, end_date)
+    if len(histories) < 20:
+        raise ValueError('차트 이력이 충분하지 않습니다.')
+
+    chart_rows = []
+    closing_values = []
+    for row in histories:
+        closing_values.append(float(row['price']))
+        ma20 = calculate_sma(closing_values, 20)
+        std20 = calculate_std(closing_values, 20)
+        chart_rows.append({
+            'date': row['date'].isoformat(),
+            'price': to_rounded_float(row['price'], 2),
+            'ma20': to_rounded_float(ma20, 2),
+            'upper_bb': to_rounded_float(ma20 + (std20 * 2), 2) if ma20 is not None and std20 is not None else None,
+            'lower_bb': to_rounded_float(ma20 - (std20 * 2), 2) if ma20 is not None and std20 is not None else None
+        })
+
+    return chart_rows[-lookback_days:]
 
 
 def build_quote_snapshot(code):
@@ -1331,6 +1519,96 @@ def get_product_analysis_report():
         return jsonify({'error': str(e)}), 400
     except RuntimeError as e:
         return jsonify({'error': str(e)}), 503
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/screener/scan', methods=['POST'])
+@jwt_required()
+def run_stock_screener():
+    try:
+        data = request.get_json() or {}
+        market = str(data.get('market') or 'KOSPI').strip().upper()
+        page_count = max(1, min(int(data.get('pages') or 2), 5))
+        limit = max(5, min(int(data.get('limit') or 24), 60))
+        filters = data.get('filters') or {}
+
+        cache_key = hashlib.sha1(json.dumps({
+            'market': market,
+            'pages': page_count,
+            'limit': limit,
+            'filters': filters
+        }, sort_keys=True).encode('utf-8')).hexdigest()
+        cached = _screener_cache.get(cache_key)
+        if cached and (datetime.now(MARKET_TIMEZONE).timestamp() - cached['saved_at']) < 60 * 20:
+            return jsonify(cached['value']), 200
+
+        universe = market_client.get_market_universe(market, page_count)
+        end_date = date.today()
+        start_date = end_date - timedelta(days=220)
+        scanned = 0
+        rows = []
+
+        for item in universe:
+            histories = market_client.get_historical_prices(item['code'], start_date, end_date)
+            snapshot = build_screener_snapshot(histories)
+            if not snapshot:
+                continue
+            scanned += 1
+            if not passes_screener_filters(snapshot, filters):
+                continue
+
+            rows.append({
+                'name': item['name'],
+                'code': item['code'],
+                'exchange': item.get('exchange') or market,
+                'type': item.get('type') or 'stock/ETF',
+                **snapshot
+            })
+
+        rows.sort(
+            key=lambda row: (
+                -(row.get('signal_count') or 0),
+                -float(row.get('return_20d') or -9999),
+                -float(row.get('macd_histogram') or -9999)
+            )
+        )
+
+        result = {
+            'market': market,
+            'pages': page_count,
+            'scanned_count': scanned,
+            'result_count': len(rows),
+            'results': rows[:limit],
+            'generated_at': datetime.now(MARKET_TIMEZONE).isoformat(),
+            'coverage_note': f'네이버 시가총액 페이지 기준 상위 {page_count}페이지 대표 종목군을 스캔했습니다.'
+        }
+        _screener_cache[cache_key] = {
+            'saved_at': datetime.now(MARKET_TIMEZONE).timestamp(),
+            'value': result
+        }
+        return jsonify(result), 200
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/screener/chart', methods=['GET'])
+@jwt_required()
+def get_screener_chart():
+    try:
+        code = request.args.get('code', '').strip()
+        lookback_days = max(60, min(int(request.args.get('days') or 120), 240))
+        if not code:
+            return jsonify({'error': '종목 코드를 입력하세요.'}), 400
+        return jsonify({
+            'code': market_client.clean_code(code),
+            'days': lookback_days,
+            'series': build_screener_chart(code, lookback_days)
+        }), 200
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

@@ -5,6 +5,7 @@ import Navigation from './components/Navigation';
 import Dashboard from './pages/Dashboard';
 import Login from './pages/Login';
 import Portfolio from './pages/Portfolio';
+import StockScreener from './pages/StockScreener';
 import StockResearch from './pages/StockResearch';
 import TradeLog from './pages/TradeLog';
 
@@ -34,6 +35,7 @@ function App() {
         <Route path="/portfolio" element={user ? <Portfolio /> : <Navigate to="/login" replace />} />
         <Route path="/trade-logs" element={user ? <TradeLog /> : <Navigate to="/login" replace />} />
         <Route path="/stock-research" element={user ? <StockResearch /> : <Navigate to="/login" replace />} />
+        <Route path="/stock-screener" element={user ? <StockScreener /> : <Navigate to="/login" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>

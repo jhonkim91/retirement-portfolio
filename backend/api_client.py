@@ -680,6 +680,30 @@ class StockAPIClient:
             print(f'naver market list error ({market} page {page}): {e}')
             return []
 
+    def get_market_universe(self, market='KOSPI', max_pages=2):
+        market_name = str(market or 'KOSPI').strip().upper()
+        page_count = max(1, min(int(max_pages or 1), 6))
+        market_targets = []
+
+        if market_name == 'ALL':
+            market_targets = [('KOSPI', 0), ('KOSDAQ', 1)]
+        elif market_name == 'KOSDAQ':
+            market_targets = [('KOSDAQ', 1)]
+        else:
+            market_targets = [('KOSPI', 0)]
+
+        rows = []
+        seen = set()
+        for market_label, sosok in market_targets:
+            for page in range(1, page_count + 1):
+                for item in self.get_naver_market_page(market_label, sosok, page):
+                    code = str(item.get('code') or '').strip().upper()
+                    if not code or code in seen:
+                        continue
+                    seen.add(code)
+                    rows.append(item)
+        return rows
+
     def parse_naver_market_page(self, text, market):
         rows = []
         pattern = r'href="/item/main\.naver\?code=([0-9A-Z]{6})"[^>]*>([^<]+)</a>'

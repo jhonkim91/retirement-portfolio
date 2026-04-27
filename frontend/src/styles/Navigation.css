@@ -14,8 +14,12 @@
   .nav-user { gap: 8px; }
   .user-name { font-size: 12px; }
   .logout-btn { padding: 7px 10px; font-size: 12px; }
-  .nav-menu { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  .nav-menu { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
   .nav-link { padding: 10px 6px; font-size: 13px; }
+}
+
+@media (max-width: 560px) {
+  .nav-menu { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 @media (max-width: 420px) {
