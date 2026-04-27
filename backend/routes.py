@@ -2089,7 +2089,7 @@ def get_portfolio_trends():
                     'status': product.status,
                     'quantity': round(cumulative_quantity, 4),
                     'unit_type': product.unit_type,
-                    'unit_label': '좌' if product.unit_type == 'unit' else '수',
+                    'unit_label': '좌' if product.unit_type == 'unit' else '주',
                     'purchase_price': round(effective_purchase_price, 4),
                     'purchase_value': round(purchase_value, 2),
                     'price': price,
