@@ -98,6 +98,7 @@ export const portfolioAPI = {
 export const tradeLogAPI = {
   getRealizedSummary: (accountName) => apiCall(`/trade-logs/realized-summary?${accountQuery(accountName)}`),
   updateLog: (logId, logData) => apiCall(`/trade-logs/${logId}`, 'PUT', logData),
+  deleteLog: (logId) => apiCall(`/trade-logs/${logId}`, 'DELETE'),
   getLogs: (filters = {}) => {
     const params = new URLSearchParams();
     params.append('account_name', accountNameOrDefault(filters.accountName));

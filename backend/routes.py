@@ -218,6 +218,63 @@ def get_product_buy_logs(product):
     })()]
 
 
+def get_product_trade_logs(product):
+    return (
+        TradeLog.query
+        .filter_by(
+            user_id=product.user_id,
+            account_name=product.account_name,
+            product_id=product.id
+        )
+        .filter(TradeLog.trade_type.in_(('buy', 'sell')))
+        .order_by(TradeLog.trade_date.asc(), TradeLog.id.asc())
+        .all()
+    )
+
+
+def rebuild_product_from_trade_logs(product):
+    logs = get_product_trade_logs(product)
+    buy_logs = [log for log in logs if log.trade_type == 'buy']
+    sell_logs = [log for log in logs if log.trade_type == 'sell']
+
+    if not buy_logs:
+        if sell_logs:
+            raise ValueError('매도 기록이 남아 있어 매수 기록을 먼저 모두 삭제할 수 없습니다. 매도 기록을 먼저 정리하세요.')
+        PriceHistory.query.filter_by(product_id=product.id).delete(synchronize_session=False)
+        db.session.delete(product)
+        return {'deleted_product': True}
+
+    total_quantity = sum(float(log.quantity or 0) for log in buy_logs)
+    total_amount = sum(float(log.total_amount or 0) for log in buy_logs)
+    unit_type = normalize_unit_type(buy_logs[-1].unit_type or product.unit_type)
+    purchase_date = min(log.trade_date for log in buy_logs)
+
+    product.product_name = buy_logs[-1].product_name or product.product_name
+    product.purchase_price = Product.price_for_amount(total_amount, total_quantity, unit_type)
+    product.quantity = total_quantity
+    product.unit_type = unit_type
+    product.purchase_date = purchase_date
+    product.asset_type = buy_logs[-1].asset_type or product.asset_type
+    if not product.current_price:
+        product.current_price = product.purchase_price
+
+    upsert_price_history(product.id, product.purchase_date, product.purchase_price)
+
+    if sell_logs:
+        latest_sell = sell_logs[-1]
+        if total_quantity + 1e-9 < float(latest_sell.quantity or 0):
+            raise ValueError('남아 있는 매수 수량보다 매도 수량이 커집니다. 매도 기록을 먼저 정리하세요.')
+        product.status = 'sold'
+        product.sale_date = latest_sell.trade_date
+        product.sale_price = latest_sell.price
+    else:
+        product.status = 'holding'
+        product.sale_date = None
+        product.sale_price = None
+
+    return {'deleted_product': False}
+
+
 def get_realized_positions(user_id, account_name=None):
     account_name = normalize_account_name(account_name)
     logs = (
@@ -1811,6 +1868,33 @@ def update_trade_log(log_id):
 
         db.session.commit()
         return jsonify({'message': '매매일지 기록이 수정되었습니다.', 'log': log.to_dict()}), 200
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/trade-logs/<int:log_id>', methods=['DELETE'])
+@jwt_required()
+def delete_trade_log(log_id):
+    try:
+        user_id = current_user_id()
+        log = TradeLog.query.filter_by(id=log_id, user_id=user_id).first()
+        if not log:
+            return jsonify({'error': '매매일지 기록을 찾을 수 없습니다.'}), 404
+
+        product = None
+        if log.trade_type in ('buy', 'sell') and log.product_id:
+            product = Product.query.filter_by(id=log.product_id, user_id=user_id).first()
+
+        db.session.delete(log)
+        if product:
+            rebuild_product_from_trade_logs(product)
+
+        db.session.commit()
+        return jsonify({'message': '매매일지 기록을 삭제했습니다.'}), 200
     except ValueError as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 400

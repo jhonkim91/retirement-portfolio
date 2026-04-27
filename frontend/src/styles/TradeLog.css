@@ -18,6 +18,8 @@
 .tradelog-mobile-grid span { display: block; color: #697586; font-size: 12px; margin-bottom: 4px; }
 .tradelog-mobile-grid strong { display: block; color: #102a43; font-size: 13px; line-height: 1.35; word-break: break-word; }
 .tradelog-mobile-wide { grid-column: 1 / -1; }
+.tradelog-mobile-actions { display: flex; gap: 8px; margin-top: 12px; }
+.tradelog-mobile-actions .tradelog-mobile-edit-btn { margin-top: 0; }
 .tradelog-mobile-edit-btn { margin-top: 12px; }
 .tradelog-mobile-edit-panel { margin-top: 12px; padding-top: 12px; border-top: 1px dashed #cbd5e1; }
 .tradelog-table { background: #fff; border: 1px solid #d9e2ec; border-radius: 8px; overflow: hidden; }
@@ -26,6 +28,8 @@
 .trade-type.sell { background: #fde8e7; color: #9f1d18; }
 .trade-type.deposit { background: #e8f1ff; color: #174ea6; }
 .log-edit-btn { border: 1px solid #cbd5e1; background: #fff; color: #17324d; border-radius: 6px; padding: 7px 10px; font-weight: 800; }
+.log-delete-btn { border: 1px solid #f1b8b5; background: #fff5f5; color: #9f1d18; border-radius: 6px; padding: 7px 10px; font-weight: 800; }
+.log-row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .log-edit-row td { background: #fbfdff; }
 .log-edit-panel { display: grid; grid-template-columns: minmax(160px, 1.2fr) 140px repeat(4, minmax(110px, .8fr)) minmax(160px, 1fr) auto; gap: 8px; align-items: center; }
 .log-edit-panel input, .log-edit-panel select { width: 100%; border: 1px solid #cbd5e1; border-radius: 6px; padding: 9px 10px; }
@@ -35,4 +39,4 @@
 @media (max-width: 980px) { .realized-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 980px) { .log-edit-panel { grid-template-columns: repeat(2, minmax(0, 1fr)); } .log-edit-actions { justify-content: stretch; } }
 @media (max-width: 760px) { .tradelog-mobile-list { display: grid; } .tradelog-table-wrapper { display: none; } }
-@media (max-width: 640px) { .tradelog-container { padding: 16px 12px 36px; } .realized-summary, .log-edit-panel { grid-template-columns: 1fr; } .filter-section { display: grid; grid-template-columns: 1fr 1fr; } .filter-section select { max-width: none; } .log-edit-actions { display: grid; } .tradelog-mobile-grid { grid-template-columns: 1fr; } }
+@media (max-width: 640px) { .tradelog-container { padding: 16px 12px 36px; } .realized-summary, .log-edit-panel { grid-template-columns: 1fr; } .filter-section { display: grid; grid-template-columns: 1fr 1fr; } .filter-section select { max-width: none; } .log-edit-actions { display: grid; } .tradelog-mobile-grid { grid-template-columns: 1fr; } .tradelog-mobile-actions { display: grid; } }

@@ -157,6 +157,22 @@ function TradeLog() {
     }
   };
 
+  const deleteLog = async (log) => {
+    const ok = window.confirm(`${log.product_name} ${tradeTypeLabel(log.trade_type)} 기록을 삭제할까요?`);
+    if (!ok) return;
+
+    try {
+      setError('');
+      await tradeLogAPI.deleteLog(log.id);
+      if (editingLogId === log.id) {
+        setEditingLogId(null);
+      }
+      await loadLogs();
+    } catch (err) {
+      setError(err.message || '매매일지 삭제에 실패했습니다.');
+    }
+  };
+
   const getRealizedPosition = (log) => {
     if (log.trade_type !== 'sell') return null;
     const key = log.position_key || (log.product_id
@@ -327,9 +343,14 @@ function TradeLog() {
                     </div>
                   </div>
 
-                  <button type="button" className="log-edit-btn tradelog-mobile-edit-btn" onClick={() => startEdit(log)}>
-                    수정
-                  </button>
+                  <div className="tradelog-mobile-actions">
+                    <button type="button" className="log-edit-btn tradelog-mobile-edit-btn" onClick={() => startEdit(log)}>
+                      수정
+                    </button>
+                    <button type="button" className="log-delete-btn tradelog-mobile-edit-btn" onClick={() => deleteLog(log)}>
+                      삭제
+                    </button>
+                  </div>
 
                   {editingLogId === log.id && (
                     <div className="tradelog-mobile-edit-panel">
@@ -375,7 +396,12 @@ function TradeLog() {
                           {realized ? `${formatCurrency(realized.profit_loss)} (${Number(realized.profit_rate || 0).toFixed(2)}%)` : '-'}
                         </td>
                         <td>{log.notes || '-'}</td>
-                        <td><button type="button" className="log-edit-btn" onClick={() => startEdit(log)}>수정</button></td>
+                        <td>
+                          <div className="log-row-actions">
+                            <button type="button" className="log-edit-btn" onClick={() => startEdit(log)}>수정</button>
+                            <button type="button" className="log-delete-btn" onClick={() => deleteLog(log)}>삭제</button>
+                          </div>
+                        </td>
                       </tr>
                       {editingLogId === log.id && (
                         <tr className="log-edit-row">
