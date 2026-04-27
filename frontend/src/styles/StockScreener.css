@@ -42,6 +42,8 @@
 .screener-signal-row small { border: 1px solid #d9e2ec; border-radius: 999px; padding: 5px 8px; background: #fff; color: #17324d; font-size: 11px; font-weight: 700; }
 .screener-card-actions { display: flex; justify-content: space-between; gap: 10px; align-items: center; color: #697586; font-size: 12px; }
 .screener-card-actions button { padding: 8px 10px; }
+.screener-card-action-buttons { display: flex; gap: 8px; align-items: center; }
+.screener-card-action-buttons .secondary { background: #33658a; }
 .screener-detail-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .screener-detail-actions .secondary { background: #33658a; }
 .screener-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
@@ -65,5 +67,6 @@
   .screener-panel { padding: 14px; }
   .screener-grid, .screener-summary-grid, .screener-result-metrics { grid-template-columns: 1fr; }
   .screener-meta, .screener-actions, .screener-detail-header, .screener-detail-actions, .screener-preset-form { display: grid; }
+  .screener-card-actions, .screener-card-action-buttons { display: grid; width: 100%; }
   .screener-market-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }

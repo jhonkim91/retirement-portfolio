@@ -9,7 +9,8 @@ import {
   YAxis
 } from 'recharts';
 import { useNavigate } from 'react-router-dom';
-import { screenerAPI } from '../utils/api';
+import { writeStoredBenchmarkSelection } from '../lib/analytics/preferences';
+import { readStoredAccountName, screenerAPI } from '../utils/api';
 import '../styles/StockScreener.css';
 
 const MARKET_OPTIONS = [
@@ -184,6 +185,17 @@ function StockScreener() {
         }
       }
     });
+  };
+
+  const moveToAnalytics = (item = selectedItem) => {
+    if (!item) return;
+    const accountName = readStoredAccountName();
+    writeStoredBenchmarkSelection(accountName, {
+      code: item.code,
+      name: item.name,
+      source: 'screener'
+    });
+    navigate('/');
   };
 
   const runScan = async (event) => {
@@ -365,12 +377,20 @@ function StockScreener() {
                     </div>
                     <div className="screener-card-actions">
                       <span>{favoriteCodes.has(item.code) ? '관심종목' : '후보 종목'}</span>
-                      <button type="button" onClick={(event) => {
-                        event.stopPropagation();
-                        toggleFavorite(item);
-                      }}>
-                        {favoriteCodes.has(item.code) ? '해제' : '담기'}
-                      </button>
+                      <div className="screener-card-action-buttons">
+                        <button type="button" className="secondary" onClick={(event) => {
+                          event.stopPropagation();
+                          moveToAnalytics(item);
+                        }}>
+                          분석 엔진
+                        </button>
+                        <button type="button" onClick={(event) => {
+                          event.stopPropagation();
+                          toggleFavorite(item);
+                        }}>
+                          {favoriteCodes.has(item.code) ? '해제' : '담기'}
+                        </button>
+                      </div>
                     </div>
                   </button>
                 ))}
@@ -389,6 +409,7 @@ function StockScreener() {
                   <button type="button" onClick={() => toggleFavorite(selectedItem)}>
                     {favoriteCodes.has(selectedItem.code) ? '관심종목 해제' : '관심종목 담기'}
                   </button>
+                  <button type="button" className="secondary" onClick={() => moveToAnalytics(selectedItem)}>분석 엔진으로 보기</button>
                   <button type="button" className="secondary" onClick={moveToResearch}>종목 정보로 보기</button>
                 </div>
               )}

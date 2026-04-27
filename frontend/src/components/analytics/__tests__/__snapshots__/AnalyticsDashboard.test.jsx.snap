@@ -46,8 +46,55 @@ exports[`AnalyticsDashboard renders the analytics widget stack 1`] = `
             Log
           </button>
         </div>
+        <button
+          class="analytics-export-btn"
+          type="button"
+        >
+          리포트 export
+        </button>
       </div>
     </div>
+    <section
+      class="analytics-panel analytics-control-panel"
+    >
+      <div
+        class="analytics-panel-header"
+      >
+        <h3>
+          Benchmark 선택
+        </h3>
+      </div>
+      <div
+        class="analytics-benchmark-row"
+      >
+        <label
+          class="analytics-benchmark-field"
+        >
+          <span>
+            프리셋
+          </span>
+          <select>
+            <option
+              value="069500"
+            >
+              KODEX 200
+            </option>
+          </select>
+        </label>
+        <label
+          class="analytics-benchmark-field analytics-benchmark-search"
+        >
+          <span>
+            직접 검색
+          </span>
+          <input
+            placeholder="예: KODEX 200, S&P500"
+            type="text"
+            value=""
+          />
+        </label>
+      </div>
+    </section>
     <div
       class="analytics-risk-grid"
     >

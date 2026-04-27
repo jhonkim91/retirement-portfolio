@@ -1,0 +1,239 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`analytics exporters builds a stable account analytics report html 1`] = `
+"<!doctype html>
+<html lang=\\"ko\\">
+  <head>
+    <meta charset=\\"utf-8\\" />
+    <title>퇴직연금 분석 리포트</title>
+    <style>
+      body { font-family: Arial, \\"Noto Sans KR\\", sans-serif; margin: 32px; color: #102a43; }
+      h1, h2, h3 { margin: 0 0 12px; }
+      p { line-height: 1.6; color: #486581; }
+      .meta { margin: 12px 0 24px; padding: 16px; background: #f7fafc; border: 1px solid #d9e2ec; border-radius: 8px; }
+      .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 18px 0 26px; }
+      .metric-card { border: 1px solid #d9e2ec; border-radius: 8px; padding: 12px; background: #fff; }
+      .metric-card span { display: block; color: #486581; font-size: 13px; }
+      .metric-card strong { display: block; margin-top: 6px; font-size: 18px; }
+      table { width: 100%; border-collapse: collapse; margin: 14px 0 22px; }
+      th, td { padding: 10px 12px; border-bottom: 1px solid #e5eaf0; text-align: left; }
+      th { background: #f7fafc; }
+      .template-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+      .template-card { border: 1px solid #d9e2ec; border-radius: 8px; padding: 14px; }
+      .template-card ul { margin: 12px 0 0; padding-left: 18px; }
+      .template-card li { margin-bottom: 10px; }
+      .small { color: #697586; font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <h1>퇴직연금 계좌 분석 리포트</h1>
+    <div class=\\"meta\\">
+      <p><strong>분석 구간:</strong> 2025-01-02 ~ 2026-01-28</p>
+      <p><strong>비교 benchmark:</strong> KODEX 200</p>
+      <p><strong>내보낸 시각:</strong> 2026-04-28 10:30:00</p>
+      <p><strong>계좌 유형:</strong> 연금 계좌</p>
+    </div>
+
+    <h2>핵심 지표</h2>
+    <div class=\\"metric-grid\\">
+      
+        <article class=\\"metric-card\\">
+          <span>TWR</span>
+          <strong>26.53%</strong>
+        </article>
+      
+        <article class=\\"metric-card\\">
+          <span>MWR / IRR</span>
+          <strong>-34.76%</strong>
+        </article>
+      
+        <article class=\\"metric-card\\">
+          <span>CAGR</span>
+          <strong>23.68%</strong>
+        </article>
+      
+        <article class=\\"metric-card\\">
+          <span>Cumulative return</span>
+          <strong>26.53%</strong>
+        </article>
+      
+        <article class=\\"metric-card\\">
+          <span>Max drawdown</span>
+          <strong>0.00%</strong>
+        </article>
+      
+        <article class=\\"metric-card\\">
+          <span>Rolling vol 30d</span>
+          <strong>0.00%</strong>
+        </article>
+      
+        <article class=\\"metric-card\\">
+          <span>Rolling vol 90d</span>
+          <strong>0.01%</strong>
+        </article>
+      
+        <article class=\\"metric-card\\">
+          <span>Rolling vol 1y</span>
+          <strong>0.04%</strong>
+        </article>
+      
+        <article class=\\"metric-card\\">
+          <span>Sharpe</span>
+          <strong>148.379</strong>
+        </article>
+      
+        <article class=\\"metric-card\\">
+          <span>Sortino</span>
+          <strong>0.000</strong>
+        </article>
+      
+        <article class=\\"metric-card\\">
+          <span>Beta</span>
+          <strong>0.938</strong>
+        </article>
+      
+        <article class=\\"metric-card\\">
+          <span>Correlation</span>
+          <strong>0.526</strong>
+        </article>
+      
+        <article class=\\"metric-card\\">
+          <span>Tracking error</span>
+          <strong>0.13%</strong>
+        </article>
+      
+        <article class=\\"metric-card\\">
+          <span>Benchmark excess return</span>
+          <strong>-2.00%</strong>
+        </article>
+      
+    </div>
+
+    <h2>자산 기여도</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>자산</th>
+          <th>유형</th>
+          <th>기말 평가액</th>
+          <th>시장 기여 손익</th>
+          <th>기여 수익률</th>
+        </tr>
+      </thead>
+      <tbody>
+      <tr>
+        <td>Alpha ETF</td>
+        <td>risk</td>
+        <td>₩13,991</td>
+        <td>₩3,979</td>
+        <td>17.68%</td>
+      </tr>
+    
+      <tr>
+        <td>Beta Bond</td>
+        <td>safe</td>
+        <td>₩11,331</td>
+        <td>₩1,326</td>
+        <td>5.84%</td>
+      </tr>
+    
+      <tr>
+        <td>현금</td>
+        <td>cash</td>
+        <td>₩0</td>
+        <td>₩0</td>
+        <td>0.00%</td>
+      </tr>
+    </tbody>
+    </table>
+
+    <h2>현금흐름 vs 시장수익</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>항목</th>
+          <th>금액</th>
+        </tr>
+      </thead>
+      <tbody>
+      <tr>
+        <td>기초 평가액</td>
+        <td>₩20,012</td>
+      </tr>
+    
+      <tr>
+        <td>현금흐름 효과</td>
+        <td>₩20,000</td>
+      </tr>
+    
+      <tr>
+        <td>시장 수익 효과</td>
+        <td>-₩14,690</td>
+      </tr>
+    
+      <tr>
+        <td>기말 평가액</td>
+        <td>₩25,322</td>
+      </tr>
+    </tbody>
+    </table>
+
+    <h2>계좌별 템플릿 평가</h2>
+    <div class=\\"template-grid\\">
+      <section class=\\"template-card\\">
+        <h3>연금 적립형 템플릿 <small>(현재 계좌)</small></h3>
+        <p>장기 적립, 안전자산 완충, 낙폭 관리 중심으로 보는 템플릿입니다.</p>
+        <ul>
+          
+            <li>
+              <strong>안전자산 완충</strong>
+              <span>안전자산 + 현금 44.7%</span>
+              <em>적합</em>
+            </li>
+          
+            <li>
+              <strong>입금 흐름 기록</strong>
+              <span>외부 현금흐름 1건</span>
+              <em>적합</em>
+            </li>
+          
+            <li>
+              <strong>낙폭 완충</strong>
+              <span>최대낙폭 0.0%</span>
+              <em>적합</em>
+            </li>
+          
+        </ul>
+      </section>
+    
+      <section class=\\"template-card\\">
+        <h3>일반 계좌 템플릿 </h3>
+        <p>집중도, 변동성, 벤치마크 대비 성과를 더 강하게 보는 템플릿입니다.</p>
+        <ul>
+          
+            <li>
+              <strong>집중도 점검</strong>
+              <span>최대 단일 비중 55.3%</span>
+              <em>주의</em>
+            </li>
+          
+            <li>
+              <strong>벤치마크 커버리지</strong>
+              <span>겹치는 거래일 280일</span>
+              <em>적합</em>
+            </li>
+          
+            <li>
+              <strong>변동성 감내</strong>
+              <span>90일 연환산 변동성 0.0%</span>
+              <em>적합</em>
+            </li>
+          
+        </ul>
+      </section>
+    </div>
+
+    <p class=\\"small\\">이 리포트는 자산관리 대장의 포트폴리오 분석 엔진 결과를 기준으로 생성했습니다.</p>
+  </body>
+</html>"
+`;

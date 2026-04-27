@@ -68,7 +68,7 @@ function WaterfallWidget({ title, rows }) {
           <ComposedChart layout="vertical" data={rows} margin={{ top: 12, right: 16, bottom: 8, left: 16 }}>
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis type="number" tickFormatter={(value) => formatCurrency(value)} />
-            <YAxis dataKey="label" type="category" width={108} />
+            <YAxis dataKey="label" type="category" width={120} />
             <Tooltip
               formatter={(value, key, item) => {
                 if (key === 'span') {
@@ -225,7 +225,22 @@ function RebalancingPanel({ rebalancing }) {
   );
 }
 
-function AnalyticsDashboard({ report, loading, error }) {
+function AnalyticsDashboard({
+  report,
+  loading,
+  error,
+  benchmarkSelection,
+  benchmarkOptions = [],
+  benchmarkQuery,
+  benchmarkSearchResults = [],
+  benchmarkSearchLoading,
+  onChangeBenchmarkQuery,
+  onSelectBenchmark,
+  onChangeBenchmarkPreset,
+  onExportReport,
+  exportingReport,
+  linkedCandidate
+}) {
   const [scaleMode, setScaleMode] = useState('linear');
   const [showBenchmark, setShowBenchmark] = useState(true);
 
@@ -275,8 +290,59 @@ function AnalyticsDashboard({ report, loading, error }) {
             <button type="button" className={scaleMode === 'linear' ? 'active' : ''} onClick={() => setScaleMode('linear')}>Linear</button>
             <button type="button" className={scaleMode === 'log' ? 'active' : ''} onClick={() => setScaleMode('log')}>Log</button>
           </div>
+          <button type="button" className="analytics-export-btn" onClick={onExportReport} disabled={exportingReport}>
+            {exportingReport ? 'Export 중...' : '리포트 export'}
+          </button>
         </div>
       </div>
+
+      <section className="analytics-panel analytics-control-panel">
+        <div className="analytics-panel-header">
+          <h3>Benchmark 선택</h3>
+          {linkedCandidate && (
+            <span className="analytics-linked-badge">
+              스크리너 후보 연결: {linkedCandidate.name}
+            </span>
+          )}
+        </div>
+        <div className="analytics-benchmark-row">
+          <label className="analytics-benchmark-field">
+            <span>프리셋</span>
+            <select
+              value={benchmarkSelection?.code || ''}
+              onChange={(event) => onChangeBenchmarkPreset(event.target.value)}
+            >
+              {benchmarkOptions.map((option) => (
+                <option key={option.code} value={option.code}>{option.name}</option>
+              ))}
+            </select>
+          </label>
+          <label className="analytics-benchmark-field analytics-benchmark-search">
+            <span>직접 검색</span>
+            <input
+              type="text"
+              placeholder="예: KODEX 200, S&P500"
+              value={benchmarkQuery}
+              onChange={(event) => onChangeBenchmarkQuery(event.target.value)}
+            />
+            {benchmarkSearchLoading && <small className="analytics-benchmark-hint">검색 중...</small>}
+            {benchmarkSearchResults.length > 0 && (
+              <div className="analytics-benchmark-results">
+                {benchmarkSearchResults.map((item) => (
+                  <button
+                    key={`${item.code}-${item.name}`}
+                    type="button"
+                    onClick={() => onSelectBenchmark(item)}
+                  >
+                    <strong>{item.name}</strong>
+                    <span>{item.code} · {item.exchange || item.source}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </label>
+        </div>
+      </section>
 
       <div className="analytics-risk-grid">
         {riskCards.map((card) => <MetricCard key={card.key} card={card} />)}

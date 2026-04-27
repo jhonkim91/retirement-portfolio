@@ -17,6 +17,16 @@ import AnalyticsDashboard from '../components/analytics/AnalyticsDashboard';
 import { buildAnalyticsInputs, DEFAULT_BENCHMARKS } from '../lib/analytics/adapters';
 import { computePortfolioAnalytics } from '../lib/analytics/engine';
 import {
+  buildAnalyticsReportFilename,
+  buildAnalyticsReportHtml,
+  downloadAnalyticsReport
+} from '../lib/analytics/exporters';
+import {
+  getBenchmarkPresetOptions,
+  readStoredBenchmarkSelection,
+  writeStoredBenchmarkSelection
+} from '../lib/analytics/preferences';
+import {
   DEFAULT_ACCOUNT_NAME,
   portfolioAPI,
   tradeLogAPI,
@@ -151,12 +161,16 @@ function Dashboard() {
     trends: [],
     benchmark: { name: DEFAULT_BENCHMARKS.retirement.name, series: [] }
   });
+  const [benchmarkSelection, setBenchmarkSelection] = useState(null);
+  const [benchmarkQuery, setBenchmarkQuery] = useState('');
+  const [benchmarkSearchResults, setBenchmarkSearchResults] = useState([]);
+  const [benchmarkSearchLoading, setBenchmarkSearchLoading] = useState(false);
+  const [exportingReport, setExportingReport] = useState(false);
 
   const fetchDashboardData = useCallback(async () => {
     try {
       setError('');
       setAnalyticsError('');
-      setAnalyticsLoading(true);
       const [summaryResponse, productsResponse, allProductsResponse, trendsResponse, tradeLogsResponse] = await Promise.all([
         portfolioAPI.getSummary(accountName),
         portfolioAPI.getProducts(accountName),
@@ -164,28 +178,16 @@ function Dashboard() {
         portfolioAPI.getTrends(accountName, { includeSold: true }),
         tradeLogAPI.getLogs({ accountName })
       ]);
-      const benchmarkConfig = DEFAULT_BENCHMARKS[summaryResponse?.account_type] || DEFAULT_BENCHMARKS.retirement;
-      let benchmarkResponse = { name: benchmarkConfig.name, series: [] };
-      try {
-        const chartResponse = await portfolioAPI.getBenchmarkChart(benchmarkConfig.code, 520);
-        benchmarkResponse = {
-          name: benchmarkConfig.name,
-          series: chartResponse?.series || []
-        };
-      } catch (benchmarkFetchError) {
-        benchmarkResponse = {
-          name: benchmarkConfig.name,
-          series: []
-        };
-      }
       setSummary(summaryResponse);
       setProducts(productsResponse);
-      setAnalyticsRaw({
+      setAnalyticsRaw((prev) => ({
         allProducts: allProductsResponse,
         transactions: tradeLogsResponse,
         trends: trendsResponse,
-        benchmark: benchmarkResponse
-      });
+        benchmark: prev.benchmark?.code
+          ? prev.benchmark
+          : { name: DEFAULT_BENCHMARKS[summaryResponse?.account_type]?.name || DEFAULT_BENCHMARKS.retirement.name, series: [] }
+      }));
     } catch (err) {
       setError(err.message || '현황을 불러오지 못했습니다.');
     } finally {
@@ -204,30 +206,200 @@ function Dashboard() {
     setCashAmount(String(summary?.total_cash ?? 0));
   }, [summary?.total_cash, accountName]);
 
-  const analyticsReport = useMemo(() => {
-    if (!summary) return null;
+  useEffect(() => {
+    if (!summary?.account_type) return;
+    const storedSelection = readStoredBenchmarkSelection(accountName, summary.account_type);
+    setBenchmarkSelection({
+      ...storedSelection,
+      accountName
+    });
+  }, [accountName, summary?.account_type]);
+
+  useEffect(() => {
+    if (!summary?.account_type || !benchmarkSelection?.code) return;
+
+    let active = true;
+    const loadBenchmarkSeries = async () => {
+      setAnalyticsLoading(true);
+      setAnalyticsError('');
+      try {
+        const response = await portfolioAPI.getBenchmarkChart(benchmarkSelection.code, 520);
+        if (!active) return;
+        setAnalyticsRaw((prev) => ({
+          ...prev,
+          benchmark: {
+            code: benchmarkSelection.code,
+            name: benchmarkSelection.name,
+            series: response?.series || []
+          }
+        }));
+      } catch (benchmarkFetchError) {
+        if (!active) return;
+        setAnalyticsRaw((prev) => ({
+          ...prev,
+          benchmark: {
+            code: benchmarkSelection.code,
+            name: benchmarkSelection.name,
+            series: []
+          }
+        }));
+        setAnalyticsError('선택한 benchmark 시계열을 불러오지 못했습니다.');
+      } finally {
+        if (active) setAnalyticsLoading(false);
+      }
+    };
+
+    loadBenchmarkSeries();
+    return () => {
+      active = false;
+    };
+  }, [summary?.account_type, benchmarkSelection]);
+
+  useEffect(() => {
+    const query = benchmarkQuery.trim();
+    if (query.length < 2) {
+      setBenchmarkSearchResults([]);
+      setBenchmarkSearchLoading(false);
+      return undefined;
+    }
+
+    let active = true;
+    const timer = setTimeout(async () => {
+      setBenchmarkSearchLoading(true);
+      try {
+        const results = await portfolioAPI.searchProducts(query);
+        if (active) {
+          setBenchmarkSearchResults(results.slice(0, 8));
+        }
+      } catch (searchError) {
+        if (active) {
+          setBenchmarkSearchResults([]);
+        }
+      } finally {
+        if (active) setBenchmarkSearchLoading(false);
+      }
+    }, 250);
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [benchmarkQuery]);
+
+  const benchmarkPresetOptions = useMemo(
+    () => getBenchmarkPresetOptions(summary?.account_type || 'retirement'),
+    [summary?.account_type]
+  );
+
+  const benchmarkOptions = useMemo(() => {
+    const options = [...benchmarkPresetOptions];
+    if (benchmarkSelection?.code && !options.some((option) => option.code === benchmarkSelection.code)) {
+      options.push({
+        code: benchmarkSelection.code,
+        name: benchmarkSelection.name,
+        source: benchmarkSelection.source || 'custom'
+      });
+    }
+    return options;
+  }, [benchmarkPresetOptions, benchmarkSelection]);
+
+  const applyBenchmarkSelection = useCallback((selection, source = selection?.source || 'custom') => {
+    if (!selection?.code || !selection?.name) return;
+    const nextSelection = {
+      accountName,
+      code: selection.code,
+      name: selection.name,
+      source
+    };
+    writeStoredBenchmarkSelection(accountName, nextSelection);
+    setBenchmarkSelection(nextSelection);
+    setBenchmarkQuery('');
+    setBenchmarkSearchResults([]);
+    setNotice(`${nextSelection.name} benchmark를 계좌 분석 기준으로 적용했습니다.`);
+  }, [accountName]);
+
+  const analyticsResult = useMemo(() => {
+    if (!summary) {
+      return { report: null, runtimeError: '' };
+    }
 
     try {
-      return computePortfolioAnalytics(buildAnalyticsInputs({
-        accountType: summary?.account_type || 'retirement',
-        holdings: analyticsRaw.allProducts,
-        products: analyticsRaw.allProducts,
-        summary,
-        transactions: analyticsRaw.transactions,
-        trends: analyticsRaw.trends,
-        benchmarkSeries: analyticsRaw.benchmark
-      }));
+      return {
+        report: computePortfolioAnalytics(buildAnalyticsInputs({
+          accountType: summary?.account_type || 'retirement',
+          holdings: analyticsRaw.allProducts,
+          products: analyticsRaw.allProducts,
+          summary,
+          transactions: analyticsRaw.transactions,
+          trends: analyticsRaw.trends,
+          benchmarkSeries: analyticsRaw.benchmark
+        })),
+        runtimeError: ''
+      };
     } catch (analyticsEngineError) {
-      return null;
+      return {
+        report: null,
+        runtimeError: analyticsEngineError.message || '분석 엔진 계산 중 오류가 발생했습니다.'
+      };
     }
   }, [analyticsRaw, summary]);
+
+  const analyticsReport = analyticsResult.report;
+  const analyticsRuntimeError = analyticsResult.runtimeError;
+
+  const exportAccountAnalyticsReport = useCallback(() => {
+    if (!analyticsReport) return;
+    const exportedAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    setExportingReport(true);
+    try {
+      const html = buildAnalyticsReportHtml({
+        report: analyticsReport,
+        accountName,
+        benchmarkSelection,
+        exportedAt
+      });
+      const filename = buildAnalyticsReportFilename({ accountName, exportedAt });
+      downloadAnalyticsReport({ filename, html });
+      setNotice('계좌별 분석 리포트를 export했습니다.');
+    } catch (exportError) {
+      setAnalyticsError(exportError.message || '분석 리포트 export 중 오류가 발생했습니다.');
+    } finally {
+      setExportingReport(false);
+    }
+  }, [accountName, analyticsReport, benchmarkSelection]);
+
+  const moveBenchmarkFromSearchResult = useCallback((item) => {
+    applyBenchmarkSelection({
+      code: item.code,
+      name: item.name
+    }, 'custom');
+  }, [applyBenchmarkSelection]);
+
+  const chooseBenchmarkPreset = useCallback((code) => {
+    const selected = benchmarkOptions.find((option) => option.code === code);
+    if (!selected) return;
+    applyBenchmarkSelection(selected, selected.source || 'preset');
+  }, [applyBenchmarkSelection, benchmarkOptions]);
 
   const changeAccountName = (value) => {
     writeStoredAccountName(value);
     setAccountName(value);
+    setSummary(null);
+    setProducts([]);
+    setAnalyticsRaw({
+      allProducts: [],
+      transactions: [],
+      trends: [],
+      benchmark: { name: DEFAULT_BENCHMARKS.retirement.name, series: [] }
+    });
+    setBenchmarkSelection(null);
+    setBenchmarkQuery('');
+    setBenchmarkSearchResults([]);
     setNotice('');
     setError('');
     setLoading(true);
+    setAnalyticsLoading(true);
+    setAnalyticsError('');
   };
 
   const allocation = useMemo(() => ([
@@ -729,7 +901,18 @@ function Dashboard() {
       <AnalyticsDashboard
         report={analyticsReport}
         loading={analyticsLoading}
-        error={analyticsError || (!analyticsLoading && !analyticsReport ? '분석 엔진 계산 중 오류가 발생했습니다.' : '')}
+        error={analyticsError || analyticsRuntimeError || (!analyticsLoading && !analyticsReport ? '분석 엔진 계산 중 오류가 발생했습니다.' : '')}
+        benchmarkSelection={benchmarkSelection}
+        benchmarkOptions={benchmarkOptions}
+        benchmarkQuery={benchmarkQuery}
+        benchmarkSearchResults={benchmarkSearchResults}
+        benchmarkSearchLoading={benchmarkSearchLoading}
+        onChangeBenchmarkQuery={setBenchmarkQuery}
+        onSelectBenchmark={moveBenchmarkFromSearchResult}
+        onChangeBenchmarkPreset={chooseBenchmarkPreset}
+        onExportReport={exportAccountAnalyticsReport}
+        exportingReport={exportingReport}
+        linkedCandidate={benchmarkSelection?.source === 'screener' ? benchmarkSelection : null}
       />
     </main>
   );
