@@ -43,6 +43,7 @@ function TradeLog() {
   const [tradeType, setTradeType] = useState('all');
   const [assetType, setAssetType] = useState('all');
   const [error, setError] = useState('');
+  const [auditTrail, setAuditTrail] = useState([]);
   const [editingLogId, setEditingLogId] = useState(null);
   const [editForms, setEditForms] = useState({});
   const [savingLogId, setSavingLogId] = useState(null);
@@ -59,12 +60,14 @@ function TradeLog() {
     try {
       setLoading(true);
       setError('');
-      const [logRows, summary] = await Promise.all([
+      const [logRows, summary, auditResponse] = await Promise.all([
         tradeLogAPI.getLogs({ tradeType, assetType, accountName }),
-        tradeLogAPI.getRealizedSummary(accountName)
+        tradeLogAPI.getRealizedSummary(accountName),
+        tradeLogAPI.getAuditTrail(accountName, 60)
       ]);
       setLogs(logRows);
       setRealizedSummary(summary);
+      setAuditTrail(auditResponse?.events ? auditResponse.events : []);
     } catch (err) {
       setError(err.message || '매매일지를 불러오지 못했습니다.');
     } finally {
@@ -109,6 +112,20 @@ function TradeLog() {
       total_profit_rate: Number(realizedSummary.total_profit_rate || 0) || fallbackRate
     };
   }, [logs, realizedSummary]);
+
+  const auditSummary = useMemo(() => {
+    const createdCount = auditTrail.filter((event) => event.event_type === 'trade_created').length;
+    const updatedCount = auditTrail.filter((event) => event.event_type === 'trade_updated').length;
+    const deletedCount = auditTrail.filter((event) => event.event_type === 'trade_deleted').length;
+
+    return {
+      total: auditTrail.length,
+      createdCount,
+      updatedCount,
+      deletedCount,
+      latestHash: auditTrail[0]?.hash_short || '-'
+    };
+  }, [auditTrail]);
 
   const changeAccountName = (value) => {
     writeStoredAccountName(value);
@@ -260,6 +277,15 @@ function TradeLog() {
     );
   };
 
+  const exportAuditTrail = async (format) => {
+    try {
+      setError('');
+      await tradeLogAPI.downloadAuditTrail(accountName, format);
+    } catch (err) {
+      setError(err.message || '감사 이력 export에 실패했습니다.');
+    }
+  };
+
   return (
     <main className="tradelog-container">
       <AccountSelector value={accountName} onChange={changeAccountName} />
@@ -277,6 +303,59 @@ function TradeLog() {
         <div className="summary-card"><span>매도 금액</span><strong>{formatCurrency(displaySummary.total_sell_amount)}</strong></div>
         <div className="summary-card"><span>실현손익</span><strong className={(displaySummary.total_profit_loss || 0) >= 0 ? 'profit' : 'loss'}>{formatCurrency(displaySummary.total_profit_loss)}</strong></div>
         <div className="summary-card"><span>실현수익률</span><strong className={(displaySummary.total_profit_rate || 0) >= 0 ? 'profit' : 'loss'}>{Number(displaySummary.total_profit_rate || 0).toFixed(2)}%</strong></div>
+      </section>
+
+      <section className="audit-trail-panel">
+        <div className="audit-trail-header">
+          <div>
+            <h2>감사 이력</h2>
+            <p>매매일지 생성·수정·삭제를 append-only 이벤트 체인으로 남깁니다.</p>
+          </div>
+          <div className="audit-trail-actions">
+            <button type="button" className="log-edit-btn" onClick={() => exportAuditTrail('json')}>JSON export</button>
+            <button type="button" className="log-edit-btn" onClick={() => exportAuditTrail('csv')}>CSV export</button>
+            <button type="button" className="log-edit-btn" onClick={() => exportAuditTrail('pdf')}>PDF export</button>
+          </div>
+        </div>
+        <div className="audit-trail-summary">
+          <div className="audit-summary-card">
+            <span>총 이벤트</span>
+            <strong>{auditSummary.total}</strong>
+          </div>
+          <div className="audit-summary-card">
+            <span>생성 / 수정 / 삭제</span>
+            <strong>{`${auditSummary.createdCount} / ${auditSummary.updatedCount} / ${auditSummary.deletedCount}`}</strong>
+          </div>
+          <div className="audit-summary-card">
+            <span>최신 hash</span>
+            <strong>{auditSummary.latestHash}</strong>
+          </div>
+        </div>
+        {auditTrail.length === 0 ? (
+          <p className="no-data">아직 기록된 감사 이력이 없습니다.</p>
+        ) : (
+          <div className="audit-trail-list">
+            {auditTrail.slice(0, 12).map((event) => {
+              const snapshot = event.payload?.after || event.payload?.deleted || event.payload?.trade_log || {};
+              return (
+                <article className="audit-trail-item" key={event.id}>
+                  <div className="audit-trail-top">
+                    <strong>{snapshot.product_name || '매매일지 이벤트'}</strong>
+                    <span className={`trade-type ${event.event_type === 'trade_deleted' ? 'sell' : event.event_type === 'trade_updated' ? 'deposit' : 'buy'}`}>
+                      {event.event_type_label}
+                    </span>
+                  </div>
+                  <div className="audit-trail-meta">
+                    <span>{event.occurred_at?.replace('T', ' ') || '-'}</span>
+                    <span>hash {event.hash_short}</span>
+                    <span>{event.source_type}</span>
+                  </div>
+                  <p>{snapshot.trade_date || '-'} · {snapshot.trade_type || '-'} · {snapshot.total_amount ? formatCurrency(snapshot.total_amount) : '-'}</p>
+                </article>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       <div className="filter-section">

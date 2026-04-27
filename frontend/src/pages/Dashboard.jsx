@@ -26,6 +26,8 @@ import {
   readStoredBenchmarkSelection,
   writeStoredBenchmarkSelection
 } from '../lib/analytics/preferences';
+import { summarizeRetirementEligibility } from '../lib/pensionEligibility';
+import { buildDataBadgeDescriptor, buildFreshnessMixWarning, inferSourceKeyFromCode } from '../lib/sourceRegistry';
 import {
   DEFAULT_ACCOUNT_NAME,
   portfolioAPI,
@@ -346,6 +348,33 @@ function Dashboard() {
 
   const analyticsReport = analyticsResult.report;
   const analyticsRuntimeError = analyticsResult.runtimeError;
+  const retirementEligibility = useMemo(() => summarizeRetirementEligibility({
+    products,
+    accountType: summary?.account_type,
+    accountCategory: summary?.account_category,
+    cashAmount: summary?.total_cash || 0
+  }), [products, summary?.account_category, summary?.account_type, summary?.total_cash]);
+  const benchmarkBadge = useMemo(() => (
+    benchmarkSelection?.code ? buildDataBadgeDescriptor({
+      source: inferSourceKeyFromCode(benchmarkSelection.code),
+      asOf: analyticsReport?.meta?.endDate,
+      code: benchmarkSelection.code,
+      note: benchmarkSelection.name
+    }) : null
+  ), [analyticsReport?.meta?.endDate, benchmarkSelection]);
+  const analyticsDataBadges = useMemo(() => {
+    const badges = [
+      buildDataBadgeDescriptor({
+        source: 'PortfolioLedger',
+        freshnessClass: 'internal_ledger',
+        asOf: analyticsReport?.meta?.endDate,
+        note: '보유 대장/매매일지'
+      })
+    ];
+    if (benchmarkBadge) badges.push(benchmarkBadge);
+    return badges;
+  }, [analyticsReport?.meta?.endDate, benchmarkBadge]);
+  const analyticsFreshnessWarning = useMemo(() => buildFreshnessMixWarning(analyticsDataBadges), [analyticsDataBadges]);
 
   const exportAccountAnalyticsReport = useCallback(() => {
     if (!analyticsReport) return;
@@ -660,6 +689,27 @@ function Dashboard() {
         </div>
       </section>
 
+      {retirementEligibility && (
+        <section className="eligibility-dashboard-panel">
+          <div className="eligibility-dashboard-header">
+            <div>
+              <h2>퇴직연금 적격성 점검</h2>
+              <p>{retirementEligibility.accountCategoryLabel} 기준으로 현재 보유 상품을 다시 분류합니다.</p>
+            </div>
+            <strong>위험자산 {retirementEligibility.riskShare.toFixed(1)}%</strong>
+          </div>
+          <div className="eligibility-dashboard-grid">
+            {retirementEligibility.rules.map((rule) => (
+              <article key={rule.label} className={`eligibility-dashboard-card ${rule.passed ? 'pass' : 'fail'}`}>
+                <span>{rule.label}</span>
+                <strong>{rule.passed ? '적합' : '주의'}</strong>
+                <p>{rule.detail}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
       <section className="charts-section">
         {summary?.account_type !== 'brokerage' && (
           <div className="chart-container chart-wide allocation-wide">
@@ -913,6 +963,8 @@ function Dashboard() {
         onExportReport={exportAccountAnalyticsReport}
         exportingReport={exportingReport}
         linkedCandidate={benchmarkSelection?.source === 'screener' ? benchmarkSelection : null}
+        dataBadges={analyticsDataBadges}
+        freshnessWarning={analyticsFreshnessWarning}
       />
     </main>
   );

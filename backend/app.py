@@ -4,7 +4,7 @@ import pkgutil
 import sys
 
 from dotenv import load_dotenv
-from flask import Flask
+from flask import Flask, request
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from sqlalchemy import inspect, text
@@ -45,6 +45,29 @@ jwt = JWTManager(app)
 app.register_blueprint(api)
 
 
+@app.after_request
+def apply_security_headers(response):
+    csp_parts = [
+        "default-src 'self'",
+        "img-src 'self' data: https:",
+        "style-src 'self' 'unsafe-inline'",
+        "script-src 'self' 'unsafe-inline'",
+        "font-src 'self' data:",
+        "connect-src 'self' https:",
+        "frame-ancestors 'none'",
+        "base-uri 'self'",
+        "form-action 'self'"
+    ]
+    response.headers['Content-Security-Policy'] = '; '.join(csp_parts)
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    response.headers['Permissions-Policy'] = 'camera=(), microphone=(), geolocation=()'
+    if request.is_secure or request.headers.get('X-Forwarded-Proto', '').lower() == 'https':
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains; preload'
+    return response
+
+
 def ensure_schema():
     inspector = inspect(db.engine)
     dialect = db.engine.dialect.name
@@ -66,6 +89,8 @@ def ensure_schema():
         db.session.execute(text(f"ALTER TABLE cash_balances ADD COLUMN account_name VARCHAR(80) DEFAULT '{DEFAULT_ACCOUNT_NAME}' NOT NULL"))
     if inspector.has_table('account_profiles') and 'is_default' not in account_profile_columns:
         db.session.execute(text("ALTER TABLE account_profiles ADD COLUMN is_default BOOLEAN DEFAULT FALSE NOT NULL"))
+    if inspector.has_table('account_profiles') and 'account_category' not in account_profile_columns:
+        db.session.execute(text("ALTER TABLE account_profiles ADD COLUMN account_category VARCHAR(32) DEFAULT 'irp' NOT NULL"))
 
     if dialect == 'postgresql':
         db.session.execute(text("ALTER TABLE products ALTER COLUMN quantity TYPE DOUBLE PRECISION USING quantity::double precision"))
@@ -169,6 +194,7 @@ def ensure_schema():
             user_id=row.user_id,
             account_name=account_name,
             account_type=inferred_type,
+            account_category='taxable' if inferred_type == 'brokerage' else 'irp',
             is_default=(account_name == DEFAULT_ACCOUNT_NAME)
         ))
 
@@ -183,6 +209,7 @@ def ensure_schema():
                 user_id=user_id,
                 account_name=DEFAULT_ACCOUNT_NAME,
                 account_type='retirement',
+                account_category='irp',
                 is_default=True
             ))
             continue
@@ -198,6 +225,14 @@ def ensure_schema():
             extra_profile.is_default = False
         if primary_default.account_type != 'retirement':
             primary_default.account_type = 'retirement'
+        if primary_default.account_category not in ('pension_savings', 'irp', 'dc', 'db_reference'):
+            primary_default.account_category = 'irp'
+
+        for profile in user_profiles:
+            if profile.account_type == 'brokerage':
+                profile.account_category = 'taxable'
+            elif profile.account_category not in ('pension_savings', 'irp', 'dc', 'db_reference'):
+                profile.account_category = 'irp'
 
     db.session.commit()
 

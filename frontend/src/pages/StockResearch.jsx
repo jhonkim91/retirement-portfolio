@@ -16,6 +16,8 @@ function StockResearch() {
   const location = useLocation();
   const [accountName, setAccountName] = useState(getInitialAccountName);
   const [products, setProducts] = useState([]);
+  const [accountType, setAccountType] = useState('retirement');
+  const [accountCategory, setAccountCategory] = useState('irp');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [prefillProduct, setPrefillProduct] = useState(location.state?.prefillProduct || null);
@@ -24,8 +26,14 @@ function StockResearch() {
     try {
       setLoading(true);
       setError('');
-      const rows = await portfolioAPI.getProducts(accountName);
+      const [rows, accountsResponse] = await Promise.all([
+        portfolioAPI.getProducts(accountName),
+        portfolioAPI.getAccounts()
+      ]);
+      const matchedProfile = (accountsResponse?.account_profiles || []).find((account) => account.account_name === accountName);
       setProducts(rows);
+      setAccountType(matchedProfile?.account_type || 'retirement');
+      setAccountCategory(matchedProfile?.account_category || 'irp');
     } catch (err) {
       setError(err.message || '보유 종목을 불러오지 못했습니다.');
     } finally {
@@ -59,7 +67,12 @@ function StockResearch() {
       {loading ? (
         <div className="stock-research-loading">보유 종목을 불러오는 중...</div>
       ) : (
-        <StockResearchPanel products={products} initialProduct={prefillProduct} />
+        <StockResearchPanel
+          products={products}
+          initialProduct={prefillProduct}
+          accountType={accountType}
+          accountCategory={accountCategory}
+        />
       )}
     </main>
   );

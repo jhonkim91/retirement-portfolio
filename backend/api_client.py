@@ -575,7 +575,7 @@ class StockAPIClient:
         if not rows:
             return None
         latest = rows[-1]
-        return {'price': latest['price'], 'date': latest['date']}
+        return {'price': latest['price'], 'date': latest['date'], 'source': 'FunETF'}
 
     def get_history_from_funetf(self, fund_code, start_date, end_date):
         fund_code = self.clean_code(fund_code)
@@ -754,7 +754,7 @@ class StockAPIClient:
 
         current = self.get_current_price(code)
         if current:
-            return [{'date': end_date, 'price': current['price']}]
+            return [{'date': end_date, 'price': current['price'], 'source': current.get('source')}]
         return []
 
     def get_history_from_yfinance(self, code, start_date, end_date):
@@ -794,7 +794,8 @@ class StockAPIClient:
                 latest = data.iloc[-1]
                 return {
                     'price': float(latest['Close']),
-                    'date': data.index[-1].date()
+                    'date': data.index[-1].date(),
+                    'source': 'Yahoo'
                 }
         except Exception as e:
             print(f'yfinance price error ({code}): {e}')
@@ -817,7 +818,8 @@ class StockAPIClient:
                         parsed_date, close = self.parse_naver_row(data[-1])
                         return {
                             'price': close,
-                            'date': parsed_date or date.today()
+                            'date': parsed_date or date.today(),
+                            'source': 'Naver'
                         }
 
             rows = self.get_history_from_naver_sise_day(
@@ -828,7 +830,7 @@ class StockAPIClient:
             )
             if rows:
                 latest = rows[-1]
-                return {'price': latest['price'], 'date': latest['date']}
+                return {'price': latest['price'], 'date': latest['date'], 'source': 'Naver'}
         except Exception as e:
             print(f'naver price error ({stock_code}): {e}')
         return None

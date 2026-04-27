@@ -16,6 +16,7 @@ class User(db.Model):
     # 관계 설정
     portfolios = db.relationship('Product', backref='user', lazy=True, cascade='all, delete-orphan')
     trade_logs = db.relationship('TradeLog', backref='user', lazy=True, cascade='all, delete-orphan')
+    trade_events = db.relationship('TradeEvent', backref='created_by_user', lazy=True, cascade='all, delete-orphan')
     
     def to_dict(self):
         return {
@@ -34,6 +35,7 @@ class AccountProfile(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     account_name = db.Column(db.String(80), nullable=False, default=DEFAULT_ACCOUNT_NAME)
     account_type = db.Column(db.String(20), nullable=False, default='retirement')  # 'retirement' or 'brokerage'
+    account_category = db.Column(db.String(32), nullable=False, default='irp')
     is_default = db.Column(db.Boolean, nullable=False, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -44,6 +46,7 @@ class AccountProfile(db.Model):
             'user_id': self.user_id,
             'account_name': self.account_name,
             'account_type': self.account_type,
+            'account_category': self.account_category,
             'is_default': bool(self.is_default),
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
@@ -185,4 +188,45 @@ class TradeLog(db.Model):
             'asset_type': self.asset_type,
             'notes': self.notes,
             'created_at': self.created_at.isoformat()
+        }
+
+
+class TradeEvent(db.Model):
+    __tablename__ = 'trade_events'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    account_name = db.Column(db.String(80), nullable=False, default=DEFAULT_ACCOUNT_NAME)
+    trade_log_id = db.Column(db.Integer, nullable=True)
+    product_id = db.Column(db.Integer, nullable=True)
+    event_type = db.Column(db.String(32), nullable=False)
+    source_type = db.Column(db.String(32), nullable=False, default='ui')
+    source_id = db.Column(db.String(128), nullable=True)
+    import_batch_id = db.Column(db.String(64), nullable=True)
+    prev_hash = db.Column(db.String(128), nullable=True)
+    hash = db.Column(db.String(128), nullable=False)
+    supersedes_event_id = db.Column(db.Integer, nullable=True)
+    payload_json = db.Column(db.Text, nullable=False)
+    occurred_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'account_name': self.account_name,
+            'trade_log_id': self.trade_log_id,
+            'product_id': self.product_id,
+            'event_type': self.event_type,
+            'source_type': self.source_type,
+            'source_id': self.source_id,
+            'import_batch_id': self.import_batch_id,
+            'prev_hash': self.prev_hash,
+            'hash': self.hash,
+            'supersedes_event_id': self.supersedes_event_id,
+            'payload_json': self.payload_json,
+            'occurred_at': self.occurred_at.isoformat() if self.occurred_at else None,
+            'created_by': self.created_by,
+            'created_at': self.created_at.isoformat() if self.created_at else None
         }

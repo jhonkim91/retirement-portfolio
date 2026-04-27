@@ -5,6 +5,21 @@
 .summary-card { background: #fff; border: 1px solid #d9e2ec; border-radius: 8px; padding: 14px; box-shadow: 0 4px 14px rgba(15, 23, 42, .05); }
 .summary-card span { display: block; color: #697586; font-size: 13px; margin-bottom: 8px; }
 .summary-card strong { display: block; color: #102a43; font-size: 20px; line-height: 1.25; word-break: keep-all; }
+.audit-trail-panel { margin-bottom: 18px; background: #fff; border: 1px solid #d9e2ec; border-radius: 8px; padding: 16px; box-shadow: 0 4px 14px rgba(15, 23, 42, .05); }
+.audit-trail-header { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 12px; }
+.audit-trail-header h2 { margin: 0 0 6px; }
+.audit-trail-header p { margin: 0; color: #697586; font-size: 13px; line-height: 1.5; }
+.audit-trail-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.audit-trail-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+.audit-summary-card { border: 1px solid #d9e2ec; border-radius: 8px; background: #fbfdff; padding: 12px; }
+.audit-summary-card span { display: block; color: #697586; font-size: 12px; margin-bottom: 6px; }
+.audit-summary-card strong { display: block; color: #102a43; font-size: 15px; line-height: 1.35; word-break: break-word; }
+.audit-trail-list { display: grid; gap: 10px; }
+.audit-trail-item { border: 1px solid #d9e2ec; border-radius: 8px; padding: 12px; background: #fbfdff; }
+.audit-trail-top { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 8px; }
+.audit-trail-top strong { color: #102a43; }
+.audit-trail-meta { display: flex; flex-wrap: wrap; gap: 10px; color: #697586; font-size: 12px; margin-bottom: 8px; }
+.audit-trail-item p { margin: 0; color: #486581; font-size: 13px; line-height: 1.45; }
 .profit { color: #b42318 !important; font-weight: 800; }
 .loss { color: #177245 !important; font-weight: 800; }
 .filter-section { display: flex; gap: 10px; margin-bottom: 16px; }
@@ -36,7 +51,7 @@
 .log-edit-actions { display: flex; gap: 8px; justify-content: flex-end; }
 .log-edit-actions button { border: 1px solid #cbd5e1; background: #fff; color: #17324d; border-radius: 6px; padding: 9px 12px; font-weight: 800; white-space: nowrap; }
 .log-edit-actions button:first-child { border: 0; background: #33658a; color: #fff; }
-@media (max-width: 980px) { .realized-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 980px) { .realized-summary, .audit-trail-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 980px) { .log-edit-panel { grid-template-columns: repeat(2, minmax(0, 1fr)); } .log-edit-actions { justify-content: stretch; } }
-@media (max-width: 760px) { .tradelog-mobile-list { display: grid; } .tradelog-table-wrapper { display: none; } }
-@media (max-width: 640px) { .tradelog-container { padding: 16px 12px 36px; } .realized-summary, .log-edit-panel { grid-template-columns: 1fr; } .filter-section { display: grid; grid-template-columns: 1fr 1fr; } .filter-section select { max-width: none; } .log-edit-actions { display: grid; } .tradelog-mobile-grid { grid-template-columns: 1fr; } .tradelog-mobile-actions { display: grid; } }
+@media (max-width: 760px) { .tradelog-mobile-list { display: grid; } .tradelog-table-wrapper { display: none; } .audit-trail-header { display: grid; } }
+@media (max-width: 640px) { .tradelog-container { padding: 16px 12px 36px; } .realized-summary, .log-edit-panel, .audit-trail-summary { grid-template-columns: 1fr; } .filter-section { display: grid; grid-template-columns: 1fr 1fr; } .filter-section select { max-width: none; } .log-edit-actions { display: grid; } .tradelog-mobile-grid { grid-template-columns: 1fr; } .tradelog-mobile-actions { display: grid; } .audit-trail-actions { display: grid; grid-template-columns: 1fr; } }

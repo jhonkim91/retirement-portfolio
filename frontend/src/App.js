@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Navigate, Route, Routes } from 'react-router-d
 import './App.css';
 import Navigation from './components/Navigation';
 import Dashboard from './pages/Dashboard';
+import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Portfolio from './pages/Portfolio';
 import StockScreener from './pages/StockScreener';
@@ -31,12 +32,13 @@ function App() {
       {user && <Navigation setUser={setUser} />}
       <Routes>
         <Route path="/login" element={!user ? <Login setUser={setUser} /> : <Navigate to="/" replace />} />
-        <Route path="/" element={user ? <Dashboard /> : <Navigate to="/login" replace />} />
+        <Route path="/" element={user ? <Dashboard /> : <Landing />} />
+        <Route path="/dashboard" element={user ? <Dashboard /> : <Navigate to="/login" replace />} />
         <Route path="/portfolio" element={user ? <Portfolio /> : <Navigate to="/login" replace />} />
         <Route path="/trade-logs" element={user ? <TradeLog /> : <Navigate to="/login" replace />} />
         <Route path="/stock-research" element={user ? <StockResearch /> : <Navigate to="/login" replace />} />
         <Route path="/stock-screener" element={user ? <StockScreener /> : <Navigate to="/login" replace />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<Navigate to={user ? '/' : '/'} replace />} />
       </Routes>
     </Router>
   );

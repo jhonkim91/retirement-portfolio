@@ -15,6 +15,7 @@ import {
   XAxis,
   YAxis
 } from 'recharts';
+import DataBadge from '../DataBadge';
 import {
   buildAllocationDriftChart,
   buildContributionWaterfall,
@@ -239,7 +240,9 @@ function AnalyticsDashboard({
   onChangeBenchmarkPreset,
   onExportReport,
   exportingReport,
-  linkedCandidate
+  linkedCandidate,
+  dataBadges = [],
+  freshnessWarning = ''
 }) {
   const [scaleMode, setScaleMode] = useState('linear');
   const [showBenchmark, setShowBenchmark] = useState(true);
@@ -280,6 +283,13 @@ function AnalyticsDashboard({
           <p>
             {report.meta.startDate} ~ {report.meta.endDate} · {report.meta.benchmarkName} 비교
           </p>
+          {dataBadges.length > 0 && (
+            <div className="analytics-data-badges">
+              {dataBadges.map((badge) => (
+                <DataBadge key={`${badge.id}-${badge.note || badge.asOfLabel || ''}`} descriptor={badge} compact />
+              ))}
+            </div>
+          )}
         </div>
         <div className="analytics-actions">
           <label className="analytics-toggle">
@@ -295,6 +305,12 @@ function AnalyticsDashboard({
           </button>
         </div>
       </div>
+
+      {freshnessWarning && (
+        <div className="analytics-freshness-warning">
+          {freshnessWarning}
+        </div>
+      )}
 
       <section className="analytics-panel analytics-control-panel">
         <div className="analytics-panel-header">

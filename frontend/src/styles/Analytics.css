@@ -25,6 +25,22 @@
   font-size: 0.95rem;
 }
 
+.analytics-data-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+}
+
+.analytics-freshness-warning {
+  border: 1px solid #f6d58a;
+  border-radius: 8px;
+  background: #fff8e6;
+  color: #7c5a00;
+  padding: 0.8rem 0.9rem;
+  line-height: 1.6;
+}
+
 .analytics-actions {
   display: flex;
   align-items: center;

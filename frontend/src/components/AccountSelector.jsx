@@ -4,9 +4,18 @@ import { DEFAULT_ACCOUNT_NAME, portfolioAPI } from '../utils/api';
 const DEFAULT_PROFILE = {
   account_name: DEFAULT_ACCOUNT_NAME,
   account_type: 'retirement',
+  account_category: 'irp',
   account_type_label: '퇴직연금',
+  account_category_label: 'IRP',
   is_default: true
 };
+
+const RETIREMENT_ACCOUNT_OPTIONS = [
+  { value: 'pension_savings', label: '연금저축' },
+  { value: 'irp', label: 'IRP' },
+  { value: 'dc', label: 'DC' },
+  { value: 'db_reference', label: 'DB 참조' }
+];
 
 function AccountSelector({ value, onChange }) {
   const [accounts, setAccounts] = useState([DEFAULT_PROFILE]);
@@ -19,6 +28,7 @@ function AccountSelector({ value, onChange }) {
   const [showRenameForm, setShowRenameForm] = useState(false);
   const [newAccountName, setNewAccountName] = useState('');
   const [newAccountType, setNewAccountType] = useState('retirement');
+  const [newAccountCategory, setNewAccountCategory] = useState('irp');
   const [renameAccountName, setRenameAccountName] = useState('');
   const [message, setMessage] = useState('');
 
@@ -88,11 +98,12 @@ function AccountSelector({ value, onChange }) {
 
     try {
       setSaving(true);
-      const response = await portfolioAPI.addAccount(accountName, newAccountType);
+      const response = await portfolioAPI.addAccount(accountName, newAccountType, newAccountCategory);
       const nextProfiles = response?.account_profiles?.length ? response.account_profiles : [DEFAULT_PROFILE];
       setAccounts(nextProfiles);
       setNewAccountName('');
       setNewAccountType('retirement');
+      setNewAccountCategory('irp');
       closePanels();
       setMessage(response.message || '통장을 추가했습니다.');
       onChange(response.account_name || accountName);
@@ -171,11 +182,11 @@ function AccountSelector({ value, onChange }) {
           onChange={(event) => onChange(event.target.value)}
           disabled={loading}
         >
-          {accounts.map((account) => (
-            <option key={account.account_name} value={account.account_name}>
-              {account.account_name} · {account.account_type_label}
-            </option>
-          ))}
+              {accounts.map((account) => (
+             <option key={account.account_name} value={account.account_name}>
+               {account.account_name} · {account.account_type_label}{account.account_category_label ? ` · ${account.account_category_label}` : ''}
+             </option>
+           ))}
         </select>
         <button
           type="button"
@@ -228,21 +239,39 @@ function AccountSelector({ value, onChange }) {
 
           {showCreateForm && (
             <form className="account-create-form" onSubmit={submitNewAccount}>
-              <input
-                type="text"
-                maxLength="80"
-                placeholder="예: 주식 통장"
-                value={newAccountName}
-                onChange={(event) => setNewAccountName(event.target.value)}
-              />
-              <select value={newAccountType} onChange={(event) => setNewAccountType(event.target.value)}>
-                <option value="retirement">퇴직연금</option>
-                <option value="brokerage">주식 통장</option>
-              </select>
-              <button type="submit" disabled={!canSubmit}>
-                {saving ? '추가 중...' : '추가'}
-              </button>
-            </form>
+               <input
+                 type="text"
+                 maxLength="80"
+                 placeholder="예: 주식 통장"
+                 value={newAccountName}
+                 onChange={(event) => setNewAccountName(event.target.value)}
+               />
+               <select
+                 value={newAccountType}
+                 onChange={(event) => {
+                   const nextType = event.target.value;
+                   setNewAccountType(nextType);
+                   if (nextType === 'brokerage') {
+                     setNewAccountCategory('taxable');
+                   } else if (newAccountCategory === 'taxable') {
+                     setNewAccountCategory('irp');
+                   }
+                 }}
+               >
+                 <option value="retirement">퇴직연금</option>
+                 <option value="brokerage">주식 통장</option>
+               </select>
+               {newAccountType === 'retirement' && (
+                 <select value={newAccountCategory} onChange={(event) => setNewAccountCategory(event.target.value)}>
+                   {RETIREMENT_ACCOUNT_OPTIONS.map((option) => (
+                     <option key={option.value} value={option.value}>{option.label}</option>
+                   ))}
+                 </select>
+               )}
+               <button type="submit" disabled={!canSubmit}>
+                 {saving ? '추가 중...' : '추가'}
+               </button>
+             </form>
           )}
 
           {showRenameForm && (

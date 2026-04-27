@@ -1,4 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import DataBadge from './DataBadge';
+import {
+  ACCOUNT_CATEGORY_LABELS,
+  evaluateProductEligibility
+} from '../lib/pensionEligibility';
+import {
+  buildDataBadgeDescriptor,
+  buildFreshnessMixWarning
+} from '../lib/sourceRegistry';
 import { portfolioAPI } from '../utils/api';
 import '../styles/StockResearch.css';
 
@@ -52,6 +61,12 @@ const formatPercent = (value) => {
 const normalizeText = (value) => String(value || '').trim().toUpperCase().replace(/\s+/g, '');
 
 const sameText = (left, right) => normalizeText(left) === normalizeText(right);
+
+const eligibilityToneLabel = {
+  allowed: '허용',
+  warn: '경고',
+  blocked: '차단'
+};
 
 const getRangeProgress = (quote) => {
   const price = Number(quote?.price);
@@ -138,7 +153,14 @@ const buildPromptText = ({ selectedProduct, quote, holding, mode }) => {
   return lines.join('\n');
 };
 
-function StockResearchPanel({ products = [], initialProduct = null, onUseProduct, useProductLabel = '대장 입력' }) {
+function StockResearchPanel({
+  products = [],
+  initialProduct = null,
+  accountType = 'retirement',
+  accountCategory = 'irp',
+  onUseProduct,
+  useProductLabel = '대장 입력'
+}) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [searchSuggestions, setSearchSuggestions] = useState([]);
@@ -164,6 +186,42 @@ function StockResearchPanel({ products = [], initialProduct = null, onUseProduct
     )) || null;
   }, [products, selectedProduct]);
 
+  const selectedEligibility = useMemo(() => {
+    if (!selectedProduct) return null;
+    return evaluateProductEligibility({
+      accountType,
+      accountCategory,
+      product: {
+        ...selectedProduct,
+        ...(holding || {})
+      },
+      holdings: products
+    });
+  }, [accountCategory, accountType, holding, products, selectedProduct]);
+
+  const quoteBadge = useMemo(() => (
+    quote ? buildDataBadgeDescriptor({
+      source: quote.source,
+      asOf: quote.price_date,
+      freshnessClass: quote.freshness_class,
+      delayPolicy: quote.delay_policy,
+      code: selectedProduct?.code
+    }) : null
+  ), [quote, selectedProduct?.code]);
+
+  const mixedFreshnessWarning = useMemo(() => {
+    const badges = [];
+    if (quoteBadge) badges.push(quoteBadge);
+    if (holding) {
+      badges.push(buildDataBadgeDescriptor({
+        source: 'Holding',
+        freshnessClass: 'internal_ledger',
+        note: '보유 대장'
+      }));
+    }
+    return buildFreshnessMixWarning(badges);
+  }, [holding, quoteBadge]);
+
   const heldProductCards = useMemo(() => (
     products
       .map((product) => ({
@@ -175,10 +233,16 @@ function StockResearchPanel({ products = [], initialProduct = null, onUseProduct
         purchasePrice: product.purchase_price,
         profitRate: Number(product.profit_rate || 0),
         quantity: product.quantity,
-        unitType: product.unit_type || 'share'
+        unitType: product.unit_type || 'share',
+        eligibility: evaluateProductEligibility({
+          accountType,
+          accountCategory,
+          product,
+          holdings: products
+        })
       }))
       .sort((left, right) => right.profitRate - left.profitRate)
-  ), [products]);
+  ), [accountCategory, accountType, products]);
 
   const quickReport = useMemo(() => buildQuickSummary({
     selectedProduct,
@@ -400,6 +464,12 @@ function StockResearchPanel({ products = [], initialProduct = null, onUseProduct
                   <strong>{product.name}</strong>
                   <span>{product.code}</span>
                 </div>
+                {accountType !== 'brokerage' && product.eligibility && (
+                  <div className={`eligibility-pill ${product.eligibility.status}`}>
+                    <strong>{eligibilityToneLabel[product.eligibility.status]}</strong>
+                    <span>{product.eligibility.label}</span>
+                  </div>
+                )}
                 <div className="held-stock-meta">
                   <small>{product.assetType === 'risk' ? '위험자산' : '안전자산'}</small>
                   <small>{formatNumber(product.quantity, 0)}{product.unitType === 'unit' ? '좌' : '주'}</small>
@@ -420,19 +490,41 @@ function StockResearchPanel({ products = [], initialProduct = null, onUseProduct
 
       {results.length > 0 && (
         <div className="stock-result-list">
-          {results.map((product) => (
-            <article className="stock-result-item" key={`${product.code}-${product.source}`}>
-              <button type="button" className="stock-result-main" onClick={() => selectProduct(product)}>
-                <strong>{product.name}</strong>
-                <span>{product.code} · {product.exchange} · {product.type} · {product.source}</span>
-              </button>
-              {onUseProduct && (
-                <button type="button" className="stock-use-button" onClick={() => onUseProduct(product)}>
-                  {useProductLabel}
+          {results.map((product) => {
+            const eligibility = evaluateProductEligibility({
+              accountType,
+              accountCategory,
+              product,
+              holdings: products
+            });
+
+            return (
+              <article className="stock-result-item" key={`${product.code}-${product.source}`}>
+                <button type="button" className="stock-result-main" onClick={() => selectProduct(product)}>
+                  <strong>{product.name}</strong>
+                  <span>{product.code} · {product.exchange} · {product.type} · {product.source}</span>
+                  <DataBadge
+                    compact
+                    source={product.source}
+                    code={product.code}
+                    freshnessClass={product.type === 'fund' ? 'end_of_day' : 'delayed_20m'}
+                    note={product.type}
+                  />
+                  {accountType !== 'brokerage' && (
+                    <div className={`eligibility-pill ${eligibility.status}`}>
+                      <strong>{eligibilityToneLabel[eligibility.status]}</strong>
+                      <span>{eligibility.label}</span>
+                    </div>
+                  )}
                 </button>
-              )}
-            </article>
-          ))}
+                {onUseProduct && (
+                  <button type="button" className="stock-use-button" onClick={() => onUseProduct(product)}>
+                    {useProductLabel}
+                  </button>
+                )}
+              </article>
+            );
+          })}
         </div>
       )}
 
@@ -443,9 +535,31 @@ function StockResearchPanel({ products = [], initialProduct = null, onUseProduct
               <span>선택 종목</span>
               <strong>{selectedProduct.name}</strong>
               <small>{selectedProduct.code}</small>
+              <div className="stock-analysis-badges">
+                {quoteBadge && <DataBadge descriptor={quoteBadge} compact />}
+                {holding && <DataBadge source="Holding" freshnessClass="internal_ledger" note="보유 대장" compact />}
+              </div>
             </div>
             {quoteLoading && <em>현재가 확인 중...</em>}
           </div>
+
+          {accountType !== 'brokerage' && selectedEligibility && (
+            <div className={`eligibility-note ${selectedEligibility.status}`}>
+              <div className="eligibility-note-head">
+                <strong>{ACCOUNT_CATEGORY_LABELS[selectedEligibility.accountCategory] || '퇴직연금'} 적격성</strong>
+                <span>{eligibilityToneLabel[selectedEligibility.status]} · {selectedEligibility.label}</span>
+              </div>
+              <ul>
+                {selectedEligibility.reasons.map((item) => <li key={item}>{item}</li>)}
+              </ul>
+            </div>
+          )}
+
+          {mixedFreshnessWarning && (
+            <div className="stock-freshness-warning">
+              {mixedFreshnessWarning}
+            </div>
+          )}
 
           <div className="stock-snapshot-grid">
             <div>

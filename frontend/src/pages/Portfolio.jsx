@@ -2,6 +2,15 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import AccountSelector from '../components/AccountSelector';
 import {
+  ACCOUNT_CATEGORY_LABELS,
+  evaluateProductEligibility,
+  summarizeRetirementEligibility
+} from '../lib/pensionEligibility';
+import {
+  buildDataBadgeDescriptor,
+  buildFreshnessMixWarning
+} from '../lib/sourceRegistry';
+import {
   DEFAULT_ACCOUNT_NAME,
   portfolioAPI,
   readStoredAccountName,
@@ -135,6 +144,7 @@ function Portfolio() {
   const today = getLocalTodayKey();
   const [accountName, setAccountName] = useState(getInitialAccountName);
   const [accountType, setAccountType] = useState('retirement');
+  const [accountCategory, setAccountCategory] = useState('irp');
   const [formData, setFormData] = useState(emptyProductForm(today));
   const [depositForm, setDepositForm] = useState({ amount: '', deposit_date: today, notes: '' });
   const [products, setProducts] = useState([]);
@@ -167,6 +177,7 @@ function Portfolio() {
     setTrends(trendData);
     const matchedProfile = (accountsResponse?.account_profiles || []).find((account) => account.account_name === accountName);
     setAccountType(matchedProfile?.account_type || 'retirement');
+    setAccountCategory(matchedProfile?.account_category || 'irp');
   }, [accountName]);
 
   useEffect(() => {
@@ -238,6 +249,21 @@ function Portfolio() {
   }, [formData.product_name, selectedProductName]);
 
   const selectedTrendProductSet = useMemo(() => new Set(selectedTrendProductIds), [selectedTrendProductIds]);
+  const retirementEligibility = useMemo(() => summarizeRetirementEligibility({
+    products,
+    accountType,
+    accountCategory
+  }), [accountCategory, accountType, products]);
+  const draftEligibility = useMemo(() => {
+    if (accountType === 'brokerage') return null;
+    if (!formData.product_name && !formData.product_code) return null;
+    return evaluateProductEligibility({
+      accountType,
+      accountCategory,
+      product: formData,
+      holdings: products
+    });
+  }, [accountCategory, accountType, formData, products]);
   const filteredTrends = useMemo(
     () => trends.filter((row) => selectedTrendProductSet.has(String(row.product_id))),
     [trends, selectedTrendProductSet]
@@ -320,6 +346,15 @@ function Portfolio() {
   const selectedTrendProducts = useMemo(() => (
     products.filter((product) => selectedTrendProductSet.has(String(product.id)))
   ), [products, selectedTrendProductSet]);
+  const trendFreshnessWarning = useMemo(() => buildFreshnessMixWarning(
+    selectedTrendProducts.map((product) => (
+      buildDataBadgeDescriptor({
+        source: product.unit_type === 'unit' ? 'FunETF' : 'Naver',
+        freshnessClass: product.unit_type === 'unit' ? 'end_of_day' : 'delayed_20m',
+        code: product.product_code
+      })
+    ))
+  ), [selectedTrendProducts]);
   const colors = ['#33658a', '#d94841', '#256f68', '#f6ae2d', '#7f4f24', '#6a4c93'];
   const formatCurrency = (value) => new Intl.NumberFormat('ko-KR', {
     style: 'currency',
@@ -565,6 +600,22 @@ function Portfolio() {
               매입가, {accountType === 'brokerage' ? '주 수량' : '수량/좌수'}, 매입일을 입력하면 현황과 매매일지에 반영합니다.
             </p>
             {message && <div className="message">{message}</div>}
+            {retirementEligibility && (
+              <div className="retirement-rule-panel">
+                <div className="retirement-rule-header">
+                  <strong>{ACCOUNT_CATEGORY_LABELS[accountCategory] || '퇴직연금'} 규칙 점검</strong>
+                  <span>위험자산 {retirementEligibility.riskShare.toFixed(1)}%</span>
+                </div>
+                <ul>
+                  {retirementEligibility.rules.map((rule) => (
+                    <li key={rule.label} className={rule.passed ? 'pass' : 'fail'}>
+                      <strong>{rule.label}</strong>
+                      <span>{rule.detail}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <form onSubmit={handleSubmit} className="product-form">
             <div className="form-group">
               <label>상품명 또는 코드</label>
@@ -646,6 +697,17 @@ function Portfolio() {
                 <input name="notes" value={formData.notes} onChange={handleChange} placeholder="선택 입력" />
               </div>
             </div>
+              {draftEligibility && (
+                <div className={`eligibility-form-preview ${draftEligibility.status}`}>
+                  <div className="eligibility-form-preview-top">
+                    <strong>연금 적격성 미리보기</strong>
+                    <span>{draftEligibility.label} · {draftEligibility.status === 'allowed' ? '허용' : draftEligibility.status === 'warn' ? '경고' : '차단'}</span>
+                  </div>
+                  <ul>
+                    {draftEligibility.reasons.map((reason) => <li key={reason}>{reason}</li>)}
+                  </ul>
+                </div>
+              )}
               <button type="submit" className="btn-submit" disabled={loading}>{loading ? '추가 중...' : '상품 추가'}</button>
             </form>
           </section>
@@ -694,6 +756,21 @@ function Portfolio() {
                         <strong>{product.product_name}</strong>
                         <small>{product.product_code} · {product.asset_type === 'risk' ? '위험자산' : '안전자산'} · {formatQuantity(product.quantity)}{unitLabel(product.unit_type)}</small>
                       </span>
+                      {accountType !== 'brokerage' && (
+                        <span className={`holding-eligibility ${evaluateProductEligibility({
+                          accountType,
+                          accountCategory,
+                          product,
+                          holdings: products
+                        }).status}`}>
+                          {evaluateProductEligibility({
+                            accountType,
+                            accountCategory,
+                            product,
+                            holdings: products
+                          }).label}
+                        </span>
+                      )}
                       <span className="holding-stat">
                         <small>현재가</small>
                         <strong>{formatCurrency(product.current_price)}</strong>
@@ -842,6 +919,9 @@ function Portfolio() {
                 </div>
               </label>
             </div>
+            {trendFreshnessWarning && (
+              <div className="trend-freshness-warning">{trendFreshnessWarning}</div>
+            )}
             <div className="trend-chart">
               {selectedTrendProductIds.length === 0 ? (
                 <p className="no-data">추이를 볼 상품을 체크하세요.</p>

@@ -36,6 +36,31 @@ const getToken = () => localStorage.getItem('access_token');
 export const accountNameOrDefault = (accountName) => accountName || readStoredAccountName() || DEFAULT_ACCOUNT_NAME;
 const accountQuery = (accountName) => `account_name=${encodeURIComponent(accountNameOrDefault(accountName))}`;
 
+const downloadApiFile = async (endpoint, fallbackFilename) => {
+  const headers = {};
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, { headers });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || '파일 다운로드에 실패했습니다.');
+  }
+
+  const blob = await response.blob();
+  const contentDisposition = response.headers.get('Content-Disposition') || '';
+  const matched = contentDisposition.match(/filename="?([^";]+)"?/i);
+  const filename = matched?.[1] || fallbackFilename;
+  const objectUrl = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(objectUrl);
+};
+
 const apiCall = async (endpoint, method = 'GET', body = null) => {
   const headers = { 'Content-Type': 'application/json' };
   const token = getToken();
@@ -67,9 +92,10 @@ export const authAPI = {
 
 export const portfolioAPI = {
   getAccounts: () => apiCall('/accounts'),
-  addAccount: (accountName, accountType = 'retirement') => apiCall('/accounts', 'POST', {
+  addAccount: (accountName, accountType = 'retirement', accountCategory = '') => apiCall('/accounts', 'POST', {
     account_name: accountName,
-    account_type: accountType
+    account_type: accountType,
+    account_category: accountCategory
   }),
   renameAccount: (currentAccountName, nextAccountName) => apiCall(`/accounts/${encodeURIComponent(currentAccountName)}`, 'PUT', {
     account_name: nextAccountName
@@ -105,6 +131,12 @@ export const tradeLogAPI = {
   getRealizedSummary: (accountName) => apiCall(`/trade-logs/realized-summary?${accountQuery(accountName)}`),
   updateLog: (logId, logData) => apiCall(`/trade-logs/${logId}`, 'PUT', logData),
   deleteLog: (logId) => apiCall(`/trade-logs/${logId}`, 'DELETE'),
+  getAuditTrail: (accountName, limit = 80) => apiCall(`/trade-logs/audit?${accountQuery(accountName)}&limit=${encodeURIComponent(limit)}`),
+  getAuditTrailForLog: (logId) => apiCall(`/trade-logs/${logId}/audit`),
+  downloadAuditTrail: (accountName, format = 'json') => downloadApiFile(
+    `/trade-logs/audit/export?${accountQuery(accountName)}&format=${encodeURIComponent(format)}`,
+    `${accountNameOrDefault(accountName)}-trade-audit.${format}`
+  ),
   getLogs: (filters = {}) => {
     const params = new URLSearchParams();
     params.append('account_name', accountNameOrDefault(filters.accountName));

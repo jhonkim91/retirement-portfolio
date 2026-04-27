@@ -1,21 +1,32 @@
-﻿from datetime import datetime, date
+﻿import csv
+from datetime import datetime, date
 import hashlib
+import io
 import json
 from datetime import timedelta
 import math
 import os
+import re
 from zoneinfo import ZoneInfo
+from xml.sax.saxutils import escape
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, Response
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
 import requests
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import mm
+from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+from reportlab.pdfbase.pdfmetrics import registerFont
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from api_client import StockAPIClient
-from models import AccountProfile, db, User, Product, PriceHistory, TradeLog, CashBalance, DEFAULT_ACCOUNT_NAME
+from models import AccountProfile, db, User, Product, PriceHistory, TradeLog, CashBalance, TradeEvent, DEFAULT_ACCOUNT_NAME
 
 api = Blueprint('api', __name__, url_prefix='/api')
 market_client = StockAPIClient()
-API_VERSION = '2026-04-27-analytics-engine-v1'
+API_VERSION = '2026-04-28-report-alignment-v1'
 MARKET_TIMEZONE = ZoneInfo('Asia/Seoul')
 MARKET_SYNC_TTL_SECONDS = 60 * 5
 _market_sync_cache = {}
@@ -50,6 +61,30 @@ def get_account_type_label(account_type):
     return '주식 통장' if account_type == 'brokerage' else '퇴직연금'
 
 
+def normalize_account_category(value, account_type='retirement'):
+    normalized_type = normalize_account_type(account_type)
+    if normalized_type == 'brokerage':
+        return 'taxable'
+
+    allowed = {'pension_savings', 'irp', 'dc', 'db_reference'}
+    category = str(value or '').strip().lower()
+    return category if category in allowed else 'irp'
+
+
+def get_account_category_label(account_category, account_type='retirement'):
+    normalized_type = normalize_account_type(account_type)
+    if normalized_type == 'brokerage':
+        return '일반과세'
+
+    labels = {
+        'pension_savings': '연금저축',
+        'irp': 'IRP',
+        'dc': 'DC',
+        'db_reference': 'DB 참조'
+    }
+    return labels.get(normalize_account_category(account_category, normalized_type), 'IRP')
+
+
 def current_account_name():
     data = request.get_json(silent=True) or {}
     return normalize_account_name(
@@ -63,6 +98,8 @@ def get_account_profile(user_id, account_name):
     account_name = normalize_account_name(account_name)
     profile = AccountProfile.query.filter_by(user_id=user_id, account_name=account_name).first()
     if profile:
+        profile.account_type = normalize_account_type(profile.account_type)
+        profile.account_category = normalize_account_category(profile.account_category, profile.account_type)
         return profile
 
     inferred_type = 'brokerage' if ('주식' in account_name or 'stock' in account_name.lower()) else 'retirement'
@@ -71,6 +108,7 @@ def get_account_profile(user_id, account_name):
         user_id=user_id,
         account_name=account_name,
         account_type=inferred_type,
+        account_category='taxable' if inferred_type == 'brokerage' else 'irp',
         is_default=(account_name == DEFAULT_ACCOUNT_NAME and not has_default)
     )
     db.session.add(profile)
@@ -135,10 +173,14 @@ def list_user_accounts(user_id):
     ordered_names = sorted(account_names)
     for account_name in ordered_names:
         profile = get_account_profile(user_id, account_name)
+        account_type = normalize_account_type(profile.account_type)
+        account_category = normalize_account_category(profile.account_category, account_type)
         account_profiles.append({
             'account_name': account_name,
-            'account_type': normalize_account_type(profile.account_type),
-            'account_type_label': get_account_type_label(profile.account_type),
+            'account_type': account_type,
+            'account_type_label': get_account_type_label(account_type),
+            'account_category': account_category,
+            'account_category_label': get_account_category_label(account_category, account_type),
             'is_default': bool(profile.is_default)
         })
 
@@ -307,6 +349,82 @@ def sync_product_from_trade_log(log):
 
     rebuild_product_from_trade_logs(product)
     return product
+
+
+def serialize_trade_log(log):
+    return log.to_dict() if log else None
+
+
+def serialize_product(product):
+    return product.to_dict() if product else None
+
+
+def canonical_json(value):
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+
+
+def get_latest_trade_event(user_id, account_name=None, trade_log_id=None):
+    query = TradeEvent.query.filter_by(user_id=user_id)
+    if account_name is not None:
+        query = query.filter_by(account_name=normalize_account_name(account_name))
+    if trade_log_id is not None:
+        query = query.filter_by(trade_log_id=trade_log_id)
+    return query.order_by(TradeEvent.id.desc()).first()
+
+
+def append_trade_event(
+    *,
+    user_id,
+    account_name,
+    event_type,
+    payload,
+    trade_log_id=None,
+    product_id=None,
+    source_type='ui',
+    source_id=None,
+    import_batch_id=None,
+    occurred_at=None
+):
+    normalized_account_name = normalize_account_name(account_name)
+    event_time = occurred_at or datetime.utcnow()
+    previous_account_event = get_latest_trade_event(user_id, normalized_account_name)
+    superseded_event = get_latest_trade_event(user_id, normalized_account_name, trade_log_id) if trade_log_id else None
+    payload_json = canonical_json(payload or {})
+    hash_base = canonical_json({
+        'user_id': user_id,
+        'account_name': normalized_account_name,
+        'trade_log_id': trade_log_id,
+        'product_id': product_id,
+        'event_type': event_type,
+        'source_type': source_type,
+        'source_id': source_id,
+        'import_batch_id': import_batch_id,
+        'prev_hash': previous_account_event.hash if previous_account_event else None,
+        'supersedes_event_id': superseded_event.id if superseded_event else None,
+        'occurred_at': event_time.isoformat(),
+        'payload_json': payload_json
+    })
+    event_hash = hashlib.sha256(hash_base.encode('utf-8')).hexdigest()
+
+    event = TradeEvent(
+        user_id=user_id,
+        account_name=normalized_account_name,
+        trade_log_id=trade_log_id,
+        product_id=product_id,
+        event_type=event_type,
+        source_type=source_type,
+        source_id=source_id,
+        import_batch_id=import_batch_id,
+        prev_hash=previous_account_event.hash if previous_account_event else None,
+        hash=event_hash,
+        supersedes_event_id=superseded_event.id if superseded_event else None,
+        payload_json=payload_json,
+        occurred_at=event_time,
+        created_by=user_id
+    )
+    db.session.add(event)
+    db.session.flush()
+    return event
 
 
 def get_realized_positions(user_id, account_name=None):
@@ -703,6 +821,23 @@ def build_quote_snapshot(code):
     high_52w = max(prices) if prices else None
     low_52w = min(prices) if prices else None
     first_price = prices[0] if prices else None
+    history_source = histories[-1].get('source') if histories else None
+    source_name = (
+        (current or {}).get('source')
+        or history_source
+        or ('FunETF' if market_client.is_fund_code(cleaned_code) else 'Naver' if market_client.is_krx_code(cleaned_code) else 'Yahoo')
+    )
+    freshness_class = 'end_of_day'
+    delay_policy = '기준가 또는 일별 종가 기준'
+    if source_name == 'Naver':
+        freshness_class = 'delayed_20m'
+        delay_policy = '거래소 시세 기준, 장중 최대 20분 지연 가능'
+    elif source_name == 'Yahoo':
+        freshness_class = 'end_of_day'
+        delay_policy = '일별 종가 기준'
+    elif source_name == 'FunETF':
+        freshness_class = 'end_of_day'
+        delay_policy = '펀드 기준가 기준'
     return_rate = (
         (float(latest_price) - first_price) / first_price * 100
         if latest_price is not None and first_price
@@ -716,6 +851,9 @@ def build_quote_snapshot(code):
         'high_52w': round(high_52w, 4) if high_52w is not None else None,
         'low_52w': round(low_52w, 4) if low_52w is not None else None,
         'one_year_return_rate': round(return_rate, 2) if return_rate is not None else None,
+        'source': source_name,
+        'freshness_class': freshness_class,
+        'delay_policy': delay_policy,
         'history_points': len(histories),
         'lookback_start': history_start.isoformat(),
         'lookback_end': today.isoformat()
@@ -1260,6 +1398,7 @@ def get_portfolio_summary():
         account_name = current_account_name()
         account_profile = get_account_profile(user_id, account_name)
         account_type = normalize_account_type(account_profile.account_type)
+        account_category = normalize_account_category(account_profile.account_category, account_type)
         maybe_sync_account_prices(user_id, account_name)
         products = Product.query.filter_by(user_id=user_id, account_name=account_name, status='holding').all()
         cash = get_cash_balance(user_id, account_name).amount
@@ -1285,6 +1424,8 @@ def get_portfolio_summary():
         return jsonify({
             'account_type': account_type,
             'account_type_label': get_account_type_label(account_type),
+            'account_category': account_category,
+            'account_category_label': get_account_category_label(account_category, account_type),
             'total_investment': round(total_investment, 2),
             'total_cash': round(cash, 2),
             'total_current_value': round(total_current_value, 2),
@@ -1329,6 +1470,7 @@ def add_account():
         data = request.get_json() or {}
         raw_name = str(data.get('account_name') or '').strip()
         account_type = normalize_account_type(data.get('account_type'))
+        account_category = normalize_account_category(data.get('account_category'), account_type)
         if not raw_name:
             return jsonify({'error': '통장 이름을 입력하세요.'}), 400
 
@@ -1338,6 +1480,7 @@ def add_account():
         created = account_name not in existing_names
         profile = get_account_profile(user_id, account_name)
         profile.account_type = account_type
+        profile.account_category = account_category
         balance = get_cash_balance(user_id, account_name)
 
         if created:
@@ -1351,6 +1494,7 @@ def add_account():
             'created': created,
             'account_name': account_name,
             'account_type': account_type,
+            'account_category': account_category,
             'accounts': [item['account_name'] for item in account_profiles],
             'account_profiles': account_profiles
         }), 201 if created else 200
@@ -1379,6 +1523,7 @@ def delete_account(account_name):
             PriceHistory.query.filter(PriceHistory.product_id.in_(product_ids)).delete(synchronize_session=False)
         Product.query.filter_by(user_id=user_id, account_name=normalized_name).delete(synchronize_session=False)
         TradeLog.query.filter_by(user_id=user_id, account_name=normalized_name).delete(synchronize_session=False)
+        TradeEvent.query.filter_by(user_id=user_id, account_name=normalized_name).delete(synchronize_session=False)
         CashBalance.query.filter_by(user_id=user_id, account_name=normalized_name).delete(synchronize_session=False)
         AccountProfile.query.filter_by(user_id=user_id, account_name=normalized_name).delete(synchronize_session=False)
         db.session.commit()
@@ -1433,9 +1578,14 @@ def rename_account(account_name):
             profile.account_name = next_name
             if profile.is_default:
                 profile.account_type = 'retirement'
+                profile.account_category = normalize_account_category(profile.account_category, 'retirement')
         else:
             replacement_profile = get_account_profile(user_id, next_name)
             replacement_profile.account_type = 'retirement' if current_name == DEFAULT_ACCOUNT_NAME else replacement_profile.account_type
+            replacement_profile.account_category = normalize_account_category(
+                replacement_profile.account_category,
+                replacement_profile.account_type
+            )
             replacement_profile.is_default = (current_name == DEFAULT_ACCOUNT_NAME)
 
         db.session.commit()
@@ -1686,6 +1836,18 @@ def add_cash_deposit():
             notes=data.get('notes', '')
         )
         db.session.add(log)
+        db.session.flush()
+        append_trade_event(
+            user_id=user_id,
+            account_name=account_name,
+            event_type='trade_created',
+            trade_log_id=log.id,
+            payload={
+                'trade_log': serialize_trade_log(log),
+                'product': None,
+                'reason': 'cash_deposit'
+            }
+        )
         db.session.commit()
         return jsonify({
             'message': '회사 현금입금이 원금과 매매일지에 기록되었습니다.',
@@ -1745,7 +1907,7 @@ def add_product():
 
         upsert_price_history(product.id, product.purchase_date, product.current_price)
 
-        db.session.add(TradeLog(
+        trade_log = TradeLog(
             user_id=product.user_id,
             account_name=product.account_name,
             product_id=product.id,
@@ -1758,7 +1920,21 @@ def add_product():
             trade_date=product.purchase_date,
             asset_type=product.asset_type,
             notes=data.get('notes', '')
-        ))
+        )
+        db.session.add(trade_log)
+        db.session.flush()
+        append_trade_event(
+            user_id=product.user_id,
+            account_name=product.account_name,
+            event_type='trade_created',
+            trade_log_id=trade_log.id,
+            product_id=product.id,
+            payload={
+                'trade_log': serialize_trade_log(trade_log),
+                'product': serialize_product(product),
+                'reason': 'product_added'
+            }
+        )
         db.session.commit()
         return jsonify({'message': '상품이 추가되었습니다.', 'product': product.to_dict()}), 201
     except ValueError as e:
@@ -1854,7 +2030,7 @@ def add_product_buy(product_id):
 
         upsert_price_history(product.id, buy_date, price)
 
-        db.session.add(TradeLog(
+        trade_log = TradeLog(
             user_id=product.user_id,
             account_name=product.account_name,
             product_id=product.id,
@@ -1867,7 +2043,21 @@ def add_product_buy(product_id):
             trade_date=buy_date,
             asset_type=product.asset_type,
             notes=data.get('notes', '추가매수')
-        ))
+        )
+        db.session.add(trade_log)
+        db.session.flush()
+        append_trade_event(
+            user_id=product.user_id,
+            account_name=product.account_name,
+            event_type='trade_created',
+            trade_log_id=trade_log.id,
+            product_id=product.id,
+            payload={
+                'trade_log': serialize_trade_log(trade_log),
+                'product': serialize_product(product),
+                'reason': 'additional_buy'
+            }
+        )
         db.session.commit()
         return jsonify({'message': '추가매수가 반영되었습니다.', 'product': product.to_dict()}), 201
     except ValueError as e:
@@ -1893,7 +2083,7 @@ def sell_product(product_id):
         product.sale_price = parse_positive_float(data.get('sale_price'), '매도가/기준가')
         product.sale_date = parse_trade_date(data.get('sale_date'))
 
-        db.session.add(TradeLog(
+        trade_log = TradeLog(
             user_id=product.user_id,
             account_name=product.account_name,
             product_id=product.id,
@@ -1906,7 +2096,21 @@ def sell_product(product_id):
             trade_date=product.sale_date,
             asset_type=product.asset_type,
             notes=data.get('notes', '')
-        ))
+        )
+        db.session.add(trade_log)
+        db.session.flush()
+        append_trade_event(
+            user_id=product.user_id,
+            account_name=product.account_name,
+            event_type='trade_created',
+            trade_log_id=trade_log.id,
+            product_id=product.id,
+            payload={
+                'trade_log': serialize_trade_log(trade_log),
+                'product': serialize_product(product),
+                'reason': 'sell_completed'
+            }
+        )
         db.session.commit()
         return jsonify({'message': '매도가 완료되었습니다.', 'product': product.to_dict()}), 200
     except ValueError as e:
@@ -1944,12 +2148,27 @@ def delete_user_product(user_id, product_id):
             )
         )
 
-    deleted_logs = (
+    related_logs = (
         TradeLog.query
         .filter(TradeLog.user_id == user_id)
         .filter(db.or_(TradeLog.product_id == product.id, *fallback_log_filters))
-        .delete(synchronize_session=False)
+        .order_by(TradeLog.trade_date.asc(), TradeLog.id.asc())
+        .all()
     )
+    for log in related_logs:
+        append_trade_event(
+            user_id=user_id,
+            account_name=log.account_name,
+            event_type='trade_deleted',
+            trade_log_id=log.id,
+            product_id=log.product_id,
+            payload={
+                'deleted': serialize_trade_log(log),
+                'product_deleted': serialize_product(product)
+            }
+        )
+        db.session.delete(log)
+    deleted_logs = len(related_logs)
     PriceHistory.query.filter_by(product_id=product.id).delete(synchronize_session=False)
     db.session.delete(product)
     return product, deleted_logs
@@ -2148,6 +2367,242 @@ def get_trade_logs():
         return jsonify({'error': str(e)}), 500
 
 
+def build_trade_event_response(event):
+    row = event.to_dict()
+    try:
+        row['payload'] = json.loads(row.pop('payload_json') or '{}')
+    except Exception:
+        row['payload'] = {'raw': row.pop('payload_json')}
+    row['hash_short'] = row['hash'][:12] if row.get('hash') else None
+    row['event_type_label'] = {
+        'trade_created': '생성',
+        'trade_updated': '수정',
+        'trade_deleted': '삭제'
+    }.get(row['event_type'], row['event_type'])
+    return row
+
+
+def build_trade_log_audit_pdf(account_name, rows):
+    buffer = io.BytesIO()
+    document = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=14 * mm,
+        rightMargin=14 * mm,
+        topMargin=14 * mm,
+        bottomMargin=14 * mm
+    )
+
+    font_name = 'Helvetica'
+    try:
+        registerFont(UnicodeCIDFont('HYGothic-Medium'))
+        font_name = 'HYGothic-Medium'
+    except Exception:
+        font_name = 'Helvetica'
+
+    base_styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'AuditTitle',
+        parent=base_styles['Title'],
+        fontName=font_name,
+        fontSize=18,
+        leading=22,
+        textColor=colors.HexColor('#17324d'),
+        spaceAfter=10
+    )
+    body_style = ParagraphStyle(
+        'AuditBody',
+        parent=base_styles['BodyText'],
+        fontName=font_name,
+        fontSize=9,
+        leading=12,
+        textColor=colors.HexColor('#243b53')
+    )
+    meta_style = ParagraphStyle(
+        'AuditMeta',
+        parent=body_style,
+        fontSize=8,
+        textColor=colors.HexColor('#5b7083')
+    )
+
+    created_count = sum(1 for row in rows if row.get('event_type') == 'trade_created')
+    updated_count = sum(1 for row in rows if row.get('event_type') == 'trade_updated')
+    deleted_count = sum(1 for row in rows if row.get('event_type') == 'trade_deleted')
+
+    story = [
+        Paragraph('매매일지 감사 이력', title_style),
+        Paragraph(
+            f'통장: {escape(account_name)} / 총 이벤트: {len(rows)} / 생성·수정·삭제: '
+            f'{created_count}·{updated_count}·{deleted_count}',
+            body_style
+        ),
+        Paragraph(
+            f'내보낸 시각: {escape(datetime.now(MARKET_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S %Z"))}',
+            meta_style
+        ),
+        Spacer(1, 8)
+    ]
+
+    table_rows = [[
+        Paragraph('시각', body_style),
+        Paragraph('이벤트', body_style),
+        Paragraph('상품 / 거래', body_style),
+        Paragraph('금액', body_style),
+        Paragraph('hash', body_style)
+    ]]
+
+    for row in rows:
+        snapshot = row.get('payload', {}).get('after') or row.get('payload', {}).get('deleted') or row.get('payload', {}).get('trade_log') or {}
+        product_name = escape(str(snapshot.get('product_name') or '매매일지 이벤트'))
+        trade_type = escape(str(snapshot.get('trade_type') or '-'))
+        total_amount = snapshot.get('total_amount')
+        amount_text = f'₩{format_number_text(total_amount, 0)}' if total_amount not in (None, '') else '-'
+        table_rows.append([
+            Paragraph(escape(str((row.get('occurred_at') or '').replace('T', ' ') or '-')), meta_style),
+            Paragraph(escape(str(row.get('event_type_label') or row.get('event_type') or '-')), body_style),
+            Paragraph(f'{product_name}<br/><font size="8">{trade_type}</font>', body_style),
+            Paragraph(escape(amount_text), body_style),
+            Paragraph(escape(str(row.get('hash_short') or '-')), meta_style)
+        ])
+
+    table = Table(table_rows, colWidths=[34 * mm, 20 * mm, 72 * mm, 24 * mm, 24 * mm], repeatRows=1)
+    table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#eaf2f8')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor('#17324d')),
+        ('FONTNAME', (0, 0), (-1, -1), font_name),
+        ('FONTSIZE', (0, 0), (-1, -1), 8),
+        ('LEADING', (0, 0), (-1, -1), 10),
+        ('GRID', (0, 0), (-1, -1), 0.35, colors.HexColor('#d9e2ec')),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#fbfdff')]),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 5),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 5),
+        ('TOPPADDING', (0, 0), (-1, -1), 5),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 5)
+    ]))
+    story.append(table)
+    document.build(story)
+    return buffer.getvalue()
+
+
+@api.route('/trade-logs/audit', methods=['GET'])
+@jwt_required()
+def get_trade_log_audit():
+    try:
+        user_id = current_user_id()
+        account_name = current_account_name()
+        limit = max(10, min(int(request.args.get('limit') or 80), 300))
+        events = (
+            TradeEvent.query
+            .filter_by(user_id=user_id, account_name=account_name)
+            .order_by(TradeEvent.id.desc())
+            .limit(limit)
+            .all()
+        )
+        return jsonify({
+            'account_name': account_name,
+            'event_count': len(events),
+            'events': [build_trade_event_response(event) for event in events]
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/trade-logs/<int:log_id>/audit', methods=['GET'])
+@jwt_required()
+def get_trade_log_audit_for_log(log_id):
+    try:
+        user_id = current_user_id()
+        events = (
+            TradeEvent.query
+            .filter_by(user_id=user_id, trade_log_id=log_id)
+            .order_by(TradeEvent.id.desc())
+            .all()
+        )
+        return jsonify({
+            'trade_log_id': log_id,
+            'event_count': len(events),
+            'events': [build_trade_event_response(event) for event in events]
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/trade-logs/audit/export', methods=['GET'])
+@jwt_required()
+def export_trade_log_audit():
+    try:
+        user_id = current_user_id()
+        account_name = current_account_name()
+        export_format = str(request.args.get('format') or 'json').strip().lower()
+        events = (
+            TradeEvent.query
+            .filter_by(user_id=user_id, account_name=account_name)
+            .order_by(TradeEvent.id.asc())
+            .all()
+        )
+        rows = [build_trade_event_response(event) for event in events]
+        timestamp = datetime.now(MARKET_TIMEZONE).strftime('%Y-%m-%d-%H-%M-%S')
+        safe_account_name = re.sub(r'[^0-9A-Za-z가-힣_-]+', '-', account_name).strip('-') or 'account'
+
+        if export_format not in ('json', 'csv', 'pdf'):
+            return jsonify({'error': '지원하지 않는 export 형식입니다.'}), 400
+
+        if export_format == 'pdf':
+            pdf_bytes = build_trade_log_audit_pdf(account_name, rows)
+            return Response(
+                pdf_bytes,
+                mimetype='application/pdf',
+                headers={
+                    'Content-Disposition': f'attachment; filename="{safe_account_name}-trade-audit-{timestamp}.pdf"'
+                }
+            )
+
+        if export_format == 'csv':
+            output = io.StringIO()
+            writer = csv.writer(output)
+            writer.writerow([
+                'id', 'event_type', 'account_name', 'trade_log_id', 'product_id',
+                'source_type', 'source_id', 'hash', 'prev_hash', 'occurred_at', 'created_at', 'payload_json'
+            ])
+            for row in rows:
+                writer.writerow([
+                    row.get('id'),
+                    row.get('event_type'),
+                    row.get('account_name'),
+                    row.get('trade_log_id'),
+                    row.get('product_id'),
+                    row.get('source_type'),
+                    row.get('source_id'),
+                    row.get('hash'),
+                    row.get('prev_hash'),
+                    row.get('occurred_at'),
+                    row.get('created_at'),
+                    canonical_json(row.get('payload'))
+                ])
+            return Response(
+                output.getvalue(),
+                mimetype='text/csv; charset=utf-8',
+                headers={
+                    'Content-Disposition': f'attachment; filename="{safe_account_name}-trade-audit-{timestamp}.csv"'
+                }
+            )
+
+        return Response(
+            canonical_json({
+                'account_name': account_name,
+                'exported_at': datetime.now(MARKET_TIMEZONE).isoformat(),
+                'events': rows
+            }),
+            mimetype='application/json; charset=utf-8',
+            headers={
+                'Content-Disposition': f'attachment; filename="{safe_account_name}-trade-audit-{timestamp}.json"'
+            }
+        )
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @api.route('/trade-logs/<int:log_id>', methods=['PUT'])
 @jwt_required()
 def update_trade_log(log_id):
@@ -2157,6 +2612,7 @@ def update_trade_log(log_id):
         log = TradeLog.query.filter_by(id=log_id, user_id=user_id).first()
         if not log:
             return jsonify({'error': '매매일지 기록을 찾을 수 없습니다.'}), 404
+        before_log = serialize_trade_log(log)
 
         if data.get('product_name'):
             log.product_name = data.get('product_name')
@@ -2186,9 +2642,23 @@ def update_trade_log(log_id):
                 log.price = parse_positive_float(data.get('price'), '가격/기준가')
             log.total_amount = trade_amount(log.quantity, log.price, log.unit_type)
 
+        product = None
         if log.trade_type in ('buy', 'sell'):
-            sync_product_from_trade_log(log)
+            product = sync_product_from_trade_log(log)
 
+        db.session.flush()
+        append_trade_event(
+            user_id=user_id,
+            account_name=log.account_name,
+            event_type='trade_updated',
+            trade_log_id=log.id,
+            product_id=log.product_id,
+            payload={
+                'before': before_log,
+                'after': serialize_trade_log(log),
+                'product': serialize_product(product)
+            }
+        )
         db.session.commit()
         return jsonify({'message': '매매일지 기록이 수정되었습니다.', 'log': log.to_dict()}), 200
     except ValueError as e:
@@ -2208,10 +2678,22 @@ def delete_trade_log(log_id):
         if not log:
             return jsonify({'error': '매매일지 기록을 찾을 수 없습니다.'}), 404
 
+        deleted_snapshot = serialize_trade_log(log)
         product = None
         if log.trade_type in ('buy', 'sell') and log.product_id:
             product = Product.query.filter_by(id=log.product_id, user_id=user_id).first()
 
+        append_trade_event(
+            user_id=user_id,
+            account_name=log.account_name,
+            event_type='trade_deleted',
+            trade_log_id=log.id,
+            product_id=log.product_id,
+            payload={
+                'deleted': deleted_snapshot,
+                'product_before_rebuild': serialize_product(product)
+            }
+        )
         db.session.delete(log)
         if product:
             rebuild_product_from_trade_logs(product)
