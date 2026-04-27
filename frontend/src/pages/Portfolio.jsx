@@ -204,7 +204,7 @@ function Portfolio() {
 
   useEffect(() => {
     if (accountType !== 'brokerage') return;
-    setFormData((prev) => ({ ...prev, unit_type: 'share' }));
+    setFormData((prev) => ({ ...prev, unit_type: 'share', asset_type: 'risk' }));
   }, [accountType]);
 
   useEffect(() => {
@@ -382,7 +382,8 @@ function Portfolio() {
     try {
       await portfolioAPI.addProduct({
         ...formData,
-        unit_type: accountType === 'brokerage' ? 'share' : formData.unit_type
+        unit_type: accountType === 'brokerage' ? 'share' : formData.unit_type,
+        asset_type: accountType === 'brokerage' ? 'risk' : formData.asset_type
       }, accountName);
       setMessage('상품을 추가하고 매수 내역을 기록했습니다.');
       setFormData(emptyProductForm(today));
@@ -500,7 +501,7 @@ function Portfolio() {
         quantity: product.quantity,
         unit_type: accountType === 'brokerage' ? 'share' : (product.unit_type || 'share'),
         purchase_date: product.purchase_date,
-        asset_type: product.asset_type,
+        asset_type: accountType === 'brokerage' ? 'risk' : product.asset_type,
         notes: ''
       }
     }));
@@ -510,7 +511,8 @@ function Portfolio() {
     try {
       await portfolioAPI.updateProduct(product.id, {
         ...editForms[product.id],
-        unit_type: accountType === 'brokerage' ? 'share' : editForms[product.id]?.unit_type
+        unit_type: accountType === 'brokerage' ? 'share' : editForms[product.id]?.unit_type,
+        asset_type: accountType === 'brokerage' ? 'risk' : editForms[product.id]?.asset_type
       });
       setEditingId(null);
       setActivePanel({ productId: null, mode: null });
@@ -629,14 +631,16 @@ function Portfolio() {
                 <input type="date" name="purchase_date" value={formData.purchase_date} onChange={handleChange} required />
               </div>
             </div>
-            <div className="form-row">
-              <div className="form-group">
-                <label>자산 구분</label>
-                <select name="asset_type" value={formData.asset_type} onChange={handleChange}>
-                  <option value="risk">위험자산</option>
-                  <option value="safe">안전자산</option>
-                </select>
-              </div>
+            <div className={`form-row ${accountType === 'brokerage' ? 'form-row-single' : ''}`}>
+              {accountType !== 'brokerage' && (
+                <div className="form-group">
+                  <label>자산 구분</label>
+                  <select name="asset_type" value={formData.asset_type} onChange={handleChange}>
+                    <option value="risk">위험자산</option>
+                    <option value="safe">안전자산</option>
+                  </select>
+                </div>
+              )}
               <div className="form-group">
                 <label>메모</label>
                 <input name="notes" value={formData.notes} onChange={handleChange} placeholder="선택 입력" />
@@ -770,18 +774,18 @@ function Portfolio() {
                               <input aria-label={accountType === 'brokerage' ? '주 수량' : '수량 또는 좌수'} type="number" min="0" step={accountType === 'brokerage' ? '1' : '0.0001'} value={edit.quantity || ''} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, quantity: e.target.value } }))} />
                               <input aria-label="매입일" type="date" value={edit.purchase_date || today} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, purchase_date: e.target.value } }))} />
                             </div>
-                            <div className={`form-row ${accountType === 'brokerage' ? 'form-row-single' : ''}`}>
-                              {accountType !== 'brokerage' && (
+                            {accountType !== 'brokerage' && (
+                              <div className="form-row">
                                 <select aria-label="단위" value={edit.unit_type || 'share'} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, unit_type: e.target.value } }))}>
                                   <option value="share">주</option>
                                   <option value="unit">좌</option>
                                 </select>
-                              )}
-                              <select aria-label="자산 구분" value={edit.asset_type || 'risk'} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, asset_type: e.target.value } }))}>
-                                <option value="risk">위험자산</option>
-                                <option value="safe">안전자산</option>
-                              </select>
-                            </div>
+                                <select aria-label="자산 구분" value={edit.asset_type || 'risk'} onChange={(e) => setEditForms((prev) => ({ ...prev, [product.id]: { ...edit, asset_type: e.target.value } }))}>
+                                  <option value="risk">위험자산</option>
+                                  <option value="safe">안전자산</option>
+                                </select>
+                              </div>
+                            )}
                             <div className="row-actions">
                               <button type="button" onClick={() => saveEdit(product)}>저장</button>
                               <button type="button" onClick={() => {
