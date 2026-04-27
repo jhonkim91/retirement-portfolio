@@ -9,7 +9,7 @@ from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identi
 import requests
 
 from api_client import StockAPIClient
-from models import db, User, Product, PriceHistory, TradeLog, CashBalance, DEFAULT_ACCOUNT_NAME
+from models import AccountProfile, db, User, Product, PriceHistory, TradeLog, CashBalance, DEFAULT_ACCOUNT_NAME
 
 api = Blueprint('api', __name__, url_prefix='/api')
 market_client = StockAPIClient()
@@ -39,6 +39,14 @@ def normalize_account_name(value):
     return account_name[:80]
 
 
+def normalize_account_type(value):
+    return 'brokerage' if str(value or '').strip().lower() == 'brokerage' else 'retirement'
+
+
+def get_account_type_label(account_type):
+    return '주식 통장' if account_type == 'brokerage' else '퇴직연금'
+
+
 def current_account_name():
     data = request.get_json(silent=True) or {}
     return normalize_account_name(
@@ -46,6 +54,19 @@ def current_account_name():
         or data.get('account_name')
         or DEFAULT_ACCOUNT_NAME
     )
+
+
+def get_account_profile(user_id, account_name):
+    account_name = normalize_account_name(account_name)
+    profile = AccountProfile.query.filter_by(user_id=user_id, account_name=account_name).first()
+    if profile:
+        return profile
+
+    inferred_type = 'brokerage' if ('주식' in account_name or 'stock' in account_name.lower()) else 'retirement'
+    profile = AccountProfile(user_id=user_id, account_name=account_name, account_type=inferred_type)
+    db.session.add(profile)
+    db.session.flush()
+    return profile
 
 
 def is_korean_market_open(now=None):
@@ -93,7 +114,18 @@ def list_user_accounts(user_id):
             if normalized:
                 account_names.add(normalized)
 
-    return [DEFAULT_ACCOUNT_NAME, *sorted(name for name in account_names if name != DEFAULT_ACCOUNT_NAME)]
+    account_profiles = []
+    ordered_names = [DEFAULT_ACCOUNT_NAME, *sorted(name for name in account_names if name != DEFAULT_ACCOUNT_NAME)]
+    for account_name in ordered_names:
+        profile = get_account_profile(user_id, account_name)
+        account_profiles.append({
+            'account_name': account_name,
+            'account_type': normalize_account_type(profile.account_type),
+            'account_type_label': get_account_type_label(profile.account_type),
+            'is_default': account_name == DEFAULT_ACCOUNT_NAME
+        })
+
+    return account_profiles
 
 
 def upsert_price_history(product_id, record_date, price):
@@ -950,20 +982,33 @@ def get_portfolio_summary():
     try:
         user_id = current_user_id()
         account_name = current_account_name()
+        account_profile = get_account_profile(user_id, account_name)
+        account_type = normalize_account_type(account_profile.account_type)
         maybe_sync_account_prices(user_id, account_name)
         products = Product.query.filter_by(user_id=user_id, account_name=account_name, status='holding').all()
         cash = get_cash_balance(user_id, account_name).amount
-        total_investment = get_deposit_principal(user_id, account_name)
         product_current_value = sum(Product.amount_for(p.quantity, p.current_price, p.unit_type) for p in products)
-        total_current_value = product_current_value + cash
+        product_purchase_value = sum(Product.amount_for(p.quantity, p.purchase_price, p.unit_type) for p in products)
+
+        if account_type == 'brokerage':
+            total_investment = product_purchase_value
+            total_current_value = product_current_value
+        else:
+            total_investment = get_deposit_principal(user_id, account_name)
+            total_current_value = product_current_value + cash
+
         total_profit_loss = total_current_value - total_investment
         total_profit_rate = (total_profit_loss / total_investment * 100) if total_investment else 0
 
         risk_value = sum(Product.amount_for(p.quantity, p.current_price, p.unit_type) for p in products if p.asset_type == 'risk')
-        safe_value = sum(Product.amount_for(p.quantity, p.current_price, p.unit_type) for p in products if p.asset_type == 'safe') + cash
+        safe_value = sum(Product.amount_for(p.quantity, p.current_price, p.unit_type) for p in products if p.asset_type == 'safe')
+        if account_type != 'brokerage':
+            safe_value += cash
         total_value = risk_value + safe_value
 
         return jsonify({
+            'account_type': account_type,
+            'account_type_label': get_account_type_label(account_type),
             'total_investment': round(total_investment, 2),
             'total_cash': round(cash, 2),
             'total_current_value': round(total_current_value, 2),
@@ -989,10 +1034,12 @@ def get_portfolio_summary():
 def get_accounts():
     try:
         user_id = current_user_id()
-        account_names = list_user_accounts(user_id)
+        account_profiles = list_user_accounts(user_id)
+        db.session.commit()
         return jsonify({
             'default_account_name': DEFAULT_ACCOUNT_NAME,
-            'accounts': account_names
+            'accounts': [item['account_name'] for item in account_profiles],
+            'account_profiles': account_profiles
         }), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1004,24 +1051,68 @@ def add_account():
     try:
         data = request.get_json() or {}
         raw_name = str(data.get('account_name') or '').strip()
+        account_type = normalize_account_type(data.get('account_type'))
         if not raw_name:
             return jsonify({'error': '통장 이름을 입력하세요.'}), 400
 
         account_name = normalize_account_name(raw_name)
         user_id = current_user_id()
-        existing_names = set(list_user_accounts(user_id))
+        existing_names = {item['account_name'] for item in list_user_accounts(user_id)}
         created = account_name not in existing_names
+        profile = get_account_profile(user_id, account_name)
+        profile.account_type = account_type
         balance = get_cash_balance(user_id, account_name)
 
         if created:
             db.session.refresh(balance)
+        db.session.commit()
+
+        account_profiles = list_user_accounts(user_id)
 
         return jsonify({
             'message': '통장이 추가되었습니다.' if created else '이미 등록된 통장입니다.',
             'created': created,
             'account_name': account_name,
-            'accounts': list_user_accounts(user_id)
+            'account_type': account_type,
+            'accounts': [item['account_name'] for item in account_profiles],
+            'account_profiles': account_profiles
         }), 201 if created else 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/accounts/<path:account_name>', methods=['DELETE'])
+@jwt_required()
+def delete_account(account_name):
+    try:
+        user_id = current_user_id()
+        normalized_name = normalize_account_name(account_name)
+        if normalized_name == DEFAULT_ACCOUNT_NAME:
+            return jsonify({'error': '기본 퇴직연금 통장은 삭제할 수 없습니다.'}), 400
+
+        product_ids = [
+            product_id
+            for (product_id,) in db.session.query(Product.id)
+            .filter_by(user_id=user_id, account_name=normalized_name)
+            .all()
+        ]
+        if product_ids:
+            PriceHistory.query.filter(PriceHistory.product_id.in_(product_ids)).delete(synchronize_session=False)
+        Product.query.filter_by(user_id=user_id, account_name=normalized_name).delete(synchronize_session=False)
+        TradeLog.query.filter_by(user_id=user_id, account_name=normalized_name).delete(synchronize_session=False)
+        CashBalance.query.filter_by(user_id=user_id, account_name=normalized_name).delete(synchronize_session=False)
+        AccountProfile.query.filter_by(user_id=user_id, account_name=normalized_name).delete(synchronize_session=False)
+        db.session.commit()
+
+        account_profiles = list_user_accounts(user_id)
+        db.session.commit()
+        return jsonify({
+            'message': '통장과 관련 데이터가 삭제되었습니다.',
+            'deleted_account_name': normalized_name,
+            'accounts': [item['account_name'] for item in account_profiles],
+            'account_profiles': account_profiles
+        }), 200
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500

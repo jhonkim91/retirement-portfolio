@@ -201,7 +201,7 @@ function Dashboard() {
     const rows = [...products];
     const cash = Number(summary?.total_cash || 0);
 
-    if (cash > 0) {
+    if (cash > 0 && summary?.account_type !== 'brokerage') {
       rows.push({
         id: 'cash',
         product_name: '보유 현금',

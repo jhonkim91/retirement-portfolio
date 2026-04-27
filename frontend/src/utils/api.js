@@ -67,7 +67,11 @@ export const authAPI = {
 
 export const portfolioAPI = {
   getAccounts: () => apiCall('/accounts'),
-  addAccount: (accountName) => apiCall('/accounts', 'POST', { account_name: accountName }),
+  addAccount: (accountName, accountType = 'retirement') => apiCall('/accounts', 'POST', {
+    account_name: accountName,
+    account_type: accountType
+  }),
+  deleteAccount: (accountName) => apiCall(`/accounts/${encodeURIComponent(accountName)}`, 'DELETE'),
   getSummary: (accountName) => apiCall(`/portfolio/summary?${accountQuery(accountName)}`),
   getProducts: (accountName) => apiCall(`/portfolio/products?${accountQuery(accountName)}`),
   getAllProducts: (accountName) => apiCall(`/portfolio/all-products?${accountQuery(accountName)}`),

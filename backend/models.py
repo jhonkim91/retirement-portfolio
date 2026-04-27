@@ -25,6 +25,28 @@ class User(db.Model):
             'created_at': self.created_at.isoformat()
         }
 
+
+class AccountProfile(db.Model):
+    __tablename__ = 'account_profiles'
+    __table_args__ = (db.UniqueConstraint('user_id', 'account_name', name='uq_account_profile_user_account'),)
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    account_name = db.Column(db.String(80), nullable=False, default=DEFAULT_ACCOUNT_NAME)
+    account_type = db.Column(db.String(20), nullable=False, default='retirement')  # 'retirement' or 'brokerage'
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'account_name': self.account_name,
+            'account_type': self.account_type,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
 class Product(db.Model):
     __tablename__ = 'products'
     

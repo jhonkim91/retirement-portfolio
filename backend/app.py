@@ -9,7 +9,7 @@ from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from sqlalchemy import inspect, text
 
-from models import db, Product, DEFAULT_ACCOUNT_NAME
+from models import AccountProfile, db, Product, DEFAULT_ACCOUNT_NAME
 from routes import api
 from scheduler import start_scheduler
 
@@ -141,6 +141,32 @@ def ensure_schema():
             continue
         if len(half) == 6 or len(half) == 12:
             product.product_code = half
+
+    existing_profiles = {
+        (profile.user_id, profile.account_name): profile
+        for profile in AccountProfile.query.all()
+    }
+
+    discovered_accounts = db.session.execute(text(f"""
+        SELECT user_id, account_name FROM products WHERE account_name IS NOT NULL AND account_name <> ''
+        UNION
+        SELECT user_id, account_name FROM trade_logs WHERE account_name IS NOT NULL AND account_name <> ''
+        UNION
+        SELECT user_id, account_name FROM cash_balances WHERE account_name IS NOT NULL AND account_name <> ''
+    """)).fetchall()
+
+    for row in discovered_accounts:
+        account_name = (row.account_name or DEFAULT_ACCOUNT_NAME).strip() or DEFAULT_ACCOUNT_NAME
+        key = (row.user_id, account_name)
+        if key in existing_profiles:
+            continue
+
+        inferred_type = 'brokerage' if ('주식' in account_name or 'stock' in account_name.lower()) else 'retirement'
+        db.session.add(AccountProfile(
+            user_id=row.user_id,
+            account_name=account_name,
+            account_type=inferred_type
+        ))
 
     db.session.commit()
 
