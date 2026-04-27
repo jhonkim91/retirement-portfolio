@@ -1,5 +1,6 @@
 import logging
 from datetime import date
+from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -9,6 +10,7 @@ from models import Product, PriceHistory, db
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+MARKET_TIMEZONE = ZoneInfo('Asia/Seoul')
 
 
 class PriceUpdater:
@@ -59,11 +61,11 @@ class PriceUpdater:
 
 
 def start_scheduler(app):
-    scheduler = BackgroundScheduler()
+    scheduler = BackgroundScheduler(timezone=MARKET_TIMEZONE)
     updater = PriceUpdater()
     scheduler.add_job(
         func=lambda: updater.update_all_prices(app),
-        trigger=CronTrigger(day_of_week='0-4', hour='9-17', minute='*/30'),
+        trigger=CronTrigger(day_of_week='mon-fri', hour='9-15', minute='*/5', timezone=MARKET_TIMEZONE),
         id='update_prices_job',
         name='Stock Price Update Job'
     )

@@ -2,6 +2,7 @@
 import hashlib
 from datetime import timedelta
 import os
+from zoneinfo import ZoneInfo
 
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
@@ -12,7 +13,10 @@ from models import db, User, Product, PriceHistory, TradeLog, CashBalance, DEFAU
 
 api = Blueprint('api', __name__, url_prefix='/api')
 market_client = StockAPIClient()
-API_VERSION = '2026-04-27-accounts-v1'
+API_VERSION = '2026-04-27-market-sync-v1'
+MARKET_TIMEZONE = ZoneInfo('Asia/Seoul')
+MARKET_SYNC_TTL_SECONDS = 60 * 5
+_market_sync_cache = {}
 
 POSITIVE_NEWS_KEYWORDS = (
     '성장', '확대', '개선', '호조', '반등', '수혜', '강세', '증가', '흑자', '상향',
@@ -42,6 +46,29 @@ def current_account_name():
         or data.get('account_name')
         or DEFAULT_ACCOUNT_NAME
     )
+
+
+def is_korean_market_open(now=None):
+    now = now or datetime.now(MARKET_TIMEZONE)
+    if now.weekday() >= 5:
+        return False
+    return (now.hour, now.minute) >= (9, 0) and (now.hour, now.minute) <= (15, 40)
+
+
+def maybe_sync_account_prices(user_id, account_name, force=False):
+    account_name = normalize_account_name(account_name)
+    if not force and not is_korean_market_open():
+        return False
+
+    cache_key = f'{user_id}:{account_name}'
+    cached_at = _market_sync_cache.get(cache_key)
+    now_ts = datetime.now(MARKET_TIMEZONE).timestamp()
+    if not force and cached_at and (now_ts - cached_at) < MARKET_SYNC_TTL_SECONDS:
+        return False
+
+    sync_user_holdings(user_id, account_name)
+    _market_sync_cache[cache_key] = now_ts
+    return True
 
 
 def list_user_accounts(user_id):
@@ -897,6 +924,7 @@ def get_portfolio_summary():
     try:
         user_id = current_user_id()
         account_name = current_account_name()
+        maybe_sync_account_prices(user_id, account_name)
         products = Product.query.filter_by(user_id=user_id, account_name=account_name, status='holding').all()
         cash = get_cash_balance(user_id, account_name).amount
         total_investment = get_deposit_principal(user_id, account_name)
@@ -979,6 +1007,7 @@ def get_products():
     try:
         user_id = current_user_id()
         account_name = current_account_name()
+        maybe_sync_account_prices(user_id, account_name)
         products = Product.query.filter_by(user_id=user_id, account_name=account_name, status='holding').order_by(Product.purchase_date.desc()).all()
         return jsonify([p.to_dict() for p in products]), 200
     except Exception as e:
@@ -989,7 +1018,10 @@ def get_products():
 @jwt_required()
 def sync_prices():
     try:
-        result = sync_user_holdings(current_user_id(), current_account_name())
+        user_id = current_user_id()
+        account_name = current_account_name()
+        result = sync_user_holdings(user_id, account_name)
+        _market_sync_cache[f'{user_id}:{account_name}'] = datetime.now(MARKET_TIMEZONE).timestamp()
         success_count = sum(1 for row in result if row['success'])
         return jsonify({
             'message': f'{success_count}개 상품 가격을 동기화했습니다.',
@@ -1126,7 +1158,10 @@ def add_cash_deposit():
 @jwt_required()
 def get_all_products():
     try:
-        products = Product.query.filter_by(user_id=current_user_id(), account_name=current_account_name()).order_by(Product.purchase_date.desc()).all()
+        user_id = current_user_id()
+        account_name = current_account_name()
+        maybe_sync_account_prices(user_id, account_name)
+        products = Product.query.filter_by(user_id=user_id, account_name=account_name).order_by(Product.purchase_date.desc()).all()
         return jsonify([p.to_dict() for p in products]), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1460,6 +1495,7 @@ def get_portfolio_trends():
     try:
         user_id = current_user_id()
         account_name = current_account_name()
+        maybe_sync_account_prices(user_id, account_name)
         products = Product.query.filter_by(user_id=user_id, account_name=account_name, status='holding').all()
         rows = []
         for product in products:
@@ -1501,7 +1537,10 @@ def get_portfolio_trends():
 @jwt_required()
 def get_trade_logs():
     try:
-        query = TradeLog.query.filter_by(user_id=current_user_id(), account_name=current_account_name())
+        user_id = current_user_id()
+        account_name = current_account_name()
+        maybe_sync_account_prices(user_id, account_name)
+        query = TradeLog.query.filter_by(user_id=user_id, account_name=account_name)
         trade_type = request.args.get('trade_type')
         asset_type = request.args.get('asset_type')
         if trade_type:
@@ -1565,6 +1604,9 @@ def update_trade_log(log_id):
 @jwt_required()
 def get_trade_logs_realized_summary():
     try:
-        return jsonify(get_realized_positions(current_user_id(), current_account_name())), 200
+        user_id = current_user_id()
+        account_name = current_account_name()
+        maybe_sync_account_prices(user_id, account_name)
+        return jsonify(get_realized_positions(user_id, account_name)), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
