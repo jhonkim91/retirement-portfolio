@@ -48,8 +48,8 @@
 
 - [x] 운영 장애 원인 확인
 - [x] 런타임 로그 근거 확보
-- [ ] 백엔드 부팅 오류 수정 배포
-- [ ] 운영 접속 재확인
+- [x] 백엔드 부팅 오류 수정 배포
+- [x] 운영 접속 재확인
 - [x] 문서 기준 점검판 추가
 
 ## 이번 작업 메모
@@ -58,7 +58,11 @@
   - 증상: 사이트 진입 불가
   - 근거: `sqlalchemy.exc.AmbiguousForeignKeysError`
   - 위치: `User.trade_events` 관계가 `TradeEvent.user_id`, `TradeEvent.created_by` 두 FK를 구분하지 못함
-  - 조치 예정: `backend/models.py` 관계에 `foreign_keys` 명시
+  - 조치: `backend/models.py` 관계에 `foreign_keys` 명시
+- `2026-04-28`: 운영 복구 확인
+  - Railway deployment: `3ceb969c-1de9-4bb5-a817-a25244a1f366`
+  - 상태: `SUCCESS`
+  - 헬스 체크: `https://backend-production-2516.up.railway.app/api/version` -> `200`
 
 ## 다음 작업 후보
 
