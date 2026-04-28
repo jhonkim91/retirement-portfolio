@@ -169,23 +169,18 @@ function Dashboard() {
   const [benchmarkSearchLoading, setBenchmarkSearchLoading] = useState(false);
   const [exportingReport, setExportingReport] = useState(false);
 
-  const fetchDashboardData = useCallback(async () => {
+  const fetchCoreDashboardData = useCallback(async ({ silent = false } = {}) => {
     try {
+      if (!silent) setLoading(true);
       setError('');
-      setAnalyticsError('');
-      const [summaryResponse, productsResponse, allProductsResponse, trendsResponse, tradeLogsResponse] = await Promise.all([
+      const [summaryResponse, productsResponse] = await Promise.all([
         portfolioAPI.getSummary(accountName),
-        portfolioAPI.getProducts(accountName),
-        portfolioAPI.getAllProducts(accountName),
-        portfolioAPI.getTrends(accountName, { includeSold: true }),
-        tradeLogAPI.getLogs({ accountName })
+        portfolioAPI.getProducts(accountName)
       ]);
       setSummary(summaryResponse);
       setProducts(productsResponse);
       setAnalyticsRaw((prev) => ({
-        allProducts: allProductsResponse,
-        transactions: tradeLogsResponse,
-        trends: trendsResponse,
+        ...prev,
         benchmark: prev.benchmark?.code
           ? prev.benchmark
           : { name: DEFAULT_BENCHMARKS[summaryResponse?.account_type]?.name || DEFAULT_BENCHMARKS.retirement.name, series: [] }
@@ -194,15 +189,44 @@ function Dashboard() {
       setError(err.message || '현황을 불러오지 못했습니다.');
     } finally {
       setLoading(false);
+    }
+  }, [accountName]);
+
+  const fetchAnalyticsData = useCallback(async () => {
+    try {
+      setAnalyticsError('');
+      setAnalyticsLoading(true);
+      const [allProductsResponse, trendsResponse, tradeLogsResponse] = await Promise.all([
+        portfolioAPI.getAllProducts(accountName),
+        portfolioAPI.getTrends(accountName, { includeSold: true }),
+        tradeLogAPI.getLogs({ accountName })
+      ]);
+      setAnalyticsRaw((prev) => ({
+        ...prev,
+        allProducts: allProductsResponse,
+        transactions: tradeLogsResponse,
+        trends: trendsResponse
+      }));
+    } catch (err) {
+      setAnalyticsError(err.message || '분석 데이터를 불러오지 못했습니다.');
+    } finally {
       setAnalyticsLoading(false);
     }
   }, [accountName]);
 
   useEffect(() => {
-    fetchDashboardData();
-    const interval = setInterval(fetchDashboardData, 60000);
-    return () => clearInterval(interval);
-  }, [fetchDashboardData]);
+    fetchCoreDashboardData();
+    const analyticsTimer = setTimeout(() => {
+      fetchAnalyticsData();
+    }, 80);
+    const interval = setInterval(() => {
+      fetchCoreDashboardData({ silent: true });
+    }, 60000);
+    return () => {
+      clearTimeout(analyticsTimer);
+      clearInterval(interval);
+    };
+  }, [fetchAnalyticsData, fetchCoreDashboardData]);
 
   useEffect(() => {
     setCashAmount(String(summary?.total_cash ?? 0));
@@ -553,7 +577,8 @@ function Dashboard() {
       setError('');
       setNotice('');
       const result = await portfolioAPI.syncPrices(accountName);
-      await fetchDashboardData();
+      await fetchCoreDashboardData({ silent: true });
+      fetchAnalyticsData();
       const failedItems = result.items.filter((item) => !item.success);
       if (failedItems.length > 0) {
         setNotice(
@@ -589,7 +614,8 @@ function Dashboard() {
       setError('');
       setNotice('');
       await portfolioAPI.updateCash(cashAmount, accountName);
-      await fetchDashboardData();
+      await fetchCoreDashboardData({ silent: true });
+      fetchAnalyticsData();
       setCashEditing(false);
       setNotice('보유 현금을 업데이트했습니다.');
     } catch (err) {
@@ -615,7 +641,16 @@ function Dashboard() {
             <button type="button" onClick={syncPrices} className="refresh-btn" disabled={syncing}>
               {syncing ? '동기화 중...' : '가격 동기화'}
             </button>
-            <button type="button" onClick={fetchDashboardData} className="refresh-btn">새로고침</button>
+            <button
+              type="button"
+              onClick={() => {
+                fetchCoreDashboardData({ silent: true });
+                fetchAnalyticsData();
+              }}
+              className="refresh-btn"
+            >
+              새로고침
+            </button>
           </div>
         </div>
 

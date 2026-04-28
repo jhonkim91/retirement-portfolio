@@ -29,17 +29,20 @@ function App() {
 
   return (
     <Router>
+      <a className="skip-link" href="#main-content">본문으로 건너뛰기</a>
       {user && <Navigation setUser={setUser} />}
-      <Routes>
-        <Route path="/login" element={!user ? <Login setUser={setUser} /> : <Navigate to="/" replace />} />
-        <Route path="/" element={user ? <Dashboard /> : <Landing />} />
-        <Route path="/dashboard" element={user ? <Dashboard /> : <Navigate to="/login" replace />} />
-        <Route path="/portfolio" element={user ? <Portfolio /> : <Navigate to="/login" replace />} />
-        <Route path="/trade-logs" element={user ? <TradeLog /> : <Navigate to="/login" replace />} />
-        <Route path="/stock-research" element={user ? <StockResearch /> : <Navigate to="/login" replace />} />
-        <Route path="/stock-screener" element={user ? <StockScreener /> : <Navigate to="/login" replace />} />
-        <Route path="*" element={<Navigate to={user ? '/' : '/'} replace />} />
-      </Routes>
+      <div id="main-content">
+        <Routes>
+          <Route path="/login" element={!user ? <Login setUser={setUser} /> : <Navigate to="/" replace />} />
+          <Route path="/" element={user ? <Dashboard /> : <Landing />} />
+          <Route path="/dashboard" element={user ? <Dashboard /> : <Navigate to="/login" replace />} />
+          <Route path="/portfolio" element={user ? <Portfolio /> : <Navigate to="/login" replace />} />
+          <Route path="/trade-logs" element={user ? <TradeLog /> : <Navigate to="/login" replace />} />
+          <Route path="/stock-research" element={user ? <StockResearch /> : <Navigate to="/login" replace />} />
+          <Route path="/stock-screener" element={user ? <StockScreener /> : <Navigate to="/login" replace />} />
+          <Route path="*" element={<Navigate to={user ? '/' : '/'} replace />} />
+        </Routes>
+      </div>
     </Router>
   );
 }

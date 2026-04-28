@@ -39,7 +39,7 @@
 | 스크리너 후보 -> 분석 엔진 연결 | 완료 | 스크리너에서 분석 엔진 이동 반영 |
 | 계좌별 분석 리포트 export | 완료 | HTML export 반영 |
 | 보안 헤더(CSP/HSTS/XFO/XCTO/Referrer-Policy) | 완료 | 백엔드/프론트 설정 반영 |
-| 접근성(skip link/landmark/KWCAG AA) | 부분 완료 | 일부 기본 정리만 되어 있어 추가 점검 필요 |
+| 접근성(skip link/landmark/KWCAG AA) | 부분 완료 | landing/app skip link 반영, 나머지 landmark/aria/키보드 흐름 점검 필요 |
 | 에러/빈 상태 UX | 부분 완료 | 주요 화면은 있음, 전 구간 통일 점검 필요 |
 | QA/스냅샷/단위 테스트 | 부분 완료 | 분석 엔진/대시보드 중심 반영, 전체 회귀 범위는 추가 여지 있음 |
 | BFF/캐시/복구 정책 문서화 | 미완료 | 기술 부채로 남아 있음 |
@@ -63,6 +63,12 @@
   - Railway deployment: `3ceb969c-1de9-4bb5-a817-a25244a1f366`
   - 상태: `SUCCESS`
   - 헬스 체크: `https://backend-production-2516.up.railway.app/api/version` -> `200`
+- `2026-04-28`: 현황 첫 로딩 경량화
+  - 핵심 카드용 `/api/portfolio/dashboard` 추가
+  - 무거운 분석 데이터(`all-products`, `trends`, `trade-logs`)는 백그라운드 로드로 분리
+  - `trade-logs`, `all-products` 조회 시 불필요한 장중 시세 동기화 제거
+- `2026-04-28`: 접근성 기본 개선
+  - 앱 공통 `skip link` 추가
 
 ## 다음 작업 후보
 

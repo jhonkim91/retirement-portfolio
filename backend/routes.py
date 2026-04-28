@@ -153,6 +153,59 @@ def maybe_sync_account_prices(user_id, account_name, force=False):
     return True
 
 
+def build_portfolio_summary_payload(user_id, account_name, *, sync_prices=True):
+    account_name = normalize_account_name(account_name)
+    account_profile = get_account_profile(user_id, account_name)
+    account_type = normalize_account_type(account_profile.account_type)
+    account_category = normalize_account_category(account_profile.account_category, account_type)
+
+    if sync_prices:
+        maybe_sync_account_prices(user_id, account_name)
+
+    products = Product.query.filter_by(user_id=user_id, account_name=account_name, status='holding').all()
+    cash = get_cash_balance(user_id, account_name).amount
+    product_current_value = sum(Product.amount_for(p.quantity, p.current_price, p.unit_type) for p in products)
+    product_purchase_value = sum(Product.amount_for(p.quantity, p.purchase_price, p.unit_type) for p in products)
+
+    if account_type == 'brokerage':
+        total_investment = product_purchase_value
+        total_current_value = product_current_value
+    else:
+        total_investment = get_deposit_principal(user_id, account_name)
+        total_current_value = product_current_value + cash
+
+    total_profit_loss = total_current_value - total_investment
+    total_profit_rate = (total_profit_loss / total_investment * 100) if total_investment else 0
+
+    risk_value = sum(Product.amount_for(p.quantity, p.current_price, p.unit_type) for p in products if p.asset_type == 'risk')
+    safe_value = sum(Product.amount_for(p.quantity, p.current_price, p.unit_type) for p in products if p.asset_type == 'safe')
+    if account_type != 'brokerage':
+        safe_value += cash
+    total_value = risk_value + safe_value
+
+    return {
+        'account_type': account_type,
+        'account_type_label': get_account_type_label(account_type),
+        'account_category': account_category,
+        'account_category_label': get_account_category_label(account_category, account_type),
+        'total_investment': round(total_investment, 2),
+        'total_cash': round(cash, 2),
+        'total_current_value': round(total_current_value, 2),
+        'total_profit_loss': round(total_profit_loss, 2),
+        'total_profit_rate': round(total_profit_rate, 2),
+        'asset_allocation': {
+            'risk': {
+                'value': round(risk_value, 2),
+                'percentage': round((risk_value / total_value * 100) if total_value else 0, 2)
+            },
+            'safe': {
+                'value': round(safe_value, 2),
+                'percentage': round((safe_value / total_value * 100) if total_value else 0, 2)
+            }
+        }
+    }
+
+
 def list_user_accounts(user_id):
     account_names = set()
     sources = (
@@ -1647,51 +1700,27 @@ def get_portfolio_summary():
     try:
         user_id = current_user_id()
         account_name = current_account_name()
-        account_profile = get_account_profile(user_id, account_name)
-        account_type = normalize_account_type(account_profile.account_type)
-        account_category = normalize_account_category(account_profile.account_category, account_type)
-        maybe_sync_account_prices(user_id, account_name)
-        products = Product.query.filter_by(user_id=user_id, account_name=account_name, status='holding').all()
-        cash = get_cash_balance(user_id, account_name).amount
-        product_current_value = sum(Product.amount_for(p.quantity, p.current_price, p.unit_type) for p in products)
-        product_purchase_value = sum(Product.amount_for(p.quantity, p.purchase_price, p.unit_type) for p in products)
+        return jsonify(build_portfolio_summary_payload(user_id, account_name, sync_prices=True)), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
-        if account_type == 'brokerage':
-            total_investment = product_purchase_value
-            total_current_value = product_current_value
-        else:
-            total_investment = get_deposit_principal(user_id, account_name)
-            total_current_value = product_current_value + cash
 
-        total_profit_loss = total_current_value - total_investment
-        total_profit_rate = (total_profit_loss / total_investment * 100) if total_investment else 0
-
-        risk_value = sum(Product.amount_for(p.quantity, p.current_price, p.unit_type) for p in products if p.asset_type == 'risk')
-        safe_value = sum(Product.amount_for(p.quantity, p.current_price, p.unit_type) for p in products if p.asset_type == 'safe')
-        if account_type != 'brokerage':
-            safe_value += cash
-        total_value = risk_value + safe_value
-
+@api.route('/portfolio/dashboard', methods=['GET'])
+@jwt_required()
+def get_portfolio_dashboard():
+    try:
+        user_id = current_user_id()
+        account_name = current_account_name()
+        summary = build_portfolio_summary_payload(user_id, account_name, sync_prices=True)
+        products = (
+            Product.query
+            .filter_by(user_id=user_id, account_name=account_name, status='holding')
+            .order_by(Product.purchase_date.desc())
+            .all()
+        )
         return jsonify({
-            'account_type': account_type,
-            'account_type_label': get_account_type_label(account_type),
-            'account_category': account_category,
-            'account_category_label': get_account_category_label(account_category, account_type),
-            'total_investment': round(total_investment, 2),
-            'total_cash': round(cash, 2),
-            'total_current_value': round(total_current_value, 2),
-            'total_profit_loss': round(total_profit_loss, 2),
-            'total_profit_rate': round(total_profit_rate, 2),
-            'asset_allocation': {
-                'risk': {
-                    'value': round(risk_value, 2),
-                    'percentage': round((risk_value / total_value * 100) if total_value else 0, 2)
-                },
-                'safe': {
-                    'value': round(safe_value, 2),
-                    'percentage': round((safe_value / total_value * 100) if total_value else 0, 2)
-                }
-            }
+            'summary': summary,
+            'products': [product.to_dict() for product in products]
         }), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -2386,7 +2415,6 @@ def get_all_products():
     try:
         user_id = current_user_id()
         account_name = current_account_name()
-        maybe_sync_account_prices(user_id, account_name)
         products = Product.query.filter_by(user_id=user_id, account_name=account_name).order_by(Product.purchase_date.desc()).all()
         return jsonify([p.to_dict() for p in products]), 200
     except Exception as e:
@@ -3039,7 +3067,6 @@ def get_trade_logs():
     try:
         user_id = current_user_id()
         account_name = current_account_name()
-        maybe_sync_account_prices(user_id, account_name)
         query = TradeLog.query.filter_by(user_id=user_id, account_name=account_name)
         trade_type = request.args.get('trade_type')
         asset_type = request.args.get('asset_type')
