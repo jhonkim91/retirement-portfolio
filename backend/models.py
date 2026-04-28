@@ -17,7 +17,19 @@ class User(db.Model):
     # 관계 설정
     portfolios = db.relationship('Product', backref='user', lazy=True, cascade='all, delete-orphan')
     trade_logs = db.relationship('TradeLog', backref='user', lazy=True, cascade='all, delete-orphan')
-    trade_events = db.relationship('TradeEvent', backref='created_by_user', lazy=True, cascade='all, delete-orphan')
+    trade_events = db.relationship(
+        'TradeEvent',
+        foreign_keys='TradeEvent.user_id',
+        backref='user',
+        lazy=True,
+        cascade='all, delete-orphan'
+    )
+    created_trade_events = db.relationship(
+        'TradeEvent',
+        foreign_keys='TradeEvent.created_by',
+        backref='created_by_user',
+        lazy=True
+    )
     import_batches = db.relationship('ImportBatch', backref='user', lazy=True, cascade='all, delete-orphan')
     trade_snapshots = db.relationship('TradeSnapshot', backref='user', lazy=True, cascade='all, delete-orphan')
     reconciliation_results = db.relationship('ReconciliationResult', backref='user', lazy=True, cascade='all, delete-orphan')
