@@ -2,7 +2,7 @@
 
 기준 문서: `퇴직연금 포트폴리오 웹앱 심층 평가 보고서.pdf`
 
-마지막 업데이트: `2026-04-28`
+마지막 업데이트: `2026-04-30`
 
 ## 사용 원칙
 
@@ -25,7 +25,7 @@
 | 연금 계좌 유형 분리(IRP/DC/연금저축/일반과세) | 부분 완료 | 계좌 카테고리와 연금 적격성 엔진은 있음, 세부 정책 표시는 추가 점검 필요 |
 | 연금 적격성 규칙/위험자산 70% 가이드 | 완료 | 적격성 엔진과 가이드 표시 반영 |
 | 데이터 출처/신선도/source badge | 완료 | source registry / freshness badge 반영 |
-| ??/?? ?? ?? ?? | ?? ?? | ?? ????, ????, ?? ??, ?? ??? ??/?? ??. ?? ?? ??? ??? ?? ???? ?? ?? ?? |
+| 가격/공시 소스 혼합 경고 | 부분 완료 | source/freshness 표시는 구현됨, 화면 전반 일관성과 fallback/충돌 설명은 추가 점검 필요 |
 | Open DART 실연동 | 완료 | 회사정보/공시/재무요약 연동, API 키 필요 |
 | 포트폴리오 분석 엔진(TWR/IRR/CAGR/MDD 등) | 완료 | `frontend/src/lib/analytics/*` 구현 |
 | 차트 계층(crosshair, brush, log/linear, benchmark overlay) | 완료 | 분석 대시보드 반영 |
@@ -42,7 +42,9 @@
 | 접근성(skip link/landmark/KWCAG AA) | 부분 완료 | landing/app skip link 반영, 나머지 landmark/aria/키보드 흐름 점검 필요 |
 | 에러/빈 상태 UX | 부분 완료 | 주요 화면은 있음, 전 구간 통일 점검 필요 |
 | QA/스냅샷/단위 테스트 | 부분 완료 | 분석 엔진/대시보드 중심 반영, 전체 회귀 범위는 추가 여지 있음 |
-| BFF/캐시/복구 정책 문서화 | 부분 완료 | 정책 문서 초안 추가, 운영 지표/재시도 표는 후속 보강 필요 |
+| BFF/캐시/복구 정책 문서화 | 부분 완료 | 정책 문서와 재시도/backoff 표 추가, 운영 지표 구현은 후속 보강 필요 |
+| 운영 smoke 자동화 | 진행 중 | Playwright prod smoke와 GitHub Actions 워크플로우는 있음, 운영 secrets 설정 후 실제 로그인 검증 필요 |
+| 프론트/백엔드 배포 버전 정합성 | 확인 필요 | 로컬 최신 코드에는 `/api/screener/watch-items`가 있으나 운영 Railway 백엔드는 구버전 404 기록. 백엔드 재배포 후 재검증 필요 |
 
 ## 이번 작업 체크리스트
 
@@ -53,6 +55,9 @@
 - [x] 문서 기준 점검판 추가
 - [x] 포트폴리오 도메인 모델(account wrappers/lots/cash flows/snapshots/benchmarks) 정규화
 - [x] 계좌별/전체 포트폴리오 토글 및 공통 분석엔진 연결
+- [x] 보고서 기반 업데이트 목록 재대조
+- [x] Import Center/모바일 마감 stale 체크박스 동기화
+- [x] 운영 smoke/배포 정합성 후속 액션 명시
 
 ## 이번 작업 메모
 
@@ -80,11 +85,17 @@
 4. BFF/캐시/복구 정책 정리
 
 
-- `2026-04-29`: ?? ?? ?? ? ?? ??? ??
-  - `StockResearchPanel` ?? ?? ?? ? ?? ?? ??? ?? ???
-  - `TradeLog` ??/???? ?? ?? ??
-  - `?? ??` ??? source badge ??
-  - `??` ??/??/??? `status`/`alert` ?? ??
+- `2026-04-29`: 출처/상태 메시지 1차 정리
+  - `StockResearchPanel`에 데이터 출처와 신선도 안내 보강
+  - `TradeLog` 오류/성공 메시지 구조 정리
+  - 주요 화면에 source badge 노출 범위 확대
+  - 로딩/빈 상태/오류 메시지에 `status`/`alert` 계열 안내 추가
+
+- `2026-04-30`: 보고서 기반 업데이트 목록 재점검
+  - `docs/deep-research-report-3-tracker.md`의 P0 Import Center 상위 체크박스를 실제 완료 상태로 동기화
+  - 모바일 마감은 1차 완료로 정리하고 visual QA/잔여 테이블/키보드 흐름을 후속 항목으로 분리
+  - 운영 smoke 자동화는 코드 반영 완료, GitHub secrets 설정 및 실제 운영 로그인 검증은 남은 상태로 명시
+  - 배포 백엔드 구버전 이슈(`/api/screener/watch-items` 운영 404 기록)는 Railway 최신 재배포 후 재검증 대상으로 유지
 
 ## deep-research-report_3 진행 추적 (2026-04-30)
 

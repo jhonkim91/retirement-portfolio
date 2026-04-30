@@ -15,8 +15,9 @@
 | Analytics v2 심화(TWR/MWR/기여도/drawdown 등) | Mostly Done | 핵심 지표/차트/waterfall/benchmark 연동 반영, 운용형 해설 패널 고도화 여지 | `frontend/src/lib/analytics/*`, `frontend/src/components/analytics/AnalyticsDashboard.jsx` |
 | 스크리너 compare/saved screens | Done | 비교 화면/저장 화면/불러오기/관심종목 반영 | `frontend/src/pages/StockScreener.jsx`, `backend/routes.py`, `backend/models.py` |
 | 스크리너→리서치→분석 연결 | Done | 포트폴리오/저널 prefill draft 브리지까지 반영 | `frontend/src/pages/StockScreener.jsx`, `frontend/src/pages/TradeLog.jsx`, `StockResearchPanel.jsx` |
-| 공통 App Shell + 모바일 마감 | Partial | 공통 네비/레이아웃은 존재, 모바일 테이블 카드화/일관 토큰화 추가 필요 | `frontend/src/App.js`, `frontend/src/components/Navigation.jsx`, page CSS |
+| 공통 App Shell + 모바일 마감 | Partial | 공통 네비/레이아웃, 모바일 카드/토큰 1차 완료. 남은 범위는 visual QA와 잔여 테이블/키보드 흐름 점검 | `frontend/src/App.js`, `frontend/src/components/Navigation.jsx`, page CSS |
 | 운영 검증 자동화 (실서비스 로그인+데이터 로드) | In Progress | 실서비스 smoke 테스트/워크플로우 추가, 운영 시크릿 설정 후 활성화 단계 | `tests/e2e/prod-smoke.spec.ts`, `.github/workflows/prod-smoke.yml` |
+| 운영 배포 정합성 | Needs Deployment | 로컬 최신 코드에는 `/api/screener/watch-items`가 있으나 문서상 운영 Railway 백엔드는 구버전 404 확인. 백엔드 재배포 후 재검증 필요 | `backend/routes.py`, `docs/report-checklist.md` |
 
 ## 2) 이번 라운드 반영
 
@@ -39,15 +40,17 @@
 ## 3) 다음 우선순위 (실제 구현)
 
 ### P0
-- [ ] Import Center 사용자 플로우 완성
+- [x] Import Center 사용자 플로우 완성
   - [x] `POST /api/imports/preview`
   - [x] `POST /api/imports/commit`
   - [x] `GET /api/reconciliation/latest`
+  - [x] `POST /api/imports/dry-run`
   - [x] `frontend/src/pages/ImportCenter.jsx`
   - [x] 네비게이션 진입 버튼
   - [x] CSV 템플릿 다운로드/예시 내장
   - [x] conflict 행 상세 해소 가이드 UI
   - [x] commit 후 diff/reconciliation drill-down
+  - [x] dry-run projection signature 기반 stale commit 차단
 
 ### P1
 - [x] Audit timeline 고도화
@@ -61,15 +64,16 @@
   - [x] 연금계좌 컨텍스트에서 적격성 강조 배지 유지
 
 ### P2
-- [ ] 모바일 마감
+- [x] 모바일 마감 1차
   - [x] Dashboard/Portfolio/TradeLog 주요 테이블 카드형 전환
   - [x] spacing/heading/radius 토큰 일관화
+- [ ] 모바일/데스크톱 visual QA 및 잔여 테이블/키보드 흐름 점검
 
 ## 4) 이어서 진행할 때 바로 쓰는 체크포인트
 
-1. `npm run test:e2e:prod`로 운영 로그인/핵심 카드 노출 먼저 확인  
-2. 정상 확인 후 `Import Center` API/화면 구현 착수  
-3. 완료 후 이 문서의 P0 체크박스와 `docs/report-checklist.md` 동기화
+1. GitHub Actions secrets(`E2E_PROD_BASE_URL`, `E2E_PROD_USERNAME`, `E2E_PROD_PASSWORD`) 설정 후 `npm run test:e2e:prod` 또는 `Prod Smoke` 워크플로우로 운영 로그인/핵심 카드 노출 확인  
+2. Railway 백엔드를 최신 `codex-handoff` 기준으로 재배포하고 `/api/version`, `/api/screener/watch-items`를 재검증  
+3. 남은 부분 완료 항목을 접근성 키보드 흐름, 에러/빈 상태 규격, BFF retry/metrics 순서로 보강
 
 ## 5) 참고 실행 명령
 

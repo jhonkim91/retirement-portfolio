@@ -58,6 +58,32 @@ Last updated: `2026-04-30`
   - batch_id / event_id
   - reconciliation linkage
 
+## 4.3 Retry / Backoff Matrix
+
+| Endpoint group | Retry owner | Retry rule | User-facing fallback | Notes |
+|---|---|---|---|---|
+| Dashboard summary (`/api/portfolio/dashboard`) | Frontend | 1 immediate retry, then manual refresh | Show cached/stale dashboard shell if available | Keep first paint independent from heavy analytics calls. |
+| Market quote/chart sync | Backend | Exponential backoff for provider calls, max 2 attempts per provider | Preserve last known quote with source/asOf badge | Do not block portfolio CRUD on quote refresh failure. |
+| Screener scan/compare/watch-items | Frontend + Backend cache | Debounce UI requests; backend cache absorbs repeated reads | Show last result set with stale/fallback explanation | Recheck deployment parity when watch-items returns 404. |
+| Import preview/dry-run | User action | No automatic destructive retry; user can re-run preview/dry-run | Preserve selected mappings and show conflict reason | Dry-run signature is the commit contract. |
+| Import commit | Backend guard | No retry on `DRY_RUN_STALE`; require fresh dry-run | Show re-confirm prompt with latest signature time | Prevent stale commits over convenience. |
+| Audit restore/apply | User action | No automatic retry after mutation starts | Show event id and recovery instruction | Append-only audit events are the recovery trail. |
+| Open DART / external research | Backend provider chain | Provider-specific timeout, then fallback/non-API report | Show provider label and missing-source notice | Keep API keys server-side only. |
+
+## 4.4 Observability Checklist
+
+- Track request count, error count, and p95 latency by endpoint group.
+- Track cache hit/miss for market sync and screener cache.
+- Track import lifecycle counts: preview, dry-run, stale commit rejection, commit success, commit failure.
+- Track deployment version parity in smoke output:
+  - frontend base URL
+  - backend `/api/version`
+  - representative route checks (`/api/portfolio/dashboard`, `/api/screener/watch-items`)
+- Attach Playwright artifacts for production smoke failures:
+  - screenshot
+  - console/network error summary
+  - failing route/status code
+
 ## 5. Recovery Playbook
 
 ### 5.1 Runtime/API failure
@@ -83,6 +109,5 @@ Last updated: `2026-04-30`
 ## 6. Known Gaps (Next Iteration)
 
 - Move in-memory cache to shared store (Redis/managed KV) for multi-instance consistency.
-- Add cache hit/miss observability metrics.
 - Add automated smoke checks in CI against production-like endpoints.
-- Add explicit retry/backoff policy table per endpoint group.
+- Implement the observability metrics listed above in runtime logs or a hosted dashboard.
