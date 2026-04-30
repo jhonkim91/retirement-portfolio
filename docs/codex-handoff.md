@@ -39,10 +39,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/codex-sync.ps1 -Mode
 The same commands are available through npm:
 
 ```powershell
-npm run codex:sync
-npm run codex:save
-npm run codex:resume
-npm run codex:install-sync
+npm.cmd run codex:sync
+npm.cmd run codex:save
+npm.cmd run codex:resume
+npm.cmd run codex:install-sync
 ```
 
 ## First Setup On Another PC
@@ -53,7 +53,7 @@ cd retirement-portfolio
 git checkout codex-handoff
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/codex-sync.ps1 -Mode resume
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/codex-sync.ps1 -Mode install-task
-npm install
+npm.cmd install
 ```
 
 ## Notes
