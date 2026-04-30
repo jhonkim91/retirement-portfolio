@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { importAPI, readStoredAccountName } from '../utils/api';
+import useResolvedAccount from '../hooks/useResolvedAccount';
+import { importAPI } from '../utils/api';
 import '../styles/ImportCenter.css';
 
 const formatDateTime = (value) => {
@@ -10,13 +11,13 @@ const formatDateTime = (value) => {
 };
 
 function ImportCenter() {
-  const [accountName] = useState(() => readStoredAccountName());
+  const { accountName, accountReady } = useResolvedAccount();
   const [sourceName, setSourceName] = useState('csv_upload');
   const [file, setFile] = useState(null);
   const [previewData, setPreviewData] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [commitLoading, setCommitLoading] = useState(false);
-  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(true);
   const [applyConflicts, setApplyConflicts] = useState(false);
   const [message, setMessage] = useState('');
   const [importBatches, setImportBatches] = useState([]);
@@ -77,6 +78,7 @@ function ImportCenter() {
   }, [dryRunLoading, dryRunNeedsRefresh, dryRunSignature]);
 
   const refreshHistory = useCallback(async () => {
+    if (!accountReady) return;
     setHistoryLoading(true);
     try {
       const [batchResponse, latestResponse, reconciliationResponse, productsResponse] = await Promise.all([
@@ -106,11 +108,12 @@ function ImportCenter() {
     } finally {
       setHistoryLoading(false);
     }
-  }, [accountName]);
+  }, [accountName, accountReady]);
 
   useEffect(() => {
+    if (!accountReady) return;
     refreshHistory();
-  }, [refreshHistory]);
+  }, [accountReady, refreshHistory]);
 
   useEffect(() => {
     const conflictCandidates = (previewData?.rows || []).filter((row) => row.action === 'conflict');

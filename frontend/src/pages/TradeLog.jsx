@@ -1,14 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AccountSelector from '../components/AccountSelector';
-import {
-  DEFAULT_ACCOUNT_NAME,
-  readStoredAccountName,
-  tradeLogAPI,
-  writeStoredAccountName
-} from '../utils/api';
+import useResolvedAccount from '../hooks/useResolvedAccount';
+import { tradeLogAPI } from '../utils/api';
 import '../styles/TradeLog.css';
-
-const getInitialAccountName = () => readStoredAccountName() || DEFAULT_ACCOUNT_NAME;
 const journalPrefillStorageKey = 'journal_prefill_draft_v1';
 
 const formatCurrency = (value) => new Intl.NumberFormat('ko-KR', {
@@ -101,7 +95,12 @@ const toJournalFormFromSaved = (journal = {}) => ({
 });
 
 function TradeLog() {
-  const [accountName, setAccountName] = useState(getInitialAccountName);
+  const {
+    accountName,
+    accountReady,
+    changeAccountName: persistAccountName,
+    syncAccountProfiles
+  } = useResolvedAccount();
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tradeType, setTradeType] = useState('all');
@@ -183,6 +182,7 @@ function TradeLog() {
   }, []);
 
   const loadLogs = useCallback(async () => {
+    if (!accountReady) return;
     try {
       setLoading(true);
       setError('');
@@ -206,9 +206,10 @@ function TradeLog() {
     } finally {
       setLoading(false);
     }
-  }, [tradeType, assetType, accountName]);
+  }, [tradeType, assetType, accountName, accountReady]);
 
   const loadJournals = useCallback(async () => {
+    if (!accountReady) return;
     try {
       const response = await tradeLogAPI.getJournals({
         accountName,
@@ -220,9 +221,10 @@ function TradeLog() {
     } catch (err) {
       setError(err.message || '거래 저널을 불러오지 못했습니다.');
     }
-  }, [accountName, journalTagFilter, journalDateFrom, journalDateTo]);
+  }, [accountName, accountReady, journalTagFilter, journalDateFrom, journalDateTo]);
 
   const loadCalendarEvents = useCallback(async () => {
+    if (!accountReady) return;
     try {
       const response = await tradeLogAPI.getCalendarEvents({
         accountName,
@@ -234,19 +236,22 @@ function TradeLog() {
     } catch (err) {
       setError(err.message || '캘린더 이벤트를 불러오지 못했습니다.');
     }
-  }, [accountName, calendarStartDate, calendarEndDate, calendarTypeFilter]);
+  }, [accountName, accountReady, calendarStartDate, calendarEndDate, calendarTypeFilter]);
 
   useEffect(() => {
+    if (!accountReady) return;
     loadLogs();
-  }, [loadLogs]);
+  }, [accountReady, loadLogs]);
 
   useEffect(() => {
+    if (!accountReady) return;
     loadJournals();
-  }, [loadJournals]);
+  }, [accountReady, loadJournals]);
 
   useEffect(() => {
+    if (!accountReady) return;
     loadCalendarEvents();
-  }, [loadCalendarEvents]);
+  }, [accountReady, loadCalendarEvents]);
 
   const filteredAuditTrail = useMemo(() => (
     (auditTrail || []).filter((event) => {
@@ -285,8 +290,8 @@ function TradeLog() {
   };
 
   const changeAccountName = (value) => {
-    writeStoredAccountName(value);
-    setAccountName(value);
+    persistAccountName(value);
+    setLoading(true);
     setEditingLogId(null);
     setSelectedLogForJournal(null);
     setEditingJournalId(null);
@@ -659,7 +664,7 @@ function TradeLog() {
 
   return (
     <main className="tradelog-container" aria-busy={loading}>
-      <AccountSelector value={accountName} onChange={changeAccountName} />
+      <AccountSelector value={accountName} onChange={changeAccountName} onAccountsChange={syncAccountProfiles} />
 
       <div className="page-header">
         <h1>매매일지</h1>

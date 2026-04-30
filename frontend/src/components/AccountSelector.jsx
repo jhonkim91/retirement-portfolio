@@ -1,13 +1,21 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { DEFAULT_ACCOUNT_NAME, portfolioAPI } from '../utils/api';
+import { DEFAULT_ACCOUNT_NAME, pickInitialAccountProfile, portfolioAPI } from '../utils/api';
 
 const DEFAULT_PROFILE = {
   account_name: DEFAULT_ACCOUNT_NAME,
+  display_name: DEFAULT_ACCOUNT_NAME,
+  has_name_issue: false,
   account_type: 'retirement',
   account_category: 'irp',
   account_type_label: '퇴직연금',
   account_category_label: 'IRP',
-  is_default: true
+  is_default: true,
+  holding_count: 0,
+  total_product_count: 0,
+  trade_log_count: 0,
+  cash_balance: 0,
+  has_data: false,
+  is_empty: true
 };
 
 const RETIREMENT_ACCOUNT_OPTIONS = [
@@ -17,7 +25,25 @@ const RETIREMENT_ACCOUNT_OPTIONS = [
   { value: 'db_reference', label: 'DB 참조' }
 ];
 
-function AccountSelector({ value, onChange }) {
+const countFormatter = new Intl.NumberFormat('ko-KR');
+const currencyFormatter = new Intl.NumberFormat('ko-KR', {
+  style: 'currency',
+  currency: 'KRW',
+  maximumFractionDigits: 0
+});
+
+const formatCount = (value) => countFormatter.format(Number(value || 0));
+const formatCurrency = (value) => currencyFormatter.format(Number(value || 0));
+
+const buildAccountOptionLabel = (account) => {
+  const details = [account.account_type_label];
+  if (account.account_category_label) details.push(account.account_category_label);
+  if (account.is_default) details.push('기본');
+  details.push(account.is_empty ? '빈 계좌' : `보유 ${formatCount(account.holding_count)}개`);
+  return `${account.display_name || account.account_name} · ${details.join(' · ')}`;
+};
+
+function AccountSelector({ value, onChange, onAccountsChange }) {
   const [accounts, setAccounts] = useState([DEFAULT_PROFILE]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -38,14 +64,16 @@ function AccountSelector({ value, onChange }) {
       const response = await portfolioAPI.getAccounts();
       const nextProfiles = response?.account_profiles?.length ? response.account_profiles : [DEFAULT_PROFILE];
       setAccounts(nextProfiles);
+      onAccountsChange?.(nextProfiles);
       setMessage('');
     } catch (error) {
       setAccounts([DEFAULT_PROFILE]);
+      onAccountsChange?.([DEFAULT_PROFILE]);
       setMessage(error.message || '통장 목록을 불러오지 못했습니다.');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [onAccountsChange]);
 
   useEffect(() => {
     loadAccounts();
@@ -57,7 +85,12 @@ function AccountSelector({ value, onChange }) {
   );
 
   const selectedAccount = useMemo(
-    () => accounts.find((account) => account.account_name === value) || accounts[0] || DEFAULT_PROFILE,
+    () => (
+      accounts.find((account) => account.account_name === value)
+      || pickInitialAccountProfile(accounts, value)
+      || accounts[0]
+      || DEFAULT_PROFILE
+    ),
     [accounts, value]
   );
 
@@ -66,11 +99,16 @@ function AccountSelector({ value, onChange }) {
     [accounts]
   );
 
+  const fallbackAccountName = useMemo(
+    () => pickInitialAccountProfile(accounts, value)?.account_name || defaultAccountName,
+    [accounts, defaultAccountName, value]
+  );
+
   useEffect(() => {
     if (!loading && accountNames.length > 0 && !accountNames.includes(value)) {
-      onChange(defaultAccountName);
+      onChange(fallbackAccountName);
     }
-  }, [accountNames, defaultAccountName, loading, onChange, value]);
+  }, [accountNames, fallbackAccountName, loading, onChange, value]);
 
   const canSubmit = useMemo(
     () => newAccountName.trim().length > 0 && !saving,
@@ -101,6 +139,7 @@ function AccountSelector({ value, onChange }) {
       const response = await portfolioAPI.addAccount(accountName, newAccountType, newAccountCategory);
       const nextProfiles = response?.account_profiles?.length ? response.account_profiles : [DEFAULT_PROFILE];
       setAccounts(nextProfiles);
+      onAccountsChange?.(nextProfiles, response.account_name || accountName);
       setNewAccountName('');
       setNewAccountType('retirement');
       setNewAccountCategory('irp');
@@ -136,6 +175,7 @@ function AccountSelector({ value, onChange }) {
       const response = await portfolioAPI.renameAccount(selectedAccount.account_name, nextName);
       const nextProfiles = response?.account_profiles?.length ? response.account_profiles : [DEFAULT_PROFILE];
       setAccounts(nextProfiles);
+      onAccountsChange?.(nextProfiles, response.account_name || nextName);
       setRenameAccountName('');
       closePanels();
       setMessage(response.message || '통장 이름을 변경했습니다.');
@@ -149,22 +189,23 @@ function AccountSelector({ value, onChange }) {
 
   const removeSelectedAccount = async () => {
     if (!selectedAccount || selectedAccount.is_default || deleting) return;
-    const ok = window.confirm(`${selectedAccount.account_name} 통장과 관련 데이터 전체를 삭제할까요?`);
+    const ok = window.confirm(`${selectedAccount.display_name || selectedAccount.account_name} 통장과 관련 데이터 전체를 삭제할까요?`);
     if (!ok) return;
 
     try {
       setDeleting(true);
       const response = await portfolioAPI.deleteAccount(selectedAccount.account_name);
       const nextProfiles = response?.account_profiles?.length ? response.account_profiles : [DEFAULT_PROFILE];
+      const nextAccountName = response?.default_account_name
+        || pickInitialAccountProfile(nextProfiles)?.account_name
+        || nextProfiles.find((account) => account.is_default)?.account_name
+        || nextProfiles[0]?.account_name
+        || DEFAULT_ACCOUNT_NAME;
       setAccounts(nextProfiles);
+      onAccountsChange?.(nextProfiles, nextAccountName);
       closePanels();
       setMessage(response.message || '통장을 삭제했습니다.');
-      onChange(
-        response?.default_account_name
-          || nextProfiles.find((account) => account.is_default)?.account_name
-          || nextProfiles[0]?.account_name
-          || DEFAULT_ACCOUNT_NAME
-      );
+      onChange(nextAccountName);
     } catch (error) {
       setMessage(error.message || '통장 삭제에 실패했습니다.');
     } finally {
@@ -182,11 +223,11 @@ function AccountSelector({ value, onChange }) {
           onChange={(event) => onChange(event.target.value)}
           disabled={loading}
         >
-              {accounts.map((account) => (
-             <option key={account.account_name} value={account.account_name}>
-               {account.account_name} · {account.account_type_label}{account.account_category_label ? ` · ${account.account_category_label}` : ''}
-             </option>
-           ))}
+          {accounts.map((account) => (
+            <option key={account.account_name} value={account.account_name}>
+              {buildAccountOptionLabel(account)}
+            </option>
+          ))}
         </select>
         <button
           type="button"
@@ -203,6 +244,54 @@ function AccountSelector({ value, onChange }) {
           설정
         </button>
       </div>
+
+      {selectedAccount && (
+        <section className="account-switcher-summary" aria-label="선택된 계좌 상태">
+          <div className="account-switcher-summary-head">
+            <div>
+              <strong>{selectedAccount.display_name || selectedAccount.account_name}</strong>
+              <p className="account-switcher-summary-text">
+                {selectedAccount.account_type_label}
+                {selectedAccount.account_category_label ? ` · ${selectedAccount.account_category_label}` : ''}
+              </p>
+            </div>
+            <div className="account-switcher-badges">
+              {selectedAccount.is_default && <span className="account-switcher-badge">기본</span>}
+              {selectedAccount.is_empty && <span className="account-switcher-badge account-switcher-badge-muted">빈 계좌</span>}
+              {selectedAccount.has_name_issue && <span className="account-switcher-badge account-switcher-badge-warning">이름 확인 필요</span>}
+            </div>
+          </div>
+          <div className="account-switcher-stats" aria-label="계좌 데이터 요약">
+            <div>
+              <span>보유</span>
+              <strong>{formatCount(selectedAccount.holding_count)}개</strong>
+            </div>
+            <div>
+              <span>거래</span>
+              <strong>{formatCount(selectedAccount.trade_log_count)}건</strong>
+            </div>
+            <div>
+              <span>현금</span>
+              <strong>{formatCurrency(selectedAccount.cash_balance)}</strong>
+            </div>
+          </div>
+          {selectedAccount.is_empty && (
+            <p className="account-switcher-empty-note">
+              이 계좌에는 아직 거래나 보유 상품이 없습니다.
+            </p>
+          )}
+          {selectedAccount.has_name_issue && (
+            <p className="account-switcher-warning">
+              계좌 이름에 깨진 문자가 보여서 정리 또는 이름 변경이 필요합니다.
+            </p>
+          )}
+          <p className="account-switcher-meta">
+            현재 알고리즘: {selectedAccount.account_type === 'brokerage'
+              ? '주식형, 현재 보유 상품 기준 원금/평가액'
+              : '퇴직연금형, 입금 원금 + 보유 현금 포함'}
+          </p>
+        </section>
+      )}
 
       {showSettings && (
         <div className="account-settings-panel">
@@ -239,39 +328,39 @@ function AccountSelector({ value, onChange }) {
 
           {showCreateForm && (
             <form className="account-create-form" onSubmit={submitNewAccount}>
-               <input
-                 type="text"
-                 maxLength="80"
-                 placeholder="예: 주식 통장"
-                 value={newAccountName}
-                 onChange={(event) => setNewAccountName(event.target.value)}
-               />
-               <select
-                 value={newAccountType}
-                 onChange={(event) => {
-                   const nextType = event.target.value;
-                   setNewAccountType(nextType);
-                   if (nextType === 'brokerage') {
-                     setNewAccountCategory('taxable');
-                   } else if (newAccountCategory === 'taxable') {
-                     setNewAccountCategory('irp');
-                   }
-                 }}
-               >
-                 <option value="retirement">퇴직연금</option>
-                 <option value="brokerage">주식 통장</option>
-               </select>
-               {newAccountType === 'retirement' && (
-                 <select value={newAccountCategory} onChange={(event) => setNewAccountCategory(event.target.value)}>
-                   {RETIREMENT_ACCOUNT_OPTIONS.map((option) => (
-                     <option key={option.value} value={option.value}>{option.label}</option>
-                   ))}
-                 </select>
-               )}
-               <button type="submit" disabled={!canSubmit}>
-                 {saving ? '추가 중...' : '추가'}
-               </button>
-             </form>
+              <input
+                type="text"
+                maxLength="80"
+                placeholder="예: 주식 통장"
+                value={newAccountName}
+                onChange={(event) => setNewAccountName(event.target.value)}
+              />
+              <select
+                value={newAccountType}
+                onChange={(event) => {
+                  const nextType = event.target.value;
+                  setNewAccountType(nextType);
+                  if (nextType === 'brokerage') {
+                    setNewAccountCategory('taxable');
+                  } else if (newAccountCategory === 'taxable') {
+                    setNewAccountCategory('irp');
+                  }
+                }}
+              >
+                <option value="retirement">퇴직연금</option>
+                <option value="brokerage">주식 통장</option>
+              </select>
+              {newAccountType === 'retirement' && (
+                <select value={newAccountCategory} onChange={(event) => setNewAccountCategory(event.target.value)}>
+                  {RETIREMENT_ACCOUNT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              )}
+              <button type="submit" disabled={!canSubmit}>
+                {saving ? '추가 중...' : '추가'}
+              </button>
+            </form>
           )}
 
           {showRenameForm && (
@@ -291,13 +380,6 @@ function AccountSelector({ value, onChange }) {
         </div>
       )}
 
-      {selectedAccount && (
-        <p className="account-switcher-meta">
-          현재 알고리즘: {selectedAccount.account_type === 'brokerage'
-            ? '주식형, 현재 보유 상품 기준 원금/평가액'
-            : '퇴직연금형, 입금 원금 + 보유 현금 포함'}
-        </p>
-      )}
       {message && <p className="account-switcher-message">{message}</p>}
     </div>
   );

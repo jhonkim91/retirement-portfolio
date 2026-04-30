@@ -3582,8 +3582,9 @@ def add_account():
         raw_name = str(data.get('account_name') or '').strip()
         account_type = normalize_account_type(data.get('account_type'))
         account_category = normalize_account_category(data.get('account_category'), account_type)
-        if not raw_name:
-            return jsonify({'error': '통장 이름을 입력하세요.'}), 400
+        validation_error = validate_account_name_input(raw_name)
+        if validation_error:
+            return jsonify({'error': validation_error}), 400
 
         account_name = normalize_account_name(raw_name)
         user_id = current_user_id()
@@ -3685,9 +3686,11 @@ def rename_account(account_name):
         current_name = normalize_account_name(account_name)
 
         data = request.get_json() or {}
-        next_name = normalize_account_name(data.get('account_name'))
-        if not next_name:
-            return jsonify({'error': '새 통장 이름을 입력하세요.'}), 400
+        raw_next_name = str(data.get('account_name') or '').strip()
+        validation_error = validate_account_name_input(raw_next_name)
+        if validation_error:
+            return jsonify({'error': '새 통장 이름을 입력하세요.' if not raw_next_name else validation_error}), 400
+        next_name = normalize_account_name(raw_next_name)
         if next_name == current_name:
             return jsonify({'message': '통장 이름이 이미 같습니다.', 'account_name': current_name}), 200
 

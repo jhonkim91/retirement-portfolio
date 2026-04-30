@@ -1,7 +1,8 @@
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import useResolvedAccount from '../hooks/useResolvedAccount';
 import { writeStoredBenchmarkSelection } from '../lib/analytics/preferences';
-import { readStoredAccountName, screenerAPI } from '../utils/api';
+import { screenerAPI } from '../utils/api';
 import '../styles/StockScreener.css';
 
 const ScreenerPriceChart = lazy(() => import('../components/screener/ScreenerPriceChart'));
@@ -87,8 +88,8 @@ const buildJournalPrefillDraft = (item) => {
 
 function StockScreener() {
   const navigate = useNavigate();
+  const { accountName, accountReady } = useResolvedAccount();
   const [market, setMarket] = useState('KOSPI');
-  const [accountName] = useState(() => readStoredAccountName());
   const [pages, setPages] = useState('2');
   const [limit, setLimit] = useState('18');
   const [rsiMin, setRsiMin] = useState('45');
@@ -126,13 +127,14 @@ function StockScreener() {
   const [savedScreens, setSavedScreens] = useState([]);
 
   const loadWatchItems = useCallback(async () => {
+    if (!accountReady) return;
     try {
       const response = await screenerAPI.getWatchItems(accountName);
       setFavorites(response?.items || []);
     } catch (error) {
       setFavorites([]);
     }
-  }, [accountName]);
+  }, [accountName, accountReady]);
 
   const loadSavedScreens = useCallback(async () => {
     try {
@@ -146,8 +148,12 @@ function StockScreener() {
   useEffect(() => {
     setSavedPresets(readLocalList(presetStorageKey));
     loadSavedScreens();
+  }, [loadSavedScreens]);
+
+  useEffect(() => {
+    if (!accountReady) return;
     loadWatchItems();
-  }, [loadSavedScreens, loadWatchItems]);
+  }, [accountReady, loadWatchItems]);
 
   const resultRows = scanResult?.results || [];
 
@@ -419,7 +425,6 @@ function StockScreener() {
 
   const moveToAnalytics = (item = selectedItem) => {
     if (!item) return;
-    const accountName = readStoredAccountName();
     writeStoredBenchmarkSelection(accountName, {
       code: item.code,
       name: item.name,

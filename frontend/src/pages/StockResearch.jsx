@@ -2,19 +2,19 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import AccountSelector from '../components/AccountSelector';
 import StockResearchPanel from '../components/StockResearchPanel';
-import {
-  DEFAULT_ACCOUNT_NAME,
-  portfolioAPI,
-  readStoredAccountName,
-  writeStoredAccountName
-} from '../utils/api';
+import useResolvedAccount from '../hooks/useResolvedAccount';
+import { portfolioAPI } from '../utils/api';
 import '../styles/StockResearch.css';
-
-const getInitialAccountName = () => readStoredAccountName() || DEFAULT_ACCOUNT_NAME;
 
 function StockResearch() {
   const location = useLocation();
-  const [accountName, setAccountName] = useState(getInitialAccountName);
+  const {
+    accountName,
+    accountReady,
+    changeAccountName: persistAccountName,
+    selectedAccountProfile,
+    syncAccountProfiles
+  } = useResolvedAccount();
   const [products, setProducts] = useState([]);
   const [accountType, setAccountType] = useState('retirement');
   const [accountCategory, setAccountCategory] = useState('irp');
@@ -23,27 +23,28 @@ function StockResearch() {
   const [prefillProduct, setPrefillProduct] = useState(location.state?.prefillProduct || null);
 
   const loadProducts = useCallback(async () => {
+    if (!accountReady) return;
     try {
       setLoading(true);
       setError('');
-      const [rows, accountsResponse] = await Promise.all([
-        portfolioAPI.getProducts(accountName),
-        portfolioAPI.getAccounts()
-      ]);
-      const matchedProfile = (accountsResponse?.account_profiles || []).find((account) => account.account_name === accountName);
-      setProducts(rows);
-      setAccountType(matchedProfile?.account_type || 'retirement');
-      setAccountCategory(matchedProfile?.account_category || 'irp');
+      const rows = await portfolioAPI.getProducts(accountName);
+      setProducts(Array.isArray(rows) ? rows : []);
     } catch (err) {
       setError(err.message || '보유 종목을 불러오지 못했습니다.');
     } finally {
       setLoading(false);
     }
-  }, [accountName]);
+  }, [accountName, accountReady]);
 
   useEffect(() => {
+    if (!accountReady) return;
     loadProducts();
-  }, [loadProducts]);
+  }, [accountReady, loadProducts]);
+
+  useEffect(() => {
+    setAccountType(selectedAccountProfile?.account_type || 'retirement');
+    setAccountCategory(selectedAccountProfile?.account_category || 'irp');
+  }, [selectedAccountProfile]);
 
   useEffect(() => {
     if (location.state?.prefillProduct) {
@@ -52,13 +53,13 @@ function StockResearch() {
   }, [location.state]);
 
   const changeAccountName = (value) => {
-    writeStoredAccountName(value);
-    setAccountName(value);
+    persistAccountName(value);
+    setLoading(true);
   };
 
   return (
     <main className="stock-research-page" aria-busy={loading}>
-      <AccountSelector value={accountName} onChange={changeAccountName} />
+      <AccountSelector value={accountName} onChange={changeAccountName} onAccountsChange={syncAccountProfiles} />
       <div className="stock-research-page-header">
         <h1>종목 정보</h1>
         <p>보유 중인 종목 점검이나 새로 살 종목 검토용으로 시세 스냅샷과 계좌 기준 분석 레포트를 확인할 수 있습니다.</p>

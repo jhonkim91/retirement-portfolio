@@ -13,19 +13,12 @@ import {
   writeStoredBenchmarkSelection
 } from '../lib/analytics/preferences';
 import { buildDataBadgeDescriptor, inferSourceKeyFromCode } from '../lib/sourceRegistry';
-import {
-  DEFAULT_ACCOUNT_NAME,
-  portfolioAPI,
-  readStoredAccountName,
-  tradeLogAPI,
-  writeStoredAccountName
-} from '../utils/api';
+import useResolvedAccount from '../hooks/useResolvedAccount';
+import { portfolioAPI, tradeLogAPI } from '../utils/api';
 import '../styles/Dashboard.css';
 
 const LazyAnalyticsDashboard = lazy(() => import('../components/analytics/AnalyticsDashboard'));
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
-
-const getInitialAccountName = () => readStoredAccountName() || DEFAULT_ACCOUNT_NAME;
 
 const formatCurrency = (value) => new Intl.NumberFormat('ko-KR', {
   style: 'currency',
@@ -84,7 +77,12 @@ const isToday = (value) => {
 };
 
 function Dashboard() {
-  const [accountName, setAccountName] = useState(getInitialAccountName);
+  const {
+    accountName,
+    accountReady,
+    changeAccountName: persistAccountName,
+    syncAccountProfiles
+  } = useResolvedAccount();
   const [summary, setSummary] = useState(null);
   const [products, setProducts] = useState([]);
   const [recentLogs, setRecentLogs] = useState([]);
@@ -98,8 +96,8 @@ function Dashboard() {
   const [analyticsRaw, setAnalyticsRaw] = useState({
     allProducts: [],
     transactions: [],
-    trends: [],
-    benchmark: { name: DEFAULT_BENCHMARKS.retirement.name, series: [] }
+      trends: [],
+      benchmark: { name: DEFAULT_BENCHMARKS.retirement.name, series: [] }
   });
   const analyticsScope = 'account';
   const [domainModel, setDomainModel] = useState(null);
@@ -110,6 +108,7 @@ function Dashboard() {
   const [benchmarkSearchLoading, setBenchmarkSearchLoading] = useState(false);
 
   const fetchCoreDashboardData = useCallback(async ({ silent = false } = {}) => {
+    if (!accountReady) return;
     try {
       if (!silent) setLoading(true);
       setError('');
@@ -132,9 +131,10 @@ function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, [accountName]);
+  }, [accountName, accountReady]);
 
   const fetchAnalyticsData = useCallback(async () => {
+    if (!accountReady) return;
     try {
       setAnalyticsLoading(true);
       setAnalyticsError('');
@@ -157,17 +157,18 @@ function Dashboard() {
     } finally {
       setAnalyticsLoading(false);
     }
-  }, [accountName, analyticsScope]);
+  }, [accountName, accountReady, analyticsScope]);
 
   useEffect(() => {
+    if (!accountReady) return undefined;
     fetchCoreDashboardData();
     const interval = setInterval(() => fetchCoreDashboardData({ silent: true }), 60000);
     return () => clearInterval(interval);
-  }, [fetchCoreDashboardData]);
+  }, [accountReady, fetchCoreDashboardData]);
 
   useEffect(() => {
-    if (showInsights) fetchAnalyticsData();
-  }, [fetchAnalyticsData, showInsights]);
+    if (accountReady && showInsights) fetchAnalyticsData();
+  }, [accountReady, fetchAnalyticsData, showInsights]);
 
   useEffect(() => {
     if (!summary?.account_type) return;
@@ -427,8 +428,7 @@ function Dashboard() {
   };
 
   const changeAccountName = (value) => {
-    writeStoredAccountName(value);
-    setAccountName(value);
+    persistAccountName(value);
     setSummary(null);
     setProducts([]);
     setRecentLogs([]);
@@ -508,7 +508,7 @@ function Dashboard() {
   if (loading) {
     return (
       <main className="dashboard dashboard-cockpit">
-        <AccountSelector value={accountName} onChange={changeAccountName} />
+        <AccountSelector value={accountName} onChange={changeAccountName} onAccountsChange={syncAccountProfiles} />
         <section className="ops-loading" aria-label="운영 대시보드 로딩" role="status" aria-live="polite">
           <h1>운영 대시보드</h1>
           <div className="ops-skeleton-grid">
@@ -524,7 +524,7 @@ function Dashboard() {
   if (error && !summary) {
     return (
       <main className="dashboard dashboard-cockpit">
-        <AccountSelector value={accountName} onChange={changeAccountName} />
+        <AccountSelector value={accountName} onChange={changeAccountName} onAccountsChange={syncAccountProfiles} />
         <section className="ops-error" role="alert" aria-live="assertive">
           <h1>운영 대시보드</h1>
           <p>{error}</p>
@@ -538,7 +538,7 @@ function Dashboard() {
 
   return (
     <main className="dashboard dashboard-cockpit">
-      <AccountSelector value={accountName} onChange={changeAccountName} />
+      <AccountSelector value={accountName} onChange={changeAccountName} onAccountsChange={syncAccountProfiles} />
 
       <header className="ops-header">
         <div>

@@ -3,6 +3,8 @@ import { render, screen, waitFor } from '@testing-library/react';
 import Dashboard from '../Dashboard';
 import { __mocks } from '../../utils/api';
 
+const mockUseResolvedAccount = jest.fn();
+
 jest.mock('../../components/AccountSelector', () => function MockAccountSelector() {
   return <div data-testid="account-selector">account-selector</div>;
 });
@@ -10,6 +12,11 @@ jest.mock('../../components/AccountSelector', () => function MockAccountSelector
 jest.mock('../../components/DataBadge', () => function MockDataBadge() {
   return <span data-testid="data-badge">badge</span>;
 });
+
+jest.mock('../../hooks/useResolvedAccount', () => ({
+  __esModule: true,
+  default: () => mockUseResolvedAccount()
+}));
 
 jest.mock('../../utils/api', () => {
   const portfolioAPI = {
@@ -42,6 +49,12 @@ const mockTradeLogAPI = __mocks.tradeLogAPI;
 describe('Dashboard cockpit', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockUseResolvedAccount.mockReturnValue({
+      accountName: '퇴직연금',
+      accountReady: true,
+      changeAccountName: jest.fn(),
+      syncAccountProfiles: jest.fn()
+    });
   });
 
   it('matches loading snapshot', () => {

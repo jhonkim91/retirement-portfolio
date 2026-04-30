@@ -21,7 +21,12 @@ const getAccountStorageScope = () => {
 };
 
 export const getScopedAccountStorageKey = () => `${ACCOUNT_STORAGE_KEY}:${getAccountStorageScope()}`;
-export const readStoredAccountName = () => localStorage.getItem(getScopedAccountStorageKey()) || DEFAULT_ACCOUNT_NAME;
+export const readExplicitStoredAccountName = () => (
+  localStorage.getItem(getScopedAccountStorageKey())
+  || localStorage.getItem(ACCOUNT_STORAGE_KEY)
+  || ''
+);
+export const readStoredAccountName = () => readExplicitStoredAccountName() || DEFAULT_ACCOUNT_NAME;
 export const writeStoredAccountName = (accountName) => {
   const nextValue = accountName || DEFAULT_ACCOUNT_NAME;
   localStorage.setItem(getScopedAccountStorageKey(), nextValue);
@@ -30,6 +35,43 @@ export const writeStoredAccountName = (accountName) => {
 export const clearStoredAccountName = () => {
   localStorage.removeItem(getScopedAccountStorageKey());
   localStorage.removeItem(ACCOUNT_STORAGE_KEY);
+};
+
+const normalizeAccountProfiles = (profiles) => (
+  Array.isArray(profiles)
+    ? profiles.filter((profile) => profile && profile.account_name)
+    : []
+);
+
+export const findAccountProfile = (profiles, accountName) => (
+  normalizeAccountProfiles(profiles).find((profile) => profile.account_name === accountName) || null
+);
+
+export const pickInitialAccountProfile = (
+  profiles,
+  storedAccountName = readExplicitStoredAccountName()
+) => {
+  const normalizedProfiles = normalizeAccountProfiles(profiles);
+  if (normalizedProfiles.length === 0) return null;
+
+  const storedMatch = findAccountProfile(normalizedProfiles, storedAccountName);
+  if (storedMatch) return storedMatch;
+
+  const defaultWithData = normalizedProfiles.find((profile) => profile.is_default && profile.has_data);
+  if (defaultWithData) return defaultWithData;
+
+  const cleanDataProfile = normalizedProfiles.find((profile) => profile.has_data && !profile.has_name_issue);
+  if (cleanDataProfile) return cleanDataProfile;
+
+  const anyDataProfile = normalizedProfiles.find((profile) => profile.has_data);
+  if (anyDataProfile) return anyDataProfile;
+
+  const cleanDefaultProfile = normalizedProfiles.find((profile) => profile.is_default && !profile.has_name_issue);
+  if (cleanDefaultProfile) return cleanDefaultProfile;
+
+  return normalizedProfiles.find((profile) => profile.is_default)
+    || normalizedProfiles.find((profile) => !profile.has_name_issue)
+    || normalizedProfiles[0];
 };
 
 const getToken = () => localStorage.getItem('access_token');
@@ -162,6 +204,22 @@ export const portfolioAPI = {
   updatePrice: (productId, price) => apiCall(`/products/${productId}/update-price`, 'PUT', { price }),
   getPriceHistory: (productId) => apiCall(`/products/${productId}/price-history`),
   getBenchmarkChart: (code, days = 320) => apiCall(`/screener/chart?code=${encodeURIComponent(code)}&days=${encodeURIComponent(days)}`)
+};
+
+export const resolveInitialAccountSelection = async () => {
+  const response = await portfolioAPI.getAccounts();
+  const accountProfiles = normalizeAccountProfiles(response?.account_profiles);
+  const selectedAccountProfile = pickInitialAccountProfile(accountProfiles);
+  const accountName = selectedAccountProfile?.account_name
+    || response?.default_account_name
+    || response?.accounts?.[0]
+    || DEFAULT_ACCOUNT_NAME;
+  writeStoredAccountName(accountName);
+  return {
+    accountName,
+    accountProfiles,
+    selectedAccountProfile: selectedAccountProfile || findAccountProfile(accountProfiles, accountName)
+  };
 };
 
 export const tradeLogAPI = {

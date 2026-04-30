@@ -11,12 +11,8 @@ import {
   buildDataBadgeDescriptor,
   buildFreshnessMixWarning
 } from '../lib/sourceRegistry';
-import {
-  DEFAULT_ACCOUNT_NAME,
-  portfolioAPI,
-  readStoredAccountName,
-  writeStoredAccountName
-} from '../utils/api';
+import useResolvedAccount from '../hooks/useResolvedAccount';
+import { portfolioAPI } from '../utils/api';
 import '../styles/Portfolio.css';
 
 const emptyProductForm = (today) => ({
@@ -30,7 +26,6 @@ const emptyProductForm = (today) => ({
   notes: ''
 });
 
-const getInitialAccountName = () => readStoredAccountName() || DEFAULT_ACCOUNT_NAME;
 const PERIOD_UNIT_OPTIONS = [
   { value: 'year', label: '년' },
   { value: 'month', label: '개월' },
@@ -185,7 +180,13 @@ const getSuggestedTrendRange = (startDate, endDate) => {
 
 function Portfolio() {
   const today = getLocalTodayKey();
-  const [accountName, setAccountName] = useState(getInitialAccountName);
+  const {
+    accountName,
+    accountReady,
+    changeAccountName: persistAccountName,
+    selectedAccountProfile,
+    syncAccountProfiles
+  } = useResolvedAccount();
   const [accountType, setAccountType] = useState('retirement');
   const [accountCategory, setAccountCategory] = useState('irp');
   const [formData, setFormData] = useState(emptyProductForm(today));
@@ -193,7 +194,7 @@ function Portfolio() {
   const [products, setProducts] = useState([]);
   const [trends, setTrends] = useState([]);
   const [message, setMessage] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [depositLoading, setDepositLoading] = useState(false);
   const [priceInputs, setPriceInputs] = useState({});
   const [sellInputs, setSellInputs] = useState({});
@@ -213,21 +214,32 @@ function Portfolio() {
   const prefillAppliedRef = useRef(false);
 
   const loadData = useCallback(async () => {
-    const [productData, trendData, accountsResponse] = await Promise.all([
-      portfolioAPI.getProducts(accountName),
-      portfolioAPI.getTrends(accountName),
-      portfolioAPI.getAccounts()
-    ]);
-    setProducts(productData);
-    setTrends(trendData);
-    const matchedProfile = (accountsResponse?.account_profiles || []).find((account) => account.account_name === accountName);
-    setAccountType(matchedProfile?.account_type || 'retirement');
-    setAccountCategory(matchedProfile?.account_category || 'irp');
-  }, [accountName]);
+    if (!accountReady) return;
+    try {
+      setLoading(true);
+      const [productData, trendData] = await Promise.all([
+        portfolioAPI.getProducts(accountName),
+        portfolioAPI.getTrends(accountName)
+      ]);
+      setProducts(Array.isArray(productData) ? productData : []);
+      setTrends(Array.isArray(trendData) ? trendData : []);
+      setMessage('');
+    } catch (error) {
+      setMessage(error.message || '포트폴리오 데이터를 불러오지 못했습니다.');
+    } finally {
+      setLoading(false);
+    }
+  }, [accountName, accountReady]);
 
   useEffect(() => {
-    loadData().catch((err) => setMessage(err.message));
-  }, [loadData]);
+    if (!accountReady) return;
+    loadData();
+  }, [accountReady, loadData]);
+
+  useEffect(() => {
+    setAccountType(selectedAccountProfile?.account_type || 'retirement');
+    setAccountCategory(selectedAccountProfile?.account_category || 'irp');
+  }, [selectedAccountProfile]);
 
   useEffect(() => {
     const draft = readPortfolioPrefillDraft();
@@ -272,9 +284,9 @@ function Portfolio() {
   }, [products, selectedTrendProductIds]);
 
   const changeAccountName = (value) => {
-    writeStoredAccountName(value);
-    setAccountName(value);
+    persistAccountName(value);
     setMessage('');
+    setLoading(true);
     setSelectedTrendProductIds([]);
     setActivePanel({ productId: null, mode: null });
     setEditingId(null);
@@ -678,7 +690,7 @@ function Portfolio() {
 
   return (
     <main className="portfolio-container" aria-busy={loading || depositLoading}>
-      <AccountSelector value={accountName} onChange={changeAccountName} />
+      <AccountSelector value={accountName} onChange={changeAccountName} onAccountsChange={syncAccountProfiles} />
       <section className="portfolio-workspace">
         <aside className="portfolio-left">
           <section className="product-entry-panel">
