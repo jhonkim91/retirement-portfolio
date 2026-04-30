@@ -1,6 +1,6 @@
 # Codex Shared Memory
 
-Last updated: 2026-04-30 19:01 KST
+Last updated: 2026-04-30 21:18 KST
 
 ## Current State
 
@@ -11,6 +11,8 @@ Last updated: 2026-04-30 19:01 KST
 - Report-tracker status was refreshed against current code: Import Center user flow is now marked complete, mobile polish is marked first-pass complete, and remaining work is split into visual QA/accessibility/error-state/BFF observability/deployment validation.
 - Backend Python dependencies were installed from `backend/requirements.txt` on this PC so backend tests can run locally.
 - Cleanup pass completed: CRA boilerplate/test/logo assets and static `example.com` placeholders were removed or replaced. Local generated logs, caches, build output, test results, root dummy DBs, and backend test DBs were deleted. `.env`, dependency folders, and `backend/instance/retirement.db` were intentionally kept.
+- UI improvement Step 1 is implemented: pages now wait for resolved account metadata before first account-scoped fetch, empty accounts are labeled clearly, and broken account names are blocked on create/rename while legacy broken names are surfaced as warnings.
+- Playwright Chromium was installed on this PC so browser-based local verification can run without extra setup.
 
 ## Resume Checklist
 
@@ -73,6 +75,13 @@ npm.cmd run codex:save
   - replaced CRA favicon/logo PNG assets with `frontend/public/favicon.svg`
   - updated `index.html`, `manifest.json`, `robots.txt`, and `sitemap.xml` to use the production Vercel URL instead of `example.com`
   - changed SEO helpers to avoid pointing social metadata at the old CRA logo assets
+- Added `docs/ui-improvement-step-plan.md` to convert `웹앱_UI_개선_보고서.md` into a 6-step implementation queue with target files and done criteria.
+- Completed UI improvement Step 1 account-entry stabilization:
+  - `backend/routes.py`: added account name validation for create/rename and richer `/api/accounts` metadata (`display_name`, `has_name_issue`, counts, `has_data`, `is_empty`)
+  - `frontend/src/utils/api.js` and `frontend/src/hooks/useResolvedAccount.js`: centralized initial account resolution so invalid stored selections fall back to a populated account before first fetch
+  - `frontend/src/components/AccountSelector.jsx` and `frontend/src/App.css`: selector now shows account type/status badges, counts, cash, empty-account guidance, and legacy-name warnings
+  - `frontend/src/pages/Dashboard.jsx`, `Portfolio.jsx`, `TradeLog.jsx`, `StockResearch.jsx`, `StockScreener.jsx`, `ImportCenter.jsx`: migrated to the shared account-resolution flow
+  - tests added in `backend/tests/test_account_profiles.py` and `frontend/src/utils/__tests__/accountSelection.test.js`
 
 ## Verification
 
@@ -85,6 +94,10 @@ npm.cmd run codex:save
 - `npm.cmd run test:unit` passed: 1 suite / 5 tests.
 - `npm.cmd run ops:setup-prod-smoke-secrets` blocked as designed when `GH_TOKEN` is missing.
 - `npm.cmd run ops:redeploy-railway-backend -- --SkipDeploy` blocked as designed when Railway token env vars are missing.
+- `npm.cmd run test:backend` passed: 16 tests after adding account profile coverage.
+- `npm.cmd run test:frontend` passed: 13 suites / 33 tests after adding account selection coverage.
+- `npm.cmd run build:frontend` passed after Step 1 account-entry changes.
+- Local dev server responded at `http://127.0.0.1:3001`, and a Playwright screenshot check (`test-results/ui-step1-dashboard.png`) confirmed the logged-out app shell loads with visible content and no browser errors.
 
 ## Next Actions
 
@@ -98,7 +111,13 @@ npm.cmd run codex:save
   - `GH_TOKEN`
   - `RAILWAY_TOKEN` or `RAILWAY_API_TOKEN`
 - Redeploy Railway backend from latest `codex-handoff`, then verify `/api/version` and `/api/screener/watch-items`.
-- Continue remaining partial report items in this order:
+- Continue the UI improvement plan from `docs/ui-improvement-step-plan.md` in this order:
+  1. Step 2 dashboard 1-screen structure redesign
+  2. Step 3 portfolio trend workspace re-layout
+  3. Step 4 trade log vs audit trail separation polish
+  4. Step 5 analytics trust-guard rules
+  5. Step 6 account-type template branching
+- After the UI plan resumes, continue remaining cross-cutting report items:
   1. accessibility keyboard/ARIA audit
   2. error/empty-state message consistency
   3. BFF observability metrics implementation
