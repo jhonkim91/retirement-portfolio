@@ -50,6 +50,7 @@ npm run codex:install-sync
 ```powershell
 git clone https://github.com/jhonkim91/retirement-portfolio
 cd retirement-portfolio
+git checkout codex-handoff
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/codex-sync.ps1 -Mode resume
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/codex-sync.ps1 -Mode install-task
 npm install
