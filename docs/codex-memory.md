@@ -1,6 +1,6 @@
 # Codex Shared Memory
 
-Last updated: 2026-04-30 18:27 KST
+Last updated: 2026-04-30 19:01 KST
 
 ## Current State
 
@@ -10,6 +10,7 @@ Last updated: 2026-04-30 18:27 KST
 - The latest shared work has been pushed to GitHub on `origin/codex-handoff`.
 - Report-tracker status was refreshed against current code: Import Center user flow is now marked complete, mobile polish is marked first-pass complete, and remaining work is split into visual QA/accessibility/error-state/BFF observability/deployment validation.
 - Backend Python dependencies were installed from `backend/requirements.txt` on this PC so backend tests can run locally.
+- Cleanup pass completed: CRA boilerplate/test/logo assets and static `example.com` placeholders were removed or replaced. Local generated logs, caches, build output, test results, root dummy DBs, and backend test DBs were deleted. `.env`, dependency folders, and `backend/instance/retirement.db` were intentionally kept.
 
 ## Resume Checklist
 
@@ -66,6 +67,12 @@ npm.cmd run codex:save
   - `scripts/setup-prod-smoke-secrets.ps1` (`GH_TOKEN`-based secrets setup)
   - `scripts/redeploy-railway-backend.ps1` (Railway deploy + endpoint probes)
   - `package.json` scripts: `ops:setup-prod-smoke-secrets`, `ops:redeploy-railway-backend`
+- Cleaned frontend dummy/placeholder assets:
+  - replaced the default CRA README with project-specific frontend notes
+  - removed the no-op `frontend/src/App.test.js` and unused `frontend/src/logo.svg`
+  - replaced CRA favicon/logo PNG assets with `frontend/public/favicon.svg`
+  - updated `index.html`, `manifest.json`, `robots.txt`, and `sitemap.xml` to use the production Vercel URL instead of `example.com`
+  - changed SEO helpers to avoid pointing social metadata at the old CRA logo assets
 
 ## Verification
 
@@ -73,7 +80,8 @@ npm.cmd run codex:save
 - `npm.cmd run test:unit` passed: 5 tests.
 - `npm.cmd run test:e2e:prod` completed with 1 skipped test because production credentials are not set in env.
 - `npm.cmd run typecheck` passed.
-- `npm.cmd run test:frontend` passed: 13 suites / 31 tests.
+- `npm.cmd run test:frontend` passed: 12 suites / 30 tests after removing the no-op CRA test.
+- `npm.cmd run build:frontend` passed after SEO/static asset cleanup.
 - `npm.cmd run test:unit` passed: 1 suite / 5 tests.
 - `npm.cmd run ops:setup-prod-smoke-secrets` blocked as designed when `GH_TOKEN` is missing.
 - `npm.cmd run ops:redeploy-railway-backend -- --SkipDeploy` blocked as designed when Railway token env vars are missing.
@@ -95,6 +103,7 @@ npm.cmd run codex:save
   2. error/empty-state message consistency
   3. BFF observability metrics implementation
   4. mobile/desktop visual QA screenshots
+- Add a branded OG/social preview image before public launch if rich link previews are required.
 - Keep this file updated whenever a major feature, bug, decision, or blocker appears.
 
 ## Windows PowerShell Note

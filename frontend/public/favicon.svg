@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Retirement Portfolio">
+  <rect width="64" height="64" rx="12" fill="#17324d"/>
+  <path d="M16 43V21h16c5.5 0 9 3.2 9 8.1 0 3.3-1.6 5.8-4.3 7.1L42 43h-8.2l-4.5-6H23v6h-7zm7-12h8.3c1.8 0 2.8-.8 2.8-2.3 0-1.4-1-2.2-2.8-2.2H23V31z" fill="#f6ae2d"/>
+  <path d="M43 43V21h6v22h-6z" fill="#ffffff"/>
+</svg>

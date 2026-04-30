@@ -21,5 +21,5 @@
    - CLS <= 0.1
 
 ## Notes
-- `sitemap.xml` currently uses placeholder domain `https://example.com`.  
-  Replace with your production domain before release.
+- Static SEO URLs now use the production Vercel domain: `https://retirement-portfolio-omega.vercel.app`.
+- Social image tags intentionally do not point at the old CRA logo assets. Add a branded OG image before a public launch if rich link previews are required.
