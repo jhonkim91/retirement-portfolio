@@ -251,6 +251,7 @@ function Portfolio() {
   const [trends, setTrends] = useState([]);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
+  const [trendLoading, setTrendLoading] = useState(true);
   const [depositLoading, setDepositLoading] = useState(false);
   const [priceInputs, setPriceInputs] = useState({});
   const [sellInputs, setSellInputs] = useState({});
@@ -273,19 +274,25 @@ function Portfolio() {
 
   const loadData = useCallback(async () => {
     if (!accountReady) return;
+    const productRequest = portfolioAPI.getProducts(accountName);
+    const trendRequest = portfolioAPI.getTrends(accountName);
+
     try {
       setLoading(true);
-      const [productData, trendData] = await Promise.all([
-        portfolioAPI.getProducts(accountName),
-        portfolioAPI.getTrends(accountName)
-      ]);
+      setTrendLoading(true);
+      const productData = await productRequest;
       setProducts(Array.isArray(productData) ? productData : []);
+      setLoading(false);
+
+      const trendData = await trendRequest;
       setTrends(Array.isArray(trendData) ? trendData : []);
       setMessage('');
     } catch (error) {
+      setTrends([]);
       setMessage(error.message || '포트폴리오 데이터를 불러오지 못했습니다.');
     } finally {
       setLoading(false);
+      setTrendLoading(false);
     }
   }, [accountName, accountReady]);
 
@@ -327,6 +334,7 @@ function Portfolio() {
     setSelectedTrendProductIds([]);
     setProducts([]);
     setTrends([]);
+    setTrendLoading(true);
   }, [accountName]);
 
   const recommendedTrendProductIds = useMemo(
@@ -352,7 +360,7 @@ function Portfolio() {
   }, [accountName, products]);
 
   useEffect(() => {
-    if (!accountReady || loading || products.length === 0 || trendSelectionHydratedRef.current) return;
+    if (!accountReady || products.length === 0 || trendSelectionHydratedRef.current) return;
     const availableProductIds = new Set(products.map((product) => String(product.id)));
     const storedIds = readStoredTrendSelection(accountName).filter((id) => availableProductIds.has(id));
     const nextIds = storedIds.length > 0 ? storedIds : recommendedTrendProductIds;
@@ -362,7 +370,7 @@ function Portfolio() {
       setSelectedTrendProductIds(nextIds);
     }
     trendSelectionHydratedRef.current = true;
-  }, [accountName, accountReady, loading, products, recommendedTrendProductIds]);
+  }, [accountName, accountReady, products, recommendedTrendProductIds]);
 
   useEffect(() => {
     if (!trendSelectionHydratedRef.current || !accountName || selectedTrendProductIds.length === 0) return;
@@ -844,7 +852,7 @@ function Portfolio() {
   };
 
   return (
-    <main className="portfolio-container" aria-busy={loading || depositLoading}>
+    <main className="portfolio-container" aria-busy={loading || trendLoading || depositLoading}>
       <AccountSelector value={accountName} onChange={changeAccountName} onAccountsChange={syncAccountProfiles} />
       <section className="portfolio-workspace">
         <aside className="portfolio-left">
@@ -1263,6 +1271,8 @@ function Portfolio() {
                     )}
                   </div>
                 </div>
+              ) : trendLoading ? (
+                <p className="no-data" role="status" aria-live="polite">추이 데이터를 불러오는 중입니다.</p>
               ) : !chartHasValues ? (
                 <div className="trend-empty-state" role="status" aria-live="polite">
                   <strong>선택한 기간에는 표시할 추이 데이터가 없습니다.</strong>
