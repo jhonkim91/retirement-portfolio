@@ -105,6 +105,16 @@
   - `frontend/src/pages/StockResearch.jsx`: 로딩/오류 메시지 `role`/`aria-live` 보강
   - `frontend/src/pages/Portfolio.jsx`, `frontend/src/pages/TradeLog.jsx`: 깨진 빈 상태 문구 복구 및 상태 메시지 접근성 속성 정리
 
+- `2026-04-30`: 운영 단계 자동화 스크립트 추가
+  - GitHub secrets 자동 설정 스크립트 추가: `scripts/setup-prod-smoke-secrets.ps1`
+  - Railway 백엔드 재배포 + `/api/version` + `/api/screener/watch-items` 점검 스크립트 추가: `scripts/redeploy-railway-backend.ps1`
+  - npm 실행 스크립트 추가:
+    - `npm run ops:setup-prod-smoke-secrets`
+    - `npm run ops:redeploy-railway-backend`
+  - 현재 blocker:
+    - `GH_TOKEN` 미설정으로 GitHub secrets 적용 미실행
+    - `RAILWAY_TOKEN`/`RAILWAY_API_TOKEN` 미설정으로 Railway 재배포 미실행
+
 ## deep-research-report_3 진행 추적 (2026-04-30)
 
 - 상세 분류 문서: `docs/deep-research-report-3-tracker.md`

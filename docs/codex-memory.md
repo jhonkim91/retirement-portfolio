@@ -1,6 +1,6 @@
 # Codex Shared Memory
 
-Last updated: 2026-04-30 18:22 KST
+Last updated: 2026-04-30 18:27 KST
 
 ## Current State
 
@@ -62,6 +62,10 @@ npm.cmd run codex:save
   - `frontend/src/App.js`: route wrapper changed to `role="main"` container to avoid nested main landmarks
   - `frontend/src/pages/ImportCenter.jsx`: keyboard-selectable batch rows + live-region status/error/empty messaging
   - `frontend/src/pages/Portfolio.jsx`, `frontend/src/pages/StockResearch.jsx`, `frontend/src/pages/TradeLog.jsx`: live-region consistency and broken empty-copy fixes
+- Added ops automation scripts for blocked external steps:
+  - `scripts/setup-prod-smoke-secrets.ps1` (`GH_TOKEN`-based secrets setup)
+  - `scripts/redeploy-railway-backend.ps1` (Railway deploy + endpoint probes)
+  - `package.json` scripts: `ops:setup-prod-smoke-secrets`, `ops:redeploy-railway-backend`
 
 ## Verification
 
@@ -71,6 +75,8 @@ npm.cmd run codex:save
 - `npm.cmd run typecheck` passed.
 - `npm.cmd run test:frontend` passed: 13 suites / 31 tests.
 - `npm.cmd run test:unit` passed: 1 suite / 5 tests.
+- `npm.cmd run ops:setup-prod-smoke-secrets` blocked as designed when `GH_TOKEN` is missing.
+- `npm.cmd run ops:redeploy-railway-backend -- --SkipDeploy` blocked as designed when Railway token env vars are missing.
 
 ## Next Actions
 
@@ -80,6 +86,9 @@ npm.cmd run codex:save
   - `E2E_PROD_BASE_URL`
   - `E2E_PROD_USERNAME`
   - `E2E_PROD_PASSWORD`
+- Set token env vars before running ops scripts:
+  - `GH_TOKEN`
+  - `RAILWAY_TOKEN` or `RAILWAY_API_TOKEN`
 - Redeploy Railway backend from latest `codex-handoff`, then verify `/api/version` and `/api/screener/watch-items`.
 - Continue remaining partial report items in this order:
   1. accessibility keyboard/ARIA audit

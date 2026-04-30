@@ -15,6 +15,8 @@
     "codex:uninstall-sync": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/codex-sync.ps1 -Mode uninstall-task",
     "codex:install-startup": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/codex-sync.ps1 -Mode install-startup",
     "codex:uninstall-startup": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/codex-sync.ps1 -Mode uninstall-startup",
+    "ops:setup-prod-smoke-secrets": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-prod-smoke-secrets.ps1",
+    "ops:redeploy-railway-backend": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/redeploy-railway-backend.ps1",
     "lint": "npm --prefix frontend run lint",
     "typecheck": "tsc --noEmit -p tests/tsconfig.json",
     "test:unit": "vitest run tests/unit --config tests/vitest.config.ts",

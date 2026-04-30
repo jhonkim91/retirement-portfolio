@@ -143,3 +143,15 @@ npm run test:e2e:prod
   - `frontend/src/pages/StockResearch.jsx`: 로딩/오류 메시지에 `role`/`aria-live` 적용
   - `frontend/src/pages/Portfolio.jsx`, `frontend/src/pages/TradeLog.jsx`: 빈 상태 문구 깨짐 복구 및 상태 영역 접근성 정리
   - 검증: `npm run test:frontend`, `npm run test:unit` 통과
+
+- 운영 실행 자동화 1차
+  - `scripts/setup-prod-smoke-secrets.ps1` 추가:
+    - `GH_TOKEN` + `E2E_PROD_USERNAME` + `E2E_PROD_PASSWORD` 기준으로 GitHub Actions secrets(`E2E_PROD_BASE_URL`, `E2E_PROD_USERNAME`, `E2E_PROD_PASSWORD`) 설정 자동화
+  - `scripts/redeploy-railway-backend.ps1` 추가:
+    - Railway 재배포 자동화 + `/api/version`, `/api/screener/watch-items` 응답코드 점검
+  - `package.json` 실행 스크립트 추가:
+    - `ops:setup-prod-smoke-secrets`
+    - `ops:redeploy-railway-backend`
+  - 현재 상태:
+    - CLI 설치 완료(`gh`, `railway`)
+    - 비대화형 환경 인증 제한으로 `GH_TOKEN`, `RAILWAY_TOKEN` 미설정 시 실행 차단 확인
