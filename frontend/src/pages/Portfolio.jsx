@@ -32,7 +32,33 @@ const PERIOD_UNIT_OPTIONS = [
   { value: 'day', label: '일' }
 ];
 const portfolioPrefillStorageKey = 'portfolio_prefill_product_v1';
+const trendSelectionStoragePrefix = 'portfolio_trend_selection_v1:';
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+const buildTrendSelectionStorageKey = (accountName) => (
+  `${trendSelectionStoragePrefix}${String(accountName || '').trim() || 'default'}`
+);
+
+const normalizeTrendProductIds = (productIds) => (
+  [...new Set((Array.isArray(productIds) ? productIds : []).map((value) => String(value)).filter(Boolean))]
+);
+
+const areSameIdList = (first = [], second = []) => (
+  first.length === second.length && first.every((value, index) => value === second[index])
+);
+
+const getRecommendedTrendProductIds = (products, limit = 3) => (
+  [...products]
+    .sort((left, right) => {
+      const valueGap = Number(right.current_value || 0) - Number(left.current_value || 0);
+      if (valueGap !== 0) return valueGap;
+      const quantityGap = Number(right.quantity || 0) - Number(left.quantity || 0);
+      if (quantityGap !== 0) return quantityGap;
+      return String(left.product_name || '').localeCompare(String(right.product_name || ''), 'ko');
+    })
+    .slice(0, limit)
+    .map((product) => String(product.id))
+);
 
 const toPositiveInteger = (value, fallback = 1) => {
   const number = Number.parseInt(value, 10);
@@ -64,6 +90,36 @@ const readPortfolioPrefillDraft = () => {
     return JSON.parse(localStorage.getItem(portfolioPrefillStorageKey) || 'null');
   } catch (error) {
     return null;
+  }
+};
+
+const readStoredTrendSelection = (accountName) => {
+  try {
+    return normalizeTrendProductIds(
+      JSON.parse(localStorage.getItem(buildTrendSelectionStorageKey(accountName)) || '[]')
+    );
+  } catch (error) {
+    return [];
+  }
+};
+
+const writeStoredTrendSelection = (accountName, productIds) => {
+  if (!accountName) return;
+  const safeIds = normalizeTrendProductIds(productIds);
+  if (safeIds.length === 0) return;
+  try {
+    localStorage.setItem(buildTrendSelectionStorageKey(accountName), JSON.stringify(safeIds));
+  } catch (error) {
+    // Ignore storage errors and keep the current in-memory selection.
+  }
+};
+
+const clearStoredTrendSelection = (accountName) => {
+  if (!accountName) return;
+  try {
+    localStorage.removeItem(buildTrendSelectionStorageKey(accountName));
+  } catch (error) {
+    // Ignore storage errors.
   }
 };
 
@@ -210,8 +266,10 @@ function Portfolio() {
   const [trendRangeAmount, setTrendRangeAmount] = useState('1');
   const [trendRangeUnit, setTrendRangeUnit] = useState('month');
   const [trendIntervalAmount, setTrendIntervalAmount] = useState('1');
+  const [savedTrendProductIds, setSavedTrendProductIds] = useState([]);
   const [incomingPrefillDraft, setIncomingPrefillDraft] = useState(null);
   const prefillAppliedRef = useRef(false);
+  const trendSelectionHydratedRef = useRef(false);
 
   const loadData = useCallback(async () => {
     if (!accountReady) return;
@@ -264,9 +322,55 @@ function Portfolio() {
   }, [accountType, incomingPrefillDraft]);
 
   useEffect(() => {
-    const productIds = products.map((product) => String(product.id));
-    setSelectedTrendProductIds((prev) => prev.filter((id) => productIds.includes(id)));
-  }, [products]);
+    trendSelectionHydratedRef.current = false;
+    setSavedTrendProductIds([]);
+    setSelectedTrendProductIds([]);
+    setProducts([]);
+    setTrends([]);
+  }, [accountName]);
+
+  const recommendedTrendProductIds = useMemo(
+    () => getRecommendedTrendProductIds(products),
+    [products]
+  );
+
+  useEffect(() => {
+    const availableProductIds = new Set(products.map((product) => String(product.id)));
+    setSelectedTrendProductIds((prev) => {
+      const next = prev.filter((id) => availableProductIds.has(id));
+      return areSameIdList(prev, next) ? prev : next;
+    });
+
+    const storedIds = readStoredTrendSelection(accountName).filter((id) => availableProductIds.has(id));
+    if (storedIds.length > 0) {
+      writeStoredTrendSelection(accountName, storedIds);
+    } else if (products.length > 0) {
+      clearStoredTrendSelection(accountName);
+    }
+
+    setSavedTrendProductIds((prev) => (areSameIdList(prev, storedIds) ? prev : storedIds));
+  }, [accountName, products]);
+
+  useEffect(() => {
+    if (!accountReady || loading || products.length === 0 || trendSelectionHydratedRef.current) return;
+    const availableProductIds = new Set(products.map((product) => String(product.id)));
+    const storedIds = readStoredTrendSelection(accountName).filter((id) => availableProductIds.has(id));
+    const nextIds = storedIds.length > 0 ? storedIds : recommendedTrendProductIds;
+
+    setSavedTrendProductIds((prev) => (areSameIdList(prev, storedIds) ? prev : storedIds));
+    if (nextIds.length > 0) {
+      setSelectedTrendProductIds(nextIds);
+    }
+    trendSelectionHydratedRef.current = true;
+  }, [accountName, accountReady, loading, products, recommendedTrendProductIds]);
+
+  useEffect(() => {
+    if (!trendSelectionHydratedRef.current || !accountName || selectedTrendProductIds.length === 0) return;
+    writeStoredTrendSelection(accountName, selectedTrendProductIds);
+    setSavedTrendProductIds((prev) => (
+      areSameIdList(prev, selectedTrendProductIds) ? prev : selectedTrendProductIds
+    ));
+  }, [accountName, selectedTrendProductIds]);
 
   useEffect(() => {
     if (selectedTrendProductIds.length === 0) return;
@@ -287,7 +391,6 @@ function Portfolio() {
     persistAccountName(value);
     setMessage('');
     setLoading(true);
-    setSelectedTrendProductIds([]);
     setActivePanel({ productId: null, mode: null });
     setEditingId(null);
   };
@@ -379,8 +482,14 @@ function Portfolio() {
         });
       }
     });
-    return Array.from(seriesMap.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [filteredTrends]);
+    const selectedOrder = new Map(selectedTrendProductIds.map((id, index) => [String(id), index]));
+    return Array.from(seriesMap.values()).sort((left, right) => {
+      const leftOrder = selectedOrder.has(String(left.id)) ? selectedOrder.get(String(left.id)) : Number.MAX_SAFE_INTEGER;
+      const rightOrder = selectedOrder.has(String(right.id)) ? selectedOrder.get(String(right.id)) : Number.MAX_SAFE_INTEGER;
+      if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+      return left.name.localeCompare(right.name);
+    });
+  }, [filteredTrends, selectedTrendProductIds]);
 
   const chartData = useMemo(() => {
     const rowsByProduct = new Map();
@@ -422,9 +531,12 @@ function Portfolio() {
       return a.product_name.localeCompare(b.product_name);
     })
   ), [windowedTrends]);
-  const selectedTrendProducts = useMemo(() => (
-    products.filter((product) => selectedTrendProductSet.has(String(product.id)))
-  ), [products, selectedTrendProductSet]);
+  const selectedTrendProducts = useMemo(() => {
+    const productsById = new Map(products.map((product) => [String(product.id), product]));
+    return selectedTrendProductIds
+      .map((id) => productsById.get(id))
+      .filter(Boolean);
+  }, [products, selectedTrendProductIds]);
   const trendDataBadges = useMemo(() => {
     const badges = [
       buildDataBadgeDescriptor({
@@ -466,6 +578,29 @@ function Portfolio() {
   const quantityStep = accountType === 'brokerage' ? '1' : '0.0001';
   const quantityLabel = accountType === 'brokerage' ? '수량(주)' : '수량/좌수';
   const quantityHelpText = accountType === 'brokerage' ? '주식 통장은 주 단위로 관리합니다.' : null;
+
+  const selectedTrendTotalValue = selectedTrendProducts.reduce(
+    (sum, product) => sum + Number(product.current_value || 0),
+    0
+  );
+  const trendWindowLabel = trendDateWindow.startDate && trendDateWindow.endDate
+    ? `${formatDateKey(trendDateWindow.startDate)} - ${formatDateKey(trendDateWindow.endDate)}`
+    : '-';
+  const periodUnitLabel = PERIOD_UNIT_OPTIONS.find((option) => option.value === trendRangeUnit)?.label || trendRangeUnit;
+  const canRestoreSavedTrendSelection = savedTrendProductIds.length > 0
+    && !areSameIdList(savedTrendProductIds, selectedTrendProductIds);
+  const trendSelectionHeadline = products.length === 0
+    ? '추이를 그릴 상품이 아직 없습니다.'
+    : selectedTrendProductIds.length === 0
+      ? '지금 비교할 상품을 다시 골라 주세요.'
+      : `${selectedTrendProducts.length}개 상품을 현재 차트에 올려두었습니다.`;
+  const trendSelectionDescription = products.length === 0
+    ? '왼쪽에서 상품을 등록하면 날짜별 수익률 흐름이 이 자리에서 바로 이어집니다.'
+    : selectedTrendProductIds.length === 0
+      ? canRestoreSavedTrendSelection
+        ? `최근에 보던 ${savedTrendProductIds.length}개 조합을 복원하거나, 보유 비중 상위 ${recommendedTrendProductIds.length}개부터 다시 시작할 수 있습니다.`
+        : `보유 비중 상위 ${recommendedTrendProductIds.length}개를 먼저 띄운 뒤 왼쪽 상품 카드에서 더 추가하면 가장 빠르게 비교할 수 있습니다.`
+      : `선택 상품 평가금액 ${formatCurrency(selectedTrendTotalValue)} · 상세 기록 ${trendRows.length.toLocaleString('ko-KR')}건`;
 
   const TrendTooltip = ({ active, payload, label }) => {
     if (!active || !payload?.length) return null;
@@ -686,6 +821,26 @@ function Portfolio() {
     setSelectedTrendProductIds((prev) => (
       prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
     ));
+  };
+
+  const selectRecommendedTrendProducts = () => {
+    if (recommendedTrendProductIds.length === 0) {
+      setMessage('먼저 왼쪽에서 상품을 등록해 주세요.');
+      return;
+    }
+    setSelectedTrendProductIds(recommendedTrendProductIds);
+    setMessage(`보유 비중 상위 ${recommendedTrendProductIds.length}개 상품을 추이 차트에 올렸습니다.`);
+  };
+
+  const restoreSavedTrendProducts = () => {
+    if (savedTrendProductIds.length === 0) return;
+    setSelectedTrendProductIds(savedTrendProductIds);
+    setMessage(`최근에 보던 ${savedTrendProductIds.length}개 상품 조합을 복원했습니다.`);
+  };
+
+  const clearTrendSelection = () => {
+    setSelectedTrendProductIds([]);
+    setMessage('차트 선택을 비웠습니다. 추천 조합이나 왼쪽 상품 카드 체크로 바로 다시 채울 수 있습니다.');
   };
 
   return (
@@ -982,13 +1137,73 @@ function Portfolio() {
         </aside>
 
         <div className="trend-panel">
-          <h2>{accountName} 추이</h2>
+          <div className="trend-panel-header">
+            <div>
+              <h2>{accountName} 추이</h2>
+              <p className="trend-panel-copy">{trendSelectionDescription}</p>
+            </div>
+            <div className="trend-summary-strip" aria-label="추이 요약">
+              <div className="trend-summary-item">
+                <span>선택 상품</span>
+                <strong>{selectedTrendProductIds.length}개</strong>
+              </div>
+              <div className="trend-summary-item">
+                <span>조회 구간</span>
+                <strong>{trendWindowLabel}</strong>
+              </div>
+              <div className="trend-summary-item">
+                <span>표시 간격</span>
+                <strong>{safeTrendIntervalAmount}일 · {trendRangeAmount}{periodUnitLabel}</strong>
+              </div>
+            </div>
+          </div>
           <div className="trend-badges" aria-label="추이 데이터 출처">
             {trendDataBadges.map((badge) => (
               <DataBadge key={`${badge.id}-${badge.note || ''}`} descriptor={badge} compact />
             ))}
           </div>
           <div className="trend-view">
+            <div className="trend-selection-hub">
+              <div className="trend-selection-copy">
+                <strong>{trendSelectionHeadline}</strong>
+                <p>{trendSelectionDescription}</p>
+              </div>
+              <div className="trend-selection-actions">
+                {recommendedTrendProductIds.length > 0 && (
+                  <button type="button" className="trend-action-button primary" onClick={selectRecommendedTrendProducts}>
+                    상위 비중 {recommendedTrendProductIds.length}개
+                  </button>
+                )}
+                {canRestoreSavedTrendSelection && (
+                  <button type="button" className="trend-action-button secondary" onClick={restoreSavedTrendProducts}>
+                    최근 선택 복원
+                  </button>
+                )}
+                {selectedTrendProductIds.length > 0 && (
+                  <button type="button" className="trend-action-button secondary" onClick={clearTrendSelection}>
+                    전체 해제
+                  </button>
+                )}
+              </div>
+              {selectedTrendProducts.length > 0 && (
+                <div className="trend-selected-summary">
+                  <strong>선택된 추이 상품</strong>
+                  <div className="trend-selection-list" aria-label="선택된 추이 상품">
+                    {selectedTrendProducts.map((product) => (
+                      <button
+                        key={product.id}
+                        type="button"
+                        className="trend-selection-chip"
+                        onClick={() => toggleTrendProduct(product.id)}
+                      >
+                        <span>{product.product_name}</span>
+                        <small>{product.product_code}</small>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
             <div className="trend-controls">
               <label className="trend-control-group">
                 <span>기간</span>
@@ -1028,9 +1243,43 @@ function Portfolio() {
             )}
             <div className="trend-chart">
               {selectedTrendProductIds.length === 0 ? (
-                <p className="no-data" role="status" aria-live="polite">비교할 상품을 먼저 선택해 주세요.</p>
+                <div className="trend-empty-state" role="status" aria-live="polite">
+                  <strong>비교할 상품이 아직 비어 있습니다.</strong>
+                  <p>
+                    {canRestoreSavedTrendSelection
+                      ? `최근에 보던 ${savedTrendProductIds.length}개 조합을 복원하거나, 보유 비중 상위 ${recommendedTrendProductIds.length}개를 먼저 띄워보세요.`
+                      : `보유 비중 상위 ${recommendedTrendProductIds.length}개를 먼저 띄운 뒤 왼쪽 상품 카드에서 더 추가하면 흐름을 가장 빨리 읽을 수 있습니다.`}
+                  </p>
+                  <div className="trend-empty-actions">
+                    {recommendedTrendProductIds.length > 0 && (
+                      <button type="button" className="trend-action-button primary" onClick={selectRecommendedTrendProducts}>
+                        상위 비중 {recommendedTrendProductIds.length}개 보기
+                      </button>
+                    )}
+                    {canRestoreSavedTrendSelection && (
+                      <button type="button" className="trend-action-button secondary" onClick={restoreSavedTrendProducts}>
+                        최근 선택 복원
+                      </button>
+                    )}
+                  </div>
+                </div>
               ) : !chartHasValues ? (
-                <p className="no-data" role="status" aria-live="polite">선택한 기간에 표시할 추이 데이터가 없습니다.</p>
+                <div className="trend-empty-state" role="status" aria-live="polite">
+                  <strong>선택한 기간에는 표시할 추이 데이터가 없습니다.</strong>
+                  <p>조회 구간을 넓히거나, 추이 값이 잡힌 추천 조합으로 다시 시작해 보세요.</p>
+                  <div className="trend-empty-actions">
+                    {recommendedTrendProductIds.length > 0 && (
+                      <button type="button" className="trend-action-button primary" onClick={selectRecommendedTrendProducts}>
+                        상위 비중 {recommendedTrendProductIds.length}개로 다시 보기
+                      </button>
+                    )}
+                    {canRestoreSavedTrendSelection && (
+                      <button type="button" className="trend-action-button secondary" onClick={restoreSavedTrendProducts}>
+                        최근 선택 복원
+                      </button>
+                    )}
+                  </div>
+                </div>
               ) : (
                 <ResponsiveContainer width="100%" height={320}>
                   <LineChart data={chartData} margin={{ top: 12, right: 16, left: 18, bottom: 18 }}>
@@ -1061,7 +1310,7 @@ function Portfolio() {
             </div>
           </div>
           <div className="trend-detail">
-            {selectedTrendProducts.length > 0 && (
+            {false && selectedTrendProducts.length > 0 && (
               <div className="trend-selected-summary">
                 <strong>선택한 상품</strong>
                 <div className="trend-selection-list">

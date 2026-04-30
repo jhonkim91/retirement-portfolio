@@ -41,8 +41,22 @@
 .cash-panel, .deposit-panel { display: grid; grid-template-columns: 1fr; gap: 12px; align-items: stretch; }
 .cash-panel h3, .deposit-panel h3 { margin: 0 0 6px; }
 .cash-panel p, .deposit-panel p { margin: 0; color: #697586; font-size: 13px; line-height: 1.5; }
+.trend-panel { display: grid; gap: 14px; }
+.trend-panel-header { display: grid; gap: 12px; }
+.trend-panel-copy { margin: 0; color: #52606d; font-size: 13px; line-height: 1.5; }
+.trend-summary-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; padding: 12px 0; border-top: 1px solid #e5eaf0; border-bottom: 1px solid #e5eaf0; }
+.trend-summary-item { min-width: 0; }
+.trend-summary-item span { display: block; color: #697586; font-size: 12px; margin-bottom: 4px; }
+.trend-summary-item strong { display: block; color: #102a43; font-size: 14px; line-height: 1.4; word-break: break-word; }
 .trend-view { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
 .trend-badges { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 14px; }
+.trend-selection-hub { display: grid; gap: 12px; }
+.trend-selection-copy strong { display: block; color: #102a43; font-size: 15px; line-height: 1.35; }
+.trend-selection-copy p { margin: 6px 0 0; color: #52606d; font-size: 13px; line-height: 1.5; }
+.trend-selection-actions, .trend-empty-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.trend-action-button { min-height: var(--ui-touch-min); border: 1px solid #cbd5e1; border-radius: var(--ui-radius-sm); padding: 9px 12px; font: inherit; font-weight: 800; cursor: pointer; }
+.trend-action-button.primary { border-color: #33658a; background: #33658a; color: #fff; }
+.trend-action-button.secondary { background: #fff; color: #17324d; }
 .trend-controls { display: grid; grid-template-columns: repeat(2, minmax(180px, 1fr)); gap: 12px; align-items: end; }
 .trend-control-group { display: grid; gap: 6px; color: #334155; font-size: 13px; font-weight: 700; }
 .trend-control-row { display: grid; grid-template-columns: minmax(72px, 100px) minmax(92px, 1fr); gap: 8px; align-items: center; }
@@ -50,7 +64,10 @@
 .trend-control-row-compact { grid-template-columns: minmax(72px, 100px) auto; justify-content: start; }
 .trend-unit-suffix { color: #334155; font-size: 14px; font-weight: 800; }
 .trend-chart { min-width: 0; }
-.trend-chart .no-data { min-height: 320px; display: grid; place-items: center; margin: 0; border: 1px dashed #cbd5e1; border-radius: 8px; background: #f8fafc; color: #697586; }
+.trend-chart .no-data, .trend-chart .trend-empty-state { min-height: 320px; display: grid; place-items: center; margin: 0; border: 1px dashed #cbd5e1; border-radius: 8px; background: #f8fafc; color: #697586; }
+.trend-empty-state { gap: 12px; padding: 24px; text-align: center; }
+.trend-empty-state strong { color: #102a43; font-size: 15px; line-height: 1.35; }
+.trend-empty-state p { max-width: 500px; margin: 0; color: #52606d; font-size: 13px; line-height: 1.55; }
 .trend-tooltip { min-width: 190px; border: 1px solid #d9e2ec; border-radius: 8px; background: #fff; padding: 10px 12px; box-shadow: 0 10px 26px rgba(15, 23, 42, .14); }
 .trend-tooltip > strong { display: block; margin-bottom: 8px; color: #102a43; font-size: 13px; }
 .trend-tooltip-item { display: grid; gap: 3px; padding-top: 8px; border-top: 1px solid #edf2f7; color: #52606d; font-size: 12px; }
@@ -58,7 +75,7 @@
 .trend-tooltip-name { font-weight: 850; }
 .trend-detail { border-top: 1px solid #e5eaf0; margin-top: 18px; padding-top: 18px; }
 .trend-detail h3 { margin: 0 0 10px; }
-.trend-selected-summary { display: grid; gap: 10px; margin-bottom: 14px; }
+.trend-selected-summary { display: grid; gap: 10px; margin-bottom: 0; }
 .trend-selected-summary > strong { color: #17324d; font-size: 14px; }
 .trend-selection-list { display: flex; flex-wrap: wrap; gap: 8px; }
 .trend-selection-chip { display: grid; gap: 2px; border: 1px solid #d9e2ec; background: #f8fbff; border-radius: 999px; padding: 8px 12px; text-align: left; color: #17324d; cursor: pointer; }
@@ -130,5 +147,5 @@
 .panel-fields button { border: 0; background: #33658a; color: #fff; border-radius: var(--ui-radius-sm); padding: 10px 13px; font-weight: 800; }
 .edit-panel input, .edit-panel select { width: 100%; height: 46px; border: 1px solid #cbd5e1; border-radius: var(--ui-radius-sm); padding: 10px 11px; font: inherit; line-height: 1.25; }
 @media (max-width: 1100px) { .portfolio-workspace { grid-template-columns: 1fr; } .product-entry-panel, .trend-panel { min-height: auto; } .trend-panel { order: -1; } }
-@media (max-width: 980px) { .product-row, .trend-view { grid-template-columns: 1fr; } }
-@media (max-width: 640px) { .portfolio-container { padding: var(--ui-page-padding-mobile); } .product-entry-panel, .trend-panel, .holding-panel, .cash-panel, .deposit-panel { padding: 12px; } .portfolio-container h1 { font-size: var(--ui-title-size-mobile); } .portfolio-container h2 { font-size: 21px; } .product-entry-panel h1 { font-size: 22px; } .product-entry-panel .subtitle { font-size: 12px; line-height: 1.4; } .subtitle { font-size: 13px; line-height: 1.45; } .form-row, .card-actions, .inline-actions, .inline-actions:has(input + input), .buy-actions, .sell-actions, .price-fields, .buy-fields, .sell-fields, .cash-panel, .deposit-panel, .cash-actions, .deposit-actions, .trend-controls, .trend-control-row { grid-template-columns: 1fr; } .holding-card-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; } .holding-title { grid-column: 1 / -1; } .trend-card-check { grid-column: 1 / -1; width: auto; height: auto; border: 0; background: transparent; justify-content: start; padding: 0; } .holding-stat strong { white-space: normal; word-break: break-word; } .trend-control-row-compact { grid-template-columns: minmax(88px, 1fr) auto; } .trend-chart { overflow-x: auto; padding-bottom: 4px; } .trend-chart .recharts-responsive-container { min-width: 540px; } .trend-mobile-list { display: grid; } .trend-table-wrapper { display: none; } .panel-heading { display: block; } .panel-heading span { display: block; margin-top: 4px; } .delete-action { justify-self: stretch; } .delete-btn, .row-actions button, .panel-fields button, .card-actions button { width: 100%; } }
+@media (max-width: 980px) { .product-row, .trend-view, .trend-summary-strip { grid-template-columns: 1fr; } }
+@media (max-width: 640px) { .portfolio-container { padding: var(--ui-page-padding-mobile); } .product-entry-panel, .trend-panel, .holding-panel, .cash-panel, .deposit-panel { padding: 12px; } .portfolio-container h1 { font-size: var(--ui-title-size-mobile); } .portfolio-container h2 { font-size: 21px; } .product-entry-panel h1 { font-size: 22px; } .product-entry-panel .subtitle { font-size: 12px; line-height: 1.4; } .subtitle { font-size: 13px; line-height: 1.45; } .form-row, .card-actions, .inline-actions, .inline-actions:has(input + input), .buy-actions, .sell-actions, .price-fields, .buy-fields, .sell-fields, .cash-panel, .deposit-panel, .cash-actions, .deposit-actions, .trend-controls, .trend-control-row { grid-template-columns: 1fr; } .holding-card-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; } .holding-title { grid-column: 1 / -1; } .trend-card-check { grid-column: 1 / -1; width: auto; height: auto; border: 0; background: transparent; justify-content: start; padding: 0; } .holding-stat strong { white-space: normal; word-break: break-word; } .trend-control-row-compact { grid-template-columns: minmax(88px, 1fr) auto; } .trend-chart { overflow-x: auto; padding-bottom: 4px; } .trend-chart .recharts-responsive-container { min-width: 540px; } .trend-mobile-list { display: grid; } .trend-table-wrapper { display: none; } .panel-heading { display: block; } .panel-heading span { display: block; margin-top: 4px; } .delete-action { justify-self: stretch; } .delete-btn, .row-actions button, .panel-fields button, .card-actions button, .trend-action-button { width: 100%; } .trend-selection-actions, .trend-empty-actions { display: grid; grid-template-columns: 1fr; } }
