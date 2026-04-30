@@ -81,6 +81,7 @@ function Dashboard() {
     accountName,
     accountReady,
     changeAccountName: persistAccountName,
+    selectedAccountProfile,
     syncAccountProfiles
   } = useResolvedAccount();
   const [summary, setSummary] = useState(null);
@@ -96,8 +97,8 @@ function Dashboard() {
   const [analyticsRaw, setAnalyticsRaw] = useState({
     allProducts: [],
     transactions: [],
-      trends: [],
-      benchmark: { name: DEFAULT_BENCHMARKS.retirement.name, series: [] }
+    trends: [],
+    benchmark: { name: DEFAULT_BENCHMARKS.retirement.name, series: [] }
   });
   const analyticsScope = 'account';
   const [domainModel, setDomainModel] = useState(null);
@@ -364,6 +365,13 @@ function Dashboard() {
   const targetRate = summary?.account_type === 'brokerage' ? 12 : 8;
   const targetDeviation = Number(summary?.total_profit_rate || 0) - targetRate;
   const riskShare = Number(summary?.asset_allocation?.risk?.percentage || 0);
+  const safeShare = Number(summary?.asset_allocation?.safe?.percentage || 0);
+  const accountTypeLabel = selectedAccountProfile?.account_type_label || summary?.account_type_label || '계좌';
+  const accountCategoryLabel = selectedAccountProfile?.account_category_label || summary?.account_category_label || '';
+  const accountContextLabel = [accountName, accountTypeLabel, accountCategoryLabel].filter(Boolean).join(' · ');
+  const accountStrategyHint = summary?.account_type === 'brokerage'
+    ? '주식 통장 기준으로 오늘 변동, 편차, 경고를 먼저 보고 필요한 상세 영역으로 내려가세요.'
+    : '퇴직연금 규칙과 오늘 변동을 먼저 확인하고, 필요한 상세 영역으로 이어서 점검하세요.';
 
   const anomalies = useMemo(() => {
     const issues = [];
@@ -391,19 +399,31 @@ function Dashboard() {
       .slice(0, 4)
   ), [products]);
 
+  const largestHolding = useMemo(() => (
+    [...products]
+      .sort((left, right) => Number(right.current_value || 0) - Number(left.current_value || 0))[0] || null
+  ), [products]);
+
   const topLoss = useMemo(() => (
     [...products]
       .sort((left, right) => Number(left.profit_rate || 0) - Number(right.profit_rate || 0))[0]
   ), [products]);
+
+  const focusTone = anomalies.length > 0 ? 'warning' : (isStale ? 'stale' : 'stable');
+  const focusLabel = anomalies.length > 0 ? '주의 필요' : (isStale ? '갱신 필요' : '안정');
+  const focusDescription = anomalies[0]
+    || (isStale ? '시세 또는 원장 기준 시각을 한 번 갱신하는 편이 좋습니다.' : '큰 경고 없이 운영 중입니다.');
+  const dashboardAsOfLabel = dashboardAsOf ? formatDate(dashboardAsOf) : '기준 시각 없음';
 
   const todayFocusItems = useMemo(() => {
     const focus = [];
     if (isStale) focus.push('먼저 가격 동기화를 눌러 최신 시세로 맞춰주세요.');
     if (anomalies.length > 0) focus.push(`이상 징후 ${anomalies.length}건을 확인해 주세요.`);
     if (topLoss) focus.push(`수익률 하위 종목: ${topLoss.product_name} (${formatPercent(topLoss.profit_rate)})`);
+    if (largestHolding) focus.push(`비중 점검 종목: ${largestHolding.product_name} (${formatCurrency(largestHolding.current_value)})`);
     focus.push(`다음 리밸런싱 예정: ${nextRebalanceDate().toLocaleDateString('ko-KR')}`);
     return focus;
-  }, [anomalies.length, isStale, topLoss]);
+  }, [anomalies.length, isStale, largestHolding, topLoss]);
 
   const emptyState = !loading && !error && products.length === 0;
 
@@ -440,7 +460,7 @@ function Dashboard() {
     setAnalyticsError('');
   };
 
-  const summaryCards = [
+  const primaryCards = [
     {
       key: 'total',
       title: '총자산',
@@ -466,13 +486,25 @@ function Dashboard() {
       trend: targetDeviation >= 0 ? 'positive' : 'negative',
       onClick: () => goSection('ops-drill-holdings'),
       badge: ledgerBadge
-    },
+    }
+  ];
+
+  const secondaryCards = [
     {
       key: 'anomaly',
       title: '데이터 이상 징후',
       value: `${anomalies.length}건`,
       description: anomalies[0] || '현재 이상 징후가 없습니다.',
       onClick: () => goSection('ops-drill-anomalies'),
+      badge: marketBadge
+    },
+    {
+      key: 'allocation',
+      title: '자산 비중',
+      value: `위험 ${formatPercent(riskShare)}`,
+      description: `안전자산 ${formatPercent(safeShare)}`,
+      trend: summary?.account_type !== 'brokerage' && riskShare > 70 ? 'negative' : 'positive',
+      onClick: () => goSection('ops-drill-holdings'),
       badge: marketBadge
     },
     {
@@ -486,19 +518,11 @@ function Dashboard() {
       badge: ledgerBadge
     },
     {
-      key: 'event',
-      title: '오늘의 이벤트',
-      value: `${todaysLogs.length}건`,
-      description: `다음 리밸런싱 ${nextRebalanceDate().toLocaleDateString('ko-KR')}`,
-      onClick: () => goSection('ops-drill-events'),
-      badge: ledgerBadge
-    },
-    {
       key: 'watch',
-      title: '관심 종목 상태',
+      title: '보유 상위 종목',
       value: `${watchlistStatus.length}종목`,
-      description: watchlistStatus[0]
-        ? `${watchlistStatus[0].product_name} ${formatPercent(watchlistStatus[0].profit_rate)}`
+      description: largestHolding
+        ? `${largestHolding.product_name} ${formatCurrency(largestHolding.current_value)}`
         : '보유 종목이 없습니다.',
       onClick: () => goSection('ops-drill-holdings'),
       badge: marketBadge
@@ -540,19 +564,40 @@ function Dashboard() {
     <main className="dashboard dashboard-cockpit">
       <AccountSelector value={accountName} onChange={changeAccountName} onAccountsChange={syncAccountProfiles} />
 
-      <header className="ops-header">
-        <div>
+      <header className="ops-hero">
+        <div className="ops-hero-main">
+          <p className="ops-eyebrow">{accountContextLabel}</p>
           <h1>운영 대시보드</h1>
-          <p>오늘 확인할 핵심 지표와 이상 징후를 먼저 보고, 필요한 곳으로 바로 내려가세요.</p>
+          <p className="ops-hero-copy">{accountStrategyHint}</p>
+          <div className="ops-source-row" aria-label="데이터 기준 정보">
+            <DataBadge descriptor={ledgerBadge} compact />
+            <DataBadge descriptor={marketBadge} compact />
+            <span className="ops-asof">기준 {dashboardAsOfLabel}</span>
+          </div>
         </div>
-        <div className="ops-header-actions">
-          <button type="button" onClick={syncPrices} disabled={syncing} aria-label="가격 동기화">
-            {syncing ? '동기화 중...' : '가격 동기화'}
+
+        <aside className="ops-command-panel" aria-label="빠른 작업">
+          <div className="ops-command-status">
+            <span className={`ops-status-chip ${focusTone}`}>{focusLabel}</span>
+            <p>{focusDescription}</p>
+          </div>
+          <div className="ops-header-actions">
+            <button type="button" onClick={syncPrices} disabled={syncing} aria-label="가격 동기화">
+              {syncing ? '동기화 중...' : '가격 동기화'}
+            </button>
+            <button type="button" onClick={() => fetchCoreDashboardData({ silent: true })} aria-label="대시보드 새로고침">
+              새로고침
+            </button>
+          </div>
+          <button
+            type="button"
+            className="ops-link-button ops-link-button-inline"
+            onClick={() => setShowInsights((prev) => !prev)}
+            aria-label="심층 차트 토글"
+          >
+            {showInsights ? '심층 분석 접기' : '심층 분석 열기'}
           </button>
-          <button type="button" onClick={() => fetchCoreDashboardData({ silent: true })} aria-label="대시보드 새로고침">
-            새로고침
-          </button>
-        </div>
+        </aside>
       </header>
 
       {notice && <div className="ops-notice" role="status">{notice}</div>}
@@ -564,40 +609,90 @@ function Dashboard() {
         </div>
       )}
 
-      <section className="ops-cards" aria-label="핵심 운영 카드">
-        {summaryCards.map((card) => (
-          <article
-            key={card.key}
-            className="ops-card"
-            role="button"
-            tabIndex={0}
-            aria-label={`${card.title} 카드`}
-            onClick={card.onClick}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                card.onClick();
-              }
-            }}
-          >
-            <div className="ops-card-head">
-              <h2>{card.title}</h2>
-              <DataBadge descriptor={card.badge} compact />
-            </div>
-            <p className={`ops-card-value ${card.trend || ''}`}>{card.value}</p>
-            <p className="ops-card-desc">{card.description}</p>
-          </article>
-        ))}
+      <section className="ops-priority-layout" aria-label="오늘의 우선순위">
+        <div className="ops-priority-main">
+          <div className="ops-section-copy">
+            <h2>지금 확인할 핵심</h2>
+            <p>총자산, 오늘 변동, 목표 편차부터 본 뒤 필요한 상세 패널로 내려가세요.</p>
+          </div>
+          <section className="ops-cards ops-cards-primary" aria-label="핵심 운영 카드">
+            {primaryCards.map((card) => (
+              <article
+                key={card.key}
+                className="ops-card ops-card-primary"
+                role="button"
+                tabIndex={0}
+                aria-label={`${card.title} 카드`}
+                onClick={card.onClick}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    card.onClick();
+                  }
+                }}
+              >
+                <div className="ops-card-head">
+                  <h3>{card.title}</h3>
+                  <DataBadge descriptor={card.badge} compact />
+                </div>
+                <p className={`ops-card-value ${card.trend || ''}`}>{card.value}</p>
+                <p className="ops-card-desc">{card.description}</p>
+              </article>
+            ))}
+          </section>
+        </div>
+
+        <aside className="ops-focus-panel" aria-label="오늘 볼 것">
+          <div className="ops-focus-head">
+            <h2>오늘 볼 것</h2>
+            <span className={`ops-status-chip ${focusTone}`}>{focusLabel}</span>
+          </div>
+          <ul className="ops-focus-list">
+            {todayFocusItems.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+          <div className="ops-focus-actions">
+            <button type="button" onClick={() => goSection('ops-drill-anomalies')}>
+              경고 보기
+            </button>
+            <button type="button" onClick={() => goSection('ops-drill-holdings')}>
+              보유 보기
+            </button>
+          </div>
+        </aside>
       </section>
 
-      <section className="ops-today" aria-label="오늘 볼 것">
-        <h2>오늘 볼 것</h2>
-        <DataBadge descriptor={ledgerBadge} compact />
-        <ul>
-          {todayFocusItems.map((item) => (
-            <li key={item}>{item}</li>
+      <section className="ops-secondary-band" aria-label="보조 운영 카드">
+        <div className="ops-section-copy">
+          <h2>운영 요약</h2>
+          <p>자산 비중, 경고, 최근 기록, 보유 상위 종목을 한 줄에서 빠르게 훑습니다.</p>
+        </div>
+        <section className="ops-cards ops-cards-secondary" aria-label="보조 운영 카드">
+          {secondaryCards.map((card) => (
+            <article
+              key={card.key}
+              className="ops-card ops-card-secondary"
+              role="button"
+              tabIndex={0}
+              aria-label={`${card.title} 카드`}
+              onClick={card.onClick}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  card.onClick();
+                }
+              }}
+            >
+              <div className="ops-card-head">
+                <h3>{card.title}</h3>
+                <DataBadge descriptor={card.badge} compact />
+              </div>
+              <p className={`ops-card-value ${card.trend || ''}`}>{card.value}</p>
+              <p className="ops-card-desc">{card.description}</p>
+            </article>
           ))}
-        </ul>
+        </section>
       </section>
 
       {emptyState && (
@@ -611,96 +706,91 @@ function Dashboard() {
         </section>
       )}
 
-      <section id="ops-drill-anomalies" className="ops-panel" aria-label="데이터 이상 징후 상세">
-        <div className="ops-panel-head">
-          <h2>데이터 이상 징후</h2>
-          <DataBadge descriptor={marketBadge} compact />
-        </div>
-        {anomalies.length === 0 ? (
-          <p className="ops-empty">현재 확인된 이상 징후가 없습니다.</p>
-        ) : (
-          <ul className="ops-list">
-            {anomalies.map((issue) => <li key={issue}>{issue}</li>)}
-          </ul>
-        )}
-      </section>
+      <section className="ops-drill-grid" aria-label="상세 운영 패널">
+        <section id="ops-drill-anomalies" className="ops-panel" aria-label="데이터 이상 징후 상세">
+          <div className="ops-panel-head">
+            <h2>데이터 이상 징후</h2>
+            <DataBadge descriptor={marketBadge} compact />
+          </div>
+          {anomalies.length === 0 ? (
+            <p className="ops-empty">현재 확인된 이상 징후가 없습니다.</p>
+          ) : (
+            <ul className="ops-list">
+              {anomalies.map((issue) => <li key={issue}>{issue}</li>)}
+            </ul>
+          )}
+        </section>
 
-      <section id="ops-drill-journal" className="ops-panel" aria-label="최근 일지">
-        <div className="ops-panel-head">
-          <h2>최근 일지 3개</h2>
-          <DataBadge descriptor={ledgerBadge} compact />
-        </div>
-        {recentLogs.length === 0 ? (
-          <p className="ops-empty">최근 기록이 없습니다.</p>
-        ) : (
-          <ul className="ops-log-list">
-            {recentLogs.slice(0, 3).map((log) => (
-              <li key={log.id}>
-                <strong>{log.product_name}</strong>
-                <span>{log.trade_type}</span>
-                <span>{formatCurrency(log.total_amount)}</span>
-                <time>{formatDate(log.trade_date)}</time>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+        <section id="ops-drill-events" className="ops-panel" aria-label="오늘의 이벤트">
+          <div className="ops-panel-head">
+            <h2>오늘의 이벤트</h2>
+            <DataBadge descriptor={ledgerBadge} compact />
+          </div>
+          <p className="ops-next-rebalance">다음 리밸런싱: {nextRebalanceDate().toLocaleDateString('ko-KR')}</p>
+          {todaysLogs.length === 0 ? (
+            <p className="ops-empty">오늘 기록된 이벤트가 없습니다.</p>
+          ) : (
+            <ul className="ops-list">
+              {todaysLogs.slice(0, 5).map((log) => (
+                <li key={log.id}>{log.product_name} {log.trade_type} {formatCurrency(log.total_amount)}</li>
+              ))}
+            </ul>
+          )}
+        </section>
 
-      <section id="ops-drill-events" className="ops-panel" aria-label="오늘의 이벤트">
-        <div className="ops-panel-head">
-          <h2>오늘의 이벤트</h2>
-          <DataBadge descriptor={ledgerBadge} compact />
-        </div>
-        <p className="ops-next-rebalance">다음 리밸런싱: {nextRebalanceDate().toLocaleDateString('ko-KR')}</p>
-        {todaysLogs.length === 0 ? (
-          <p className="ops-empty">오늘 기록된 이벤트가 없습니다.</p>
-        ) : (
-          <ul className="ops-list">
-            {todaysLogs.slice(0, 5).map((log) => (
-              <li key={log.id}>{log.product_name} {log.trade_type} {formatCurrency(log.total_amount)}</li>
-            ))}
-          </ul>
-        )}
-      </section>
+        <section id="ops-drill-journal" className="ops-panel" aria-label="최근 일지">
+          <div className="ops-panel-head">
+            <h2>최근 일지 3개</h2>
+            <DataBadge descriptor={ledgerBadge} compact />
+          </div>
+          {recentLogs.length === 0 ? (
+            <p className="ops-empty">최근 기록이 없습니다.</p>
+          ) : (
+            <ul className="ops-log-list">
+              {recentLogs.slice(0, 3).map((log) => (
+                <li key={log.id}>
+                  <strong>{log.product_name}</strong>
+                  <span>{log.trade_type}</span>
+                  <span>{formatCurrency(log.total_amount)}</span>
+                  <time>{formatDate(log.trade_date)}</time>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
 
-      <section id="ops-drill-holdings" className="ops-panel" aria-label="관심 종목 상태">
-        <div className="ops-panel-head">
-          <h2>관심 종목 상태</h2>
-          <DataBadge descriptor={marketBadge} compact />
-        </div>
-        {watchlistStatus.length === 0 ? (
-          <p className="ops-empty">보유 종목이 없습니다.</p>
-        ) : (
-          <ul className="ops-holding-list">
-            {watchlistStatus.map((item) => (
-              <li key={item.id}>
-                <div>
-                  <strong>{item.product_name}</strong>
-                  <p>{item.product_code}</p>
-                </div>
-                <div>
-                  <strong className={Number(item.profit_rate || 0) >= 0 ? 'positive' : 'negative'}>
-                    {formatPercent(item.profit_rate)}
-                  </strong>
-                  <p>{formatCurrency(item.current_value)}</p>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
+        <section id="ops-drill-holdings" className="ops-panel" aria-label="관심 종목 상태">
+          <div className="ops-panel-head">
+            <h2>관심 종목 상태</h2>
+            <DataBadge descriptor={marketBadge} compact />
+          </div>
+          {watchlistStatus.length === 0 ? (
+            <p className="ops-empty">보유 종목이 없습니다.</p>
+          ) : (
+            <ul className="ops-holding-list">
+              {watchlistStatus.map((item) => (
+                <li key={item.id}>
+                  <div>
+                    <strong>{item.product_name}</strong>
+                    <p>{item.product_code}</p>
+                  </div>
+                  <div>
+                    <strong className={Number(item.profit_rate || 0) >= 0 ? 'positive' : 'negative'}>
+                      {formatPercent(item.profit_rate)}
+                    </strong>
+                    <p>{formatCurrency(item.current_value)}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       </section>
 
       <section className="ops-insights" aria-label="심층 분석">
         <div className="ops-panel-head">
           <h2>심층 분석</h2>
-          <button
-            type="button"
-            className="ops-link-button"
-            onClick={() => setShowInsights((prev) => !prev)}
-            aria-label="심층 차트 토글"
-          >
-            {showInsights ? '접기' : '차트 열기'}
-          </button>
+          <span className="ops-insight-caption">필요할 때만 열기</span>
         </div>
         {!showInsights && (
           <p className="ops-empty">첫 화면 성능을 위해 심층 차트는 필요할 때만 불러옵니다.</p>
