@@ -139,11 +139,6 @@ exports[`Dashboard cockpit matches empty/onboarding snapshot 1`] = `
               <h3>
                 총자산
               </h3>
-              <span
-                data-testid="data-badge"
-              >
-                badge
-              </span>
             </div>
             <p
               class="ops-card-value "
@@ -168,11 +163,6 @@ exports[`Dashboard cockpit matches empty/onboarding snapshot 1`] = `
               <h3>
                 오늘 변동
               </h3>
-              <span
-                data-testid="data-badge"
-              >
-                badge
-              </span>
             </div>
             <p
               class="ops-card-value positive"
@@ -197,11 +187,6 @@ exports[`Dashboard cockpit matches empty/onboarding snapshot 1`] = `
               <h3>
                 목표 대비 편차
               </h3>
-              <span
-                data-testid="data-badge"
-              >
-                badge
-              </span>
             </div>
             <p
               class="ops-card-value negative"
@@ -291,11 +276,6 @@ exports[`Dashboard cockpit matches empty/onboarding snapshot 1`] = `
             <h3>
               데이터 이상 징후
             </h3>
-            <span
-              data-testid="data-badge"
-            >
-              badge
-            </span>
           </div>
           <p
             class="ops-card-value "
@@ -320,11 +300,6 @@ exports[`Dashboard cockpit matches empty/onboarding snapshot 1`] = `
             <h3>
               자산 비중
             </h3>
-            <span
-              data-testid="data-badge"
-            >
-              badge
-            </span>
           </div>
           <p
             class="ops-card-value positive"
@@ -349,11 +324,6 @@ exports[`Dashboard cockpit matches empty/onboarding snapshot 1`] = `
             <h3>
               최근 일지
             </h3>
-            <span
-              data-testid="data-badge"
-            >
-              badge
-            </span>
           </div>
           <p
             class="ops-card-value "
@@ -378,11 +348,6 @@ exports[`Dashboard cockpit matches empty/onboarding snapshot 1`] = `
             <h3>
               보유 상위 종목
             </h3>
-            <span
-              data-testid="data-badge"
-            >
-              badge
-            </span>
           </div>
           <p
             class="ops-card-value "

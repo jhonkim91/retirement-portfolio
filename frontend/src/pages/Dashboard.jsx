@@ -633,7 +633,6 @@ function Dashboard() {
               >
                 <div className="ops-card-head">
                   <h3>{card.title}</h3>
-                  <DataBadge descriptor={card.badge} compact />
                 </div>
                 <p className={`ops-card-value ${card.trend || ''}`}>{card.value}</p>
                 <p className="ops-card-desc">{card.description}</p>
@@ -686,7 +685,6 @@ function Dashboard() {
             >
               <div className="ops-card-head">
                 <h3>{card.title}</h3>
-                <DataBadge descriptor={card.badge} compact />
               </div>
               <p className={`ops-card-value ${card.trend || ''}`}>{card.value}</p>
               <p className="ops-card-desc">{card.description}</p>

@@ -1,6 +1,6 @@
 # Codex Shared Memory
 
-Last updated: 2026-04-30 21:18 KST
+Last updated: 2026-04-30 22:07 KST
 
 ## Current State
 
@@ -13,6 +13,7 @@ Last updated: 2026-04-30 21:18 KST
 - Cleanup pass completed: CRA boilerplate/test/logo assets and static `example.com` placeholders were removed or replaced. Local generated logs, caches, build output, test results, root dummy DBs, and backend test DBs were deleted. `.env`, dependency folders, and `backend/instance/retirement.db` were intentionally kept.
 - UI improvement Step 1 is implemented: pages now wait for resolved account metadata before first account-scoped fetch, empty accounts are labeled clearly, and broken account names are blocked on create/rename while legacy broken names are surfaced as warnings.
 - Playwright Chromium was installed on this PC so browser-based local verification can run without extra setup.
+- UI improvement Step 2 is implemented: the dashboard first screen now separates primary KPIs, the immediate action/status rail, and secondary summary cards so the user sees current state, warnings, and next actions before the detailed panels.
 
 ## Resume Checklist
 
@@ -82,6 +83,10 @@ npm.cmd run codex:save
   - `frontend/src/components/AccountSelector.jsx` and `frontend/src/App.css`: selector now shows account type/status badges, counts, cash, empty-account guidance, and legacy-name warnings
   - `frontend/src/pages/Dashboard.jsx`, `Portfolio.jsx`, `TradeLog.jsx`, `StockResearch.jsx`, `StockScreener.jsx`, `ImportCenter.jsx`: migrated to the shared account-resolution flow
   - tests added in `backend/tests/test_account_profiles.py` and `frontend/src/utils/__tests__/accountSelection.test.js`
+- Completed UI improvement Step 2 dashboard first-screen redesign:
+  - `frontend/src/pages/Dashboard.jsx`: reorganized the first screen into account context hero, quick-action/status rail, 3 primary KPI cards, a focused "오늘 볼 것" panel, and 4 secondary summary cards before the drill-down panels
+  - `frontend/src/styles/Dashboard.css`: rebuilt the dashboard layout and card hierarchy for a denser operational scan pattern across desktop/mobile
+  - `frontend/src/pages/__tests__/Dashboard.test.jsx` snapshots updated for the new hierarchy
 
 ## Verification
 
@@ -98,6 +103,10 @@ npm.cmd run codex:save
 - `npm.cmd run test:frontend` passed: 13 suites / 33 tests after adding account selection coverage.
 - `npm.cmd run build:frontend` passed after Step 1 account-entry changes.
 - Local dev server responded at `http://127.0.0.1:3001`, and a Playwright screenshot check (`test-results/ui-step1-dashboard.png`) confirmed the logged-out app shell loads with visible content and no browser errors.
+- `npm.cmd --prefix frontend run test -- src/pages/__tests__/Dashboard.test.jsx --watchAll=false -u` passed after Step 2 dashboard layout updates.
+- `npm.cmd run test:frontend` passed again: 13 suites / 33 tests.
+- `npm.cmd run build:frontend` passed again after Step 2 dashboard changes.
+- Local verification with frontend `http://127.0.0.1:3001` and backend `http://127.0.0.1:5000` confirmed the authenticated dashboard renders the resolved populated brokerage account instead of the empty default account; screenshots saved under `test-results/dashboard-step2-debug-products.png` and `test-results/dashboard-step2-verified.png`.
 
 ## Next Actions
 
@@ -112,11 +121,10 @@ npm.cmd run codex:save
   - `RAILWAY_TOKEN` or `RAILWAY_API_TOKEN`
 - Redeploy Railway backend from latest `codex-handoff`, then verify `/api/version` and `/api/screener/watch-items`.
 - Continue the UI improvement plan from `docs/ui-improvement-step-plan.md` in this order:
-  1. Step 2 dashboard 1-screen structure redesign
-  2. Step 3 portfolio trend workspace re-layout
-  3. Step 4 trade log vs audit trail separation polish
-  4. Step 5 analytics trust-guard rules
-  5. Step 6 account-type template branching
+  1. Step 3 portfolio trend workspace re-layout
+  2. Step 4 trade log vs audit trail separation polish
+  3. Step 5 analytics trust-guard rules
+  4. Step 6 account-type template branching
 - After the UI plan resumes, continue remaining cross-cutting report items:
   1. accessibility keyboard/ARIA audit
   2. error/empty-state message consistency
