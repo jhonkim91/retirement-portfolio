@@ -176,6 +176,35 @@ function Install-StartupSync {
   )
 
   Write-Log "Installed Startup auto-sync launcher: $startupScript"
+  Start-StartupLoop
+}
+
+function Get-StartupLoopProcesses {
+  $loopPath = (Join-Path $PSScriptRoot "codex-sync-loop.ps1")
+  try {
+    return @(Get-CimInstance Win32_Process | Where-Object {
+      $_.CommandLine -and
+      $_.CommandLine.Contains("codex-sync-loop.ps1") -and
+      $_.CommandLine.Contains($loopPath)
+    })
+  }
+  catch {
+    Write-Log ("Could not inspect running processes: {0}" -f $_.Exception.Message)
+    return @()
+  }
+}
+
+function Start-StartupLoop {
+  $running = Get-StartupLoopProcesses
+  if ($running.Count -gt 0) {
+    Write-Log "Background auto-sync loop is already running."
+    return
+  }
+
+  $loopPath = Join-Path $PSScriptRoot "codex-sync-loop.ps1"
+  $arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$loopPath`" -IntervalMinutes $IntervalMinutes -Branch `"$Branch`" -Remote `"$Remote`""
+  Start-Process -FilePath "powershell.exe" -ArgumentList $arguments -WindowStyle Hidden
+  Write-Log "Started background auto-sync loop for the current Windows session."
 }
 
 function Uninstall-SyncTask {
@@ -204,6 +233,12 @@ function Uninstall-StartupSync {
   }
   else {
     Write-Log "Startup auto-sync launcher was not installed."
+  }
+
+  $running = Get-StartupLoopProcesses
+  foreach ($process in $running) {
+    Stop-Process -Id $process.ProcessId -Force
+    Write-Log "Stopped background auto-sync loop process $($process.ProcessId)."
   }
 }
 
