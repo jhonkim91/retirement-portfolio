@@ -39,8 +39,8 @@
 | 스크리너 후보 -> 분석 엔진 연결 | 완료 | 스크리너에서 분석 엔진 이동 반영 |
 | 계좌별 분석 리포트 export | 완료 | HTML export 반영 |
 | 보안 헤더(CSP/HSTS/XFO/XCTO/Referrer-Policy) | 완료 | 백엔드/프론트 설정 반영 |
-| 접근성(skip link/landmark/KWCAG AA) | 부분 완료 | landing/app skip link 반영, 나머지 landmark/aria/키보드 흐름 점검 필요 |
-| 에러/빈 상태 UX | 부분 완료 | 주요 화면은 있음, 전 구간 통일 점검 필요 |
+| 접근성(skip link/landmark/KWCAG AA) | 부분 완료 | skip link + main landmark + Import Center 키보드 행 선택 반영, 전 화면 키보드 흐름 추가 점검 필요 |
+| 에러/빈 상태 UX | 부분 완료 | Portfolio/StockResearch/ImportCenter/TradeLog 상태 메시지 live region 확장, 잔여 화면 통일 점검 필요 |
 | QA/스냅샷/단위 테스트 | 부분 완료 | 분석 엔진/대시보드 중심 반영, 전체 회귀 범위는 추가 여지 있음 |
 | BFF/캐시/복구 정책 문서화 | 부분 완료 | 정책 문서와 재시도/backoff 표 추가, 운영 지표 구현은 후속 보강 필요 |
 | 운영 smoke 자동화 | 진행 중 | Playwright prod smoke와 GitHub Actions 워크플로우는 있음, 운영 secrets 설정 후 실제 로그인 검증 필요 |
@@ -58,6 +58,8 @@
 - [x] 보고서 기반 업데이트 목록 재대조
 - [x] Import Center/모바일 마감 stale 체크박스 동기화
 - [x] 운영 smoke/배포 정합성 후속 액션 명시
+- [x] 접근성 구조 2차 정비(main landmark 중복 해소, 키보드 선택 흐름 보강)
+- [x] 상태 메시지 UX 2차 정비(로딩/빈 상태/오류 live region 확장)
 
 ## 이번 작업 메모
 
@@ -96,6 +98,12 @@
   - 모바일 마감은 1차 완료로 정리하고 visual QA/잔여 테이블/키보드 흐름을 후속 항목으로 분리
   - 운영 smoke 자동화는 코드 반영 완료, GitHub secrets 설정 및 실제 운영 로그인 검증은 남은 상태로 명시
   - 배포 백엔드 구버전 이슈(`/api/screener/watch-items` 운영 404 기록)는 Railway 최신 재배포 후 재검증 대상으로 유지
+
+- `2026-04-30`: 접근성/상태 메시지 2단계
+  - `frontend/src/App.js`: route wrapper를 `role="main"` 컨테이너로 전환해 중첩 `main` 랜드마크 구조 해소
+  - `frontend/src/pages/ImportCenter.jsx`: Batch 이력 행에 `tabIndex`/`Enter`/`Space` 키보드 선택 추가, 메시지/빈 상태 영역 `role`/`aria-live` 보강
+  - `frontend/src/pages/StockResearch.jsx`: 로딩/오류 메시지 `role`/`aria-live` 보강
+  - `frontend/src/pages/Portfolio.jsx`, `frontend/src/pages/TradeLog.jsx`: 깨진 빈 상태 문구 복구 및 상태 메시지 접근성 속성 정리
 
 ## deep-research-report_3 진행 추적 (2026-04-30)
 

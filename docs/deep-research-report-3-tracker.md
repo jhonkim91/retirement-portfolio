@@ -136,3 +136,10 @@ npm run test:e2e:prod
   - `npm run test:e2e:prod` 로컬 실행 확인(환경변수 미설정으로 skip 동작 확인)
   - GitHub Actions `Prod Smoke` 워크플로우 추가 (`workflow_dispatch` + 스케줄)
   - 시크릿 미설정 시 안전하게 skip, 설정 시 Playwright smoke와 아티팩트 업로드 실행
+
+- 접근성/상태 메시지 2차
+  - `frontend/src/App.js`: 라우트 래퍼를 `role="main"` 컨테이너로 전환해 중첩 `main` 랜드마크 구조 해소
+  - `frontend/src/pages/ImportCenter.jsx`: Batch 이력 행 키보드 선택(`Enter`/`Space`) 및 상태/오류/빈 상태 live region 보강
+  - `frontend/src/pages/StockResearch.jsx`: 로딩/오류 메시지에 `role`/`aria-live` 적용
+  - `frontend/src/pages/Portfolio.jsx`, `frontend/src/pages/TradeLog.jsx`: 빈 상태 문구 깨짐 복구 및 상태 영역 접근성 정리
+  - 검증: `npm run test:frontend`, `npm run test:unit` 통과

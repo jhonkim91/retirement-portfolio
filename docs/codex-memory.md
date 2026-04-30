@@ -1,6 +1,6 @@
 # Codex Shared Memory
 
-Last updated: 2026-04-30 18:17 KST
+Last updated: 2026-04-30 18:22 KST
 
 ## Current State
 
@@ -58,6 +58,10 @@ npm.cmd run codex:save
 - Updated `docs/bff-cache-recovery-policy.md`:
   - added endpoint-group retry/backoff matrix
   - added observability checklist for caches, imports, smoke failures, and deployment parity
+- Updated frontend accessibility/status UX:
+  - `frontend/src/App.js`: route wrapper changed to `role="main"` container to avoid nested main landmarks
+  - `frontend/src/pages/ImportCenter.jsx`: keyboard-selectable batch rows + live-region status/error/empty messaging
+  - `frontend/src/pages/Portfolio.jsx`, `frontend/src/pages/StockResearch.jsx`, `frontend/src/pages/TradeLog.jsx`: live-region consistency and broken empty-copy fixes
 
 ## Verification
 
@@ -65,6 +69,8 @@ npm.cmd run codex:save
 - `npm.cmd run test:unit` passed: 5 tests.
 - `npm.cmd run test:e2e:prod` completed with 1 skipped test because production credentials are not set in env.
 - `npm.cmd run typecheck` passed.
+- `npm.cmd run test:frontend` passed: 13 suites / 31 tests.
+- `npm.cmd run test:unit` passed: 1 suite / 5 tests.
 
 ## Next Actions
 

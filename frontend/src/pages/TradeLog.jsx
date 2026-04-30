@@ -658,7 +658,7 @@ function TradeLog() {
   };
 
   return (
-    <main className="tradelog-container">
+    <main className="tradelog-container" aria-busy={loading}>
       <AccountSelector value={accountName} onChange={changeAccountName} />
 
       <div className="page-header">
@@ -695,7 +695,7 @@ function TradeLog() {
       {loading ? (
         <div className="loading" role="status" aria-live="polite">매매일지를 불러오는 중...</div>
       ) : logs.length === 0 ? (
-        <p className="no-data" role="status" aria-live="polite">嫄곕옒 湲곕줉???놁뒿?덈떎.</p>
+        <p className="no-data" role="status" aria-live="polite">거래 기록이 없습니다.</p>
       ) : (
         <>
         <div className="tradelog-mobile-list">

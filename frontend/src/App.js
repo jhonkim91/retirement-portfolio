@@ -76,7 +76,7 @@ function App() {
       <a className="skip-link" href="#main-content">본문으로 건너뛰기</a>
       <RouteMetadata />
       {user && <Navigation setUser={setUser} />}
-      <main id="main-content">
+      <div id="main-content" role="main">
         <Suspense fallback={<div className="app-loading">페이지를 준비하는 중입니다...</div>}>
           <Routes>
             <Route path="/login" element={!user ? <Login setUser={setUser} /> : <Navigate to="/" replace />} />
@@ -95,7 +95,7 @@ function App() {
             <Route path="*" element={<Navigate to={user ? '/' : '/'} replace />} />
           </Routes>
         </Suspense>
-      </main>
+      </div>
     </Router>
   );
 }

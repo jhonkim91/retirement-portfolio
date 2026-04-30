@@ -358,6 +358,13 @@ function ImportCenter() {
     }
   };
 
+  const handleBatchRowKeyDown = (event, batchId) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      setSelectedBatchId(batchId);
+    }
+  };
+
   return (
     <main className="import-center-page">
       <section className="import-center-header">
@@ -408,9 +415,13 @@ function ImportCenter() {
             {commitLoading ? '커밋 중...' : '커밋 실행'}
           </button>
         </div>
-        {message && <div className="import-message">{message}</div>}
+        {message && (
+          <div className="import-message" role="status" aria-live="polite">
+            {message}
+          </div>
+        )}
         {conflictRows.length > 0 && !applyConflicts && (
-          <div className="import-inline-hint">
+          <div className="import-inline-hint" role="status" aria-live="polite">
             충돌 {conflictRows.length}행 중 {selectedConflictRows.length}행 선택됨 (선택 행만 커밋 반영)
           </div>
         )}
@@ -441,8 +452,12 @@ function ImportCenter() {
           {dryRunCalculatedAt && (
             <p className="import-dryrun-asof">기준시각: {formatDateTime(dryRunCalculatedAt)}</p>
           )}
-          {dryRunLoading && <p className="import-empty">예상 반영 결과 계산 중...</p>}
-          {dryRunError && <div className="import-message">{dryRunError}</div>}
+          {dryRunLoading && <p className="import-empty" role="status" aria-live="polite">예상 반영 결과 계산 중...</p>}
+          {dryRunError && (
+            <div className="import-message" role="alert" aria-live="assertive">
+              {dryRunError}
+            </div>
+          )}
           {dryRunProjection && (
             <>
               <div className="import-commit-summary">
@@ -670,6 +685,10 @@ function ImportCenter() {
                     key={batch.id}
                     className={batch.id === selectedBatch?.id ? 'active' : ''}
                     onClick={() => setSelectedBatchId(batch.id)}
+                    onKeyDown={(event) => handleBatchRowKeyDown(event, batch.id)}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`Batch ${batch.id} 상세 보기`}
                   >
                     <td>{batch.id}</td>
                     <td>{statusLabel[batch.status] || batch.status}</td>
@@ -687,7 +706,7 @@ function ImportCenter() {
       <section className="import-center-panel">
         <h2>Batch 상세</h2>
         {!selectedBatch ? (
-          <p className="import-empty">선택된 배치가 없습니다.</p>
+          <p className="import-empty" role="status" aria-live="polite">선택된 배치가 없습니다.</p>
         ) : (
           <div className="batch-detail">
             <p>
@@ -722,7 +741,7 @@ function ImportCenter() {
       <section className="import-center-panel">
         <h2>정합성 Drill-down</h2>
         {reconciliationResults.length === 0 ? (
-          <p className="import-empty">아직 정합성 결과가 없습니다.</p>
+          <p className="import-empty" role="status" aria-live="polite">아직 정합성 결과가 없습니다.</p>
         ) : (
           <div className="reconciliation-drill">
             <div className="reconciliation-list">
@@ -756,7 +775,7 @@ function ImportCenter() {
                   ))}
                 </ul>
               ) : (
-                <p className="import-empty">불일치 항목이 없습니다.</p>
+                <p className="import-empty" role="status" aria-live="polite">불일치 항목이 없습니다.</p>
               )}
             </div>
           </div>

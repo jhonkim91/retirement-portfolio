@@ -677,7 +677,7 @@ function Portfolio() {
   };
 
   return (
-    <main className="portfolio-container">
+    <main className="portfolio-container" aria-busy={loading || depositLoading}>
       <AccountSelector value={accountName} onChange={changeAccountName} />
       <section className="portfolio-workspace">
         <aside className="portfolio-left">
@@ -721,7 +721,7 @@ function Portfolio() {
                 />
                 {showProductSearch && (productSearchLoading || productSearchResults.length > 0) && (
                   <div className="product-search-list">
-                    {productSearchLoading && <div className="product-search-status" role="status" aria-live="polite">?? ?...</div>}
+                    {productSearchLoading && <div className="product-search-status" role="status" aria-live="polite">검색 중...</div>}
                     {productSearchResults.map((product) => (
                       <button
                         key={product.code}
@@ -964,7 +964,7 @@ function Portfolio() {
                   </article>
                 );
               })}
-              {products.length === 0 && <p className="no-data">등록된 보유 상품이 없습니다.</p>}
+              {products.length === 0 && <p className="no-data" role="status" aria-live="polite">등록된 보유 상품이 없습니다.</p>}
             </div>
           </section>
         </aside>
@@ -1016,9 +1016,9 @@ function Portfolio() {
             )}
             <div className="trend-chart">
               {selectedTrendProductIds.length === 0 ? (
-                <p className="no-data" role="status" aria-live="polite">??? ? ??? ?????.</p>
+                <p className="no-data" role="status" aria-live="polite">비교할 상품을 먼저 선택해 주세요.</p>
               ) : !chartHasValues ? (
-                <p className="no-data" role="status" aria-live="polite">??? ??? ??? ?? ???? ????.</p>
+                <p className="no-data" role="status" aria-live="polite">선택한 기간에 표시할 추이 데이터가 없습니다.</p>
               ) : (
                 <ResponsiveContainer width="100%" height={320}>
                   <LineChart data={chartData} margin={{ top: 12, right: 16, left: 18, bottom: 18 }}>
@@ -1068,7 +1068,7 @@ function Portfolio() {
               </div>
             )}
             <h3>상품 추이 상세</h3>
-            {selectedTrendProductIds.length > 0 && trendRows.length === 0 && <p className="no-data" role="status" aria-live="polite">??? ??? ?? ???? ????.</p>}
+            {selectedTrendProductIds.length > 0 && trendRows.length === 0 && <p className="no-data" role="status" aria-live="polite">선택한 상품의 상세 추이 기록이 없습니다.</p>}
             {selectedTrendProductIds.length > 0 && trendRows.length > 0 && (
               <>
                 <div className="trend-mobile-list">
