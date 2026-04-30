@@ -154,6 +154,29 @@ def normalize_account_name(value):
     return account_name[:80]
 
 
+def account_name_has_render_issue(value):
+    text = str(value or '').strip()
+    if not text:
+        return False
+    return ('�' in text) or bool(re.search(r'\?{2,}', text))
+
+
+def validate_account_name_input(value):
+    text = str(value or '').strip()
+    if not text:
+        return '통장 이름을 입력하세요.'
+    if account_name_has_render_issue(text):
+        return '깨진 문자가 포함된 통장 이름은 저장할 수 없습니다.'
+    return ''
+
+
+def get_account_display_name(account_name):
+    normalized = normalize_account_name(account_name)
+    if account_name_has_render_issue(normalized):
+        return f'계좌명 확인 필요 ({normalized})'
+    return normalized
+
+
 def normalize_account_type(value):
     return 'brokerage' if str(value or '').strip().lower() == 'brokerage' else 'retirement'
 
@@ -385,22 +408,81 @@ def list_user_accounts(user_id):
     if not account_names:
         account_names.add(DEFAULT_ACCOUNT_NAME)
 
+    holding_counts = {
+        normalize_account_name(account_name): int(count or 0)
+        for account_name, count in (
+            db.session.query(Product.account_name, db.func.count(Product.id))
+            .filter(Product.user_id == user_id, Product.status == 'holding')
+            .group_by(Product.account_name)
+            .all()
+        )
+    }
+    total_product_counts = {
+        normalize_account_name(account_name): int(count or 0)
+        for account_name, count in (
+            db.session.query(Product.account_name, db.func.count(Product.id))
+            .filter(Product.user_id == user_id)
+            .group_by(Product.account_name)
+            .all()
+        )
+    }
+    trade_log_counts = {
+        normalize_account_name(account_name): int(count or 0)
+        for account_name, count in (
+            db.session.query(TradeLog.account_name, db.func.count(TradeLog.id))
+            .filter(TradeLog.user_id == user_id)
+            .group_by(TradeLog.account_name)
+            .all()
+        )
+    }
+    cash_balances = {
+        normalize_account_name(account_name): round(float(amount or 0), 2)
+        for account_name, amount in (
+            db.session.query(CashBalance.account_name, db.func.sum(CashBalance.amount))
+            .filter(CashBalance.user_id == user_id)
+            .group_by(CashBalance.account_name)
+            .all()
+        )
+    }
+
     account_profiles = []
     ordered_names = sorted(account_names)
     for account_name in ordered_names:
         profile = get_account_profile(user_id, account_name)
         account_type = normalize_account_type(profile.account_type)
         account_category = normalize_account_category(profile.account_category, account_type)
+        holding_count = holding_counts.get(account_name, 0)
+        total_product_count = total_product_counts.get(account_name, 0)
+        trade_log_count = trade_log_counts.get(account_name, 0)
+        cash_balance = cash_balances.get(account_name, 0.0)
+        has_data = bool(
+            holding_count > 0
+            or total_product_count > 0
+            or trade_log_count > 0
+            or abs(cash_balance) > 0.004
+        )
         account_profiles.append({
             'account_name': account_name,
+            'display_name': get_account_display_name(account_name),
+            'has_name_issue': account_name_has_render_issue(account_name),
             'account_type': account_type,
             'account_type_label': get_account_type_label(account_type),
             'account_category': account_category,
             'account_category_label': get_account_category_label(account_category, account_type),
-            'is_default': bool(profile.is_default)
+            'is_default': bool(profile.is_default),
+            'holding_count': holding_count,
+            'total_product_count': total_product_count,
+            'trade_log_count': trade_log_count,
+            'cash_balance': cash_balance,
+            'has_data': has_data,
+            'is_empty': not has_data
         })
 
-    account_profiles.sort(key=lambda item: (0 if item['is_default'] else 1, item['account_name']))
+    account_profiles.sort(key=lambda item: (
+        0 if item['is_default'] else 1,
+        1 if item['is_empty'] else 0,
+        item['account_name']
+    ))
     return account_profiles
 
 
