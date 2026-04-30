@@ -134,6 +134,9 @@ function Landing() {
             이 서비스는 개인 기록과 점검을 돕는 도구이며, 투자 권유나 법적·세무 자문을 대신하지 않습니다.
             계좌 규칙, 공시, 사업자별 연금 제도는 실제 가입 조건과 최신 공시를 함께 확인해 주세요.
           </p>
+          <p>
+            <Link to="/privacy-policy">개인정보 처리방침</Link> · <Link to="/contact">문의처</Link>
+          </p>
         </section>
       </main>
     </>

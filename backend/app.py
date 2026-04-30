@@ -4,7 +4,7 @@ import pkgutil
 import sys
 
 from dotenv import load_dotenv
-from flask import Flask, request
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 from sqlalchemy import inspect, text
@@ -32,6 +32,7 @@ app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'sqlite:///retirement.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'change-this-secret-key')
+app.config['TESTING'] = str(os.getenv('TESTING', '')).strip() == '1'
 
 CORS(app, resources={
     r'/api/*': {
@@ -43,6 +44,23 @@ CORS(app, resources={
 db.init_app(app)
 jwt = JWTManager(app)
 app.register_blueprint(api)
+
+
+@jwt.user_lookup_loader
+def load_user(_jwt_header, jwt_data):
+    try:
+        identity = int(jwt_data.get('sub'))
+    except Exception:
+        return None
+    user = User.query.filter_by(id=identity).first()
+    if not user or user.is_deleted:
+        return None
+    return user
+
+
+@jwt.user_lookup_error_loader
+def user_lookup_error(_jwt_header, _jwt_data):
+    return jsonify({'error': '세션이 만료되었거나 더 이상 유효하지 않습니다.'}), 401
 
 
 @app.after_request
@@ -75,6 +93,7 @@ def ensure_schema():
     product_columns = {column['name'] for column in inspector.get_columns('products')}
     trade_columns = {column['name'] for column in inspector.get_columns('trade_logs')}
     cash_columns = {column['name'] for column in inspector.get_columns('cash_balances')}
+    user_columns = {column['name'] for column in inspector.get_columns('users')}
     account_profile_columns = {column['name'] for column in inspector.get_columns('account_profiles')} if inspector.has_table('account_profiles') else set()
 
     if 'unit_type' not in product_columns:
@@ -91,6 +110,10 @@ def ensure_schema():
         db.session.execute(text("ALTER TABLE account_profiles ADD COLUMN is_default BOOLEAN DEFAULT FALSE NOT NULL"))
     if inspector.has_table('account_profiles') and 'account_category' not in account_profile_columns:
         db.session.execute(text("ALTER TABLE account_profiles ADD COLUMN account_category VARCHAR(32) DEFAULT 'irp' NOT NULL"))
+    if 'is_deleted' not in user_columns:
+        db.session.execute(text("ALTER TABLE users ADD COLUMN is_deleted BOOLEAN DEFAULT FALSE NOT NULL"))
+    if 'deleted_at' not in user_columns:
+        db.session.execute(text("ALTER TABLE users ADD COLUMN deleted_at DATETIME"))
 
     if dialect == 'postgresql':
         db.session.execute(text("ALTER TABLE products ALTER COLUMN quantity TYPE DOUBLE PRECISION USING quantity::double precision"))
@@ -251,10 +274,10 @@ with app.app_context():
     db.create_all()
     ensure_schema()
 
-scheduler = start_scheduler(app)
+scheduler = None if app.config['TESTING'] else start_scheduler(app)
 
 if __name__ == '__main__':
     print('자산관리 대장 서버가 시작되었습니다.')
     print('PC: http://localhost:5000')
     print('휴대폰: 같은 와이파이에서 http://PC_IP:5000')
-    app.run(debug=False, host='0.0.0.0', port=5000, use_reloader=False)
+    app.run(debug=False, host='0.0.0.0', port=int(os.getenv('PORT', '5000')), use_reloader=False)

@@ -1,17 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis
-} from 'recharts';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { writeStoredBenchmarkSelection } from '../lib/analytics/preferences';
 import { readStoredAccountName, screenerAPI } from '../utils/api';
 import '../styles/StockScreener.css';
+
+const ScreenerPriceChart = lazy(() => import('../components/screener/ScreenerPriceChart'));
 
 const MARKET_OPTIONS = [
   { value: 'KOSPI', label: 'KOSPI' },
@@ -21,6 +14,8 @@ const MARKET_OPTIONS = [
 
 const presetStorageKey = 'stock_screener_presets_v1';
 const favoriteStorageKey = 'stock_screener_favorites_v1';
+const portfolioPrefillStorageKey = 'portfolio_prefill_product_v1';
+const journalPrefillStorageKey = 'journal_prefill_draft_v1';
 const MAX_COMPARE_ITEMS = 4;
 
 const formatCurrency = (value) => {
@@ -47,6 +42,13 @@ const formatPercent = (value) => {
   return `${Number(value).toFixed(2)}%`;
 };
 
+const formatDateTime = (value) => {
+  if (!value) return '-';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  return parsed.toLocaleString('ko-KR');
+};
+
 const readLocalList = (storageKey) => {
   try {
     return JSON.parse(localStorage.getItem(storageKey) || '[]');
@@ -55,18 +57,55 @@ const readLocalList = (storageKey) => {
   }
 };
 
+const getTodayKey = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const buildJournalPrefillDraft = (item) => {
+  const tags = (item?.candidate_tags || []).slice(0, 4);
+  const signals = (item?.signals || []).slice(0, 4);
+  const tagsText = tags.length > 0 ? tags.join(', ') : '후보 태그 확인 필요';
+  const signalsText = signals.length > 0 ? signals.join(', ') : '추가 신호 없음';
+  return {
+    source: 'stock_screener',
+    created_at: new Date().toISOString(),
+    symbol: item?.code || '',
+    name: item?.name || '',
+    thesis: `${item?.name || '종목'} 스크리너 후보 검토: 매수/보류 판단 근거를 정리`,
+    trigger: `후보 태그(${tagsText})와 신호(${signalsText})가 유지되면 분할 접근 검토`,
+    invalidation: '핵심 신호 약화, 리스크 확대, 실적/공시 훼손 시 아이디어 무효',
+    targetHorizon: '3m',
+    tags: ['screener', ...(tags || [])],
+    confidence: 55,
+    screenshotsOrLinks: item?.code ? [`https://finance.naver.com/item/main.naver?code=${item.code}`] : []
+  };
+};
+
 function StockScreener() {
   const navigate = useNavigate();
   const [market, setMarket] = useState('KOSPI');
+  const [accountName] = useState(() => readStoredAccountName());
   const [pages, setPages] = useState('2');
   const [limit, setLimit] = useState('18');
   const [rsiMin, setRsiMin] = useState('45');
   const [rsiMax, setRsiMax] = useState('70');
   const [minReturn20d, setMinReturn20d] = useState('-8');
   const [maxReturn20d, setMaxReturn20d] = useState('30');
+  const [peMax, setPeMax] = useState('');
+  const [pbMax, setPbMax] = useState('');
+  const [roeMin, setRoeMin] = useState('');
+  const [dividendYieldMin, setDividendYieldMin] = useState('');
+  const [volatility90dMax, setVolatility90dMax] = useState('');
   const [requireMaCross, setRequireMaCross] = useState(true);
   const [requireBbBreakout, setRequireBbBreakout] = useState(false);
   const [requireMacdPositive, setRequireMacdPositive] = useState(true);
+  const [includeEtfCandidates, setIncludeEtfCandidates] = useState(true);
+  const [includePensionCandidates, setIncludePensionCandidates] = useState(true);
+  const [includeMissingMetrics, setIncludeMissingMetrics] = useState(true);
   const [loading, setLoading] = useState(false);
   const [chartLoading, setChartLoading] = useState(false);
   const [dartLoading, setDartLoading] = useState(false);
@@ -86,6 +125,15 @@ function StockScreener() {
   const [favorites, setFavorites] = useState([]);
   const [savedScreens, setSavedScreens] = useState([]);
 
+  const loadWatchItems = useCallback(async () => {
+    try {
+      const response = await screenerAPI.getWatchItems(accountName);
+      setFavorites(response?.items || []);
+    } catch (error) {
+      setFavorites([]);
+    }
+  }, [accountName]);
+
   const loadSavedScreens = useCallback(async () => {
     try {
       const response = await screenerAPI.getScreens();
@@ -97,9 +145,9 @@ function StockScreener() {
 
   useEffect(() => {
     setSavedPresets(readLocalList(presetStorageKey));
-    setFavorites(readLocalList(favoriteStorageKey));
     loadSavedScreens();
-  }, [loadSavedScreens]);
+    loadWatchItems();
+  }, [loadSavedScreens, loadWatchItems]);
 
   const resultRows = scanResult?.results || [];
 
@@ -110,15 +158,41 @@ function StockScreener() {
     max_return_20d: Number(maxReturn20d || 1000),
     require_ma_cross: requireMaCross,
     require_bb_breakout: requireBbBreakout,
-    require_macd_positive: requireMacdPositive
+    require_macd_positive: requireMacdPositive,
+    valuation: {
+      pe_max: peMax === '' ? null : Number(peMax),
+      pb_max: pbMax === '' ? null : Number(pbMax)
+    },
+    quality: {
+      roe_min: roeMin === '' ? null : Number(roeMin)
+    },
+    dividend: {
+      yield_min: dividendYieldMin === '' ? null : Number(dividendYieldMin)
+    },
+    volatility: {
+      vol_90d_max: volatility90dMax === '' ? null : Number(volatility90dMax)
+    },
+    candidate: {
+      include_etf_candidates: includeEtfCandidates,
+      include_pension_candidates: includePensionCandidates,
+      missing_policy: includeMissingMetrics ? 'include' : 'exclude'
+    }
   }), [
+    dividendYieldMin,
+    includeEtfCandidates,
+    includeMissingMetrics,
+    includePensionCandidates,
     maxReturn20d,
     minReturn20d,
+    pbMax,
+    peMax,
     requireBbBreakout,
     requireMaCross,
     requireMacdPositive,
+    roeMin,
     rsiMax,
-    rsiMin
+    rsiMin,
+    volatility90dMax
   ]);
 
   const currentScanPayload = useMemo(() => ({
@@ -129,7 +203,7 @@ function StockScreener() {
   }), [filtersPayload, limit, market, pages]);
 
   const favoriteCodes = useMemo(
-    () => new Set(favorites.map((item) => item.code)),
+    () => new Set(favorites.map((item) => item.symbol || item.code)),
     [favorites]
   );
 
@@ -145,6 +219,8 @@ function StockScreener() {
       { label: 'RSI(14)', value: selectedItem.rsi14 === null || selectedItem.rsi14 === undefined ? '-' : Number(selectedItem.rsi14).toFixed(1) },
       { label: '20일 수익률', value: formatPercent(selectedItem.return_20d) },
       { label: '60일 수익률', value: formatPercent(selectedItem.return_60d) },
+      { label: '배당수익률', value: formatPercent(selectedItem.dividend_yield) },
+      { label: '변동성(90d)', value: formatPercent(selectedItem.volatility_90d) },
       { label: 'MACD 히스토그램', value: selectedItem.macd_histogram === null || selectedItem.macd_histogram === undefined ? '-' : Number(selectedItem.macd_histogram).toFixed(2) },
       { label: '볼린저 %B', value: formatPercent(selectedItem.bb_percent) }
     ];
@@ -261,6 +337,14 @@ function StockScreener() {
     setRequireMaCross(Boolean(preset.filters?.require_ma_cross));
     setRequireBbBreakout(Boolean(preset.filters?.require_bb_breakout));
     setRequireMacdPositive(Boolean(preset.filters?.require_macd_positive));
+    setPeMax(preset.filters?.valuation?.pe_max === null || preset.filters?.valuation?.pe_max === undefined ? '' : String(preset.filters.valuation.pe_max));
+    setPbMax(preset.filters?.valuation?.pb_max === null || preset.filters?.valuation?.pb_max === undefined ? '' : String(preset.filters.valuation.pb_max));
+    setRoeMin(preset.filters?.quality?.roe_min === null || preset.filters?.quality?.roe_min === undefined ? '' : String(preset.filters.quality.roe_min));
+    setDividendYieldMin(preset.filters?.dividend?.yield_min === null || preset.filters?.dividend?.yield_min === undefined ? '' : String(preset.filters.dividend.yield_min));
+    setVolatility90dMax(preset.filters?.volatility?.vol_90d_max === null || preset.filters?.volatility?.vol_90d_max === undefined ? '' : String(preset.filters.volatility.vol_90d_max));
+    setIncludeEtfCandidates(preset.filters?.candidate?.include_etf_candidates !== false);
+    setIncludePensionCandidates(preset.filters?.candidate?.include_pension_candidates !== false);
+    setIncludeMissingMetrics((preset.filters?.candidate?.missing_policy || 'include') !== 'exclude');
     setMessage(`프리셋 "${preset.name}"을 불러왔습니다.`);
   };
 
@@ -270,8 +354,31 @@ function StockScreener() {
     localStorage.setItem(presetStorageKey, JSON.stringify(nextPresets));
   };
 
-  const toggleFavorite = (item) => {
+  const toggleFavorite = async (item) => {
     const exists = favoriteCodes.has(item.code);
+    let handledByApi = false;
+    try {
+      if (exists) {
+        await screenerAPI.deleteWatchItem(item.code, accountName);
+        setFavorites((prev) => prev.filter((favorite) => (favorite.symbol || favorite.code) !== item.code));
+        setMessage('관심종목에서 삭제했습니다.');
+      } else {
+        const response = await screenerAPI.addWatchItem({
+          symbol: item.code,
+          name: item.name,
+          exchange: item.exchange,
+          source: 'screener',
+          candidate_tags: item.candidate_tags || []
+        }, accountName);
+        setFavorites(response?.items || []);
+        setMessage('관심종목에 추가했습니다.');
+      }
+      handledByApi = true;
+    } catch (error) {
+      setMessage(error.message || '관심종목 저장에 실패했습니다.');
+      handledByApi = true;
+    }
+    if (handledByApi) return;
     const nextFavorites = exists
       ? favorites.filter((favorite) => favorite.code !== item.code)
       : [{ code: item.code, name: item.name, exchange: item.exchange, savedAt: new Date().toISOString() }, ...favorites].slice(0, 24);
@@ -321,6 +428,33 @@ function StockScreener() {
     navigate('/');
   };
 
+  const moveToJournal = (item = selectedItem) => {
+    if (!item) return;
+    localStorage.setItem('journal_prefill_symbol', item.code);
+    localStorage.setItem(journalPrefillStorageKey, JSON.stringify(buildJournalPrefillDraft(item)));
+    navigate('/trade-logs');
+  };
+
+  const moveToPortfolioDraft = (item = selectedItem) => {
+    if (!item) return;
+    const tags = (item.candidate_tags || []).slice(0, 4);
+    const notesPrefix = tags.length > 0 ? `[스크리너 후보] ${tags.join(', ')}` : '[스크리너 후보]';
+    const draft = {
+      source: 'stock_screener',
+      created_at: new Date().toISOString(),
+      product_name: item.name || '',
+      product_code: item.code || '',
+      purchase_price: item.price ?? '',
+      quantity: '1',
+      unit_type: 'share',
+      purchase_date: getTodayKey(),
+      asset_type: 'risk',
+      notes: `${notesPrefix} · ${item.exchange || '-'}`
+    };
+    localStorage.setItem(portfolioPrefillStorageKey, JSON.stringify(draft));
+    navigate('/portfolio');
+  };
+
   const saveCurrentScreen = async () => {
     const name = screenName.trim();
     if (!name) {
@@ -360,6 +494,14 @@ function StockScreener() {
     setRequireMaCross(Boolean(screen.filters?.require_ma_cross));
     setRequireBbBreakout(Boolean(screen.filters?.require_bb_breakout));
     setRequireMacdPositive(Boolean(screen.filters?.require_macd_positive));
+    setPeMax(screen.filters?.pe_max === null || screen.filters?.pe_max === undefined ? '' : String(screen.filters.pe_max));
+    setPbMax(screen.filters?.pb_max === null || screen.filters?.pb_max === undefined ? '' : String(screen.filters.pb_max));
+    setRoeMin(screen.filters?.roe_min === null || screen.filters?.roe_min === undefined ? '' : String(screen.filters.roe_min));
+    setDividendYieldMin(screen.filters?.dividend_yield_min === null || screen.filters?.dividend_yield_min === undefined ? '' : String(screen.filters.dividend_yield_min));
+    setVolatility90dMax(screen.filters?.volatility_90d_max === null || screen.filters?.volatility_90d_max === undefined ? '' : String(screen.filters.volatility_90d_max));
+    setIncludeEtfCandidates(screen.filters?.include_etf_candidates !== false);
+    setIncludePensionCandidates(screen.filters?.include_pension_candidates !== false);
+    setIncludeMissingMetrics(screen.filters?.include_missing !== false);
     setScreenName(screen.name || '');
     setScreenNotes(screen.notes || '');
     setCompareCodes(screen.compare_codes || []);
@@ -400,7 +542,7 @@ function StockScreener() {
   );
 
   return (
-    <main className="stock-screener-page">
+    <main className="stock-screener-page" aria-label="종목 스크리너">
       <div className="stock-screener-header">
         <h1>주식 스크리너</h1>
         <p>대표 종목군을 빠르게 추려서 차트, 공시, 비교 화면, 저장 화면까지 한 번에 이어봅니다.</p>
@@ -446,12 +588,35 @@ function StockScreener() {
               <span>20일 수익률 최대</span>
               <input type="number" step="1" value={maxReturn20d} onChange={(event) => setMaxReturn20d(event.target.value)} />
             </label>
+            <label>
+              <span>PE 최대</span>
+              <input type="number" step="0.1" value={peMax} onChange={(event) => setPeMax(event.target.value)} placeholder="예: 25" />
+            </label>
+            <label>
+              <span>PB 최대</span>
+              <input type="number" step="0.1" value={pbMax} onChange={(event) => setPbMax(event.target.value)} placeholder="예: 3.0" />
+            </label>
+            <label>
+              <span>ROE 최소(%)</span>
+              <input type="number" step="0.1" value={roeMin} onChange={(event) => setRoeMin(event.target.value)} placeholder="예: 8" />
+            </label>
+            <label>
+              <span>배당수익률 최소(%)</span>
+              <input type="number" step="0.1" value={dividendYieldMin} onChange={(event) => setDividendYieldMin(event.target.value)} placeholder="예: 2.0" />
+            </label>
+            <label>
+              <span>변동성 90d 최대(%)</span>
+              <input type="number" step="0.1" value={volatility90dMax} onChange={(event) => setVolatility90dMax(event.target.value)} placeholder="예: 32" />
+            </label>
           </div>
 
           <div className="screener-toggle-row">
             <label><input type="checkbox" checked={requireMaCross} onChange={(event) => setRequireMaCross(event.target.checked)} /> MA5가 MA20 위</label>
             <label><input type="checkbox" checked={requireBbBreakout} onChange={(event) => setRequireBbBreakout(event.target.checked)} /> 볼린저 상단 돌파</label>
             <label><input type="checkbox" checked={requireMacdPositive} onChange={(event) => setRequireMacdPositive(event.target.checked)} /> MACD 양수</label>
+            <label><input type="checkbox" checked={includeEtfCandidates} onChange={(event) => setIncludeEtfCandidates(event.target.checked)} /> ETF 후보 포함</label>
+            <label><input type="checkbox" checked={includePensionCandidates} onChange={(event) => setIncludePensionCandidates(event.target.checked)} /> 연금 후보 포함</label>
+            <label><input type="checkbox" checked={includeMissingMetrics} onChange={(event) => setIncludeMissingMetrics(event.target.checked)} /> 결측 지표 포함</label>
           </div>
 
           <div className="screener-actions">
@@ -514,6 +679,7 @@ function StockScreener() {
                   <div>
                     <strong>{screen.name}</strong>
                     <span>{screen.market} · 비교 {screen.compare_codes?.length || 0}개</span>
+                    {screen.condition_expression && <small>{screen.condition_expression}</small>}
                   </div>
                   <div className="screener-screen-actions">
                     <button type="button" onClick={() => applySavedScreen(screen)}>불러오기</button>
@@ -533,7 +699,17 @@ function StockScreener() {
             </div>
             <div className="screener-favorite-list">
               {favorites.map((item) => (
-                <button key={item.code} type="button" className="screener-favorite-chip" onClick={() => loadSelectedItemDetails(item)}>
+                <button
+                  key={item.symbol || item.code}
+                  type="button"
+                  className="screener-favorite-chip"
+                  onClick={() => loadSelectedItemDetails({
+                    code: item.symbol || item.code,
+                    name: item.name,
+                    exchange: item.exchange || 'KRX',
+                    candidate_tags: item.candidate_tags || []
+                  })}
+                >
                   {item.name}
                 </button>
               ))}
@@ -541,12 +717,14 @@ function StockScreener() {
           </section>
         )}
 
-        {message && <div className="stock-screener-message">{message}</div>}
+        {message && <div className="stock-screener-message" role="status" aria-live="polite">{message}</div>}
 
         {scanResult && (
-          <div className="screener-meta">
+          <div className="screener-meta" role="status" aria-live="polite">
             <span>{scanResult.coverage_note}</span>
             <strong>스캔 {scanResult.scanned_count}종목 / 조건 통과 {scanResult.result_count}종목</strong>
+            <span>source: {scanResult?.provenance?.source || '-'} / asOf: {formatDateTime(scanResult?.provenance?.asOf)}</span>
+            <span>{scanResult?.cache_hit ? 'cache hit' : 'fresh result'}</span>
           </div>
         )}
 
@@ -561,9 +739,9 @@ function StockScreener() {
             </div>
           </div>
           {compareCodes.length === 0 ? (
-            <p className="screener-empty">결과 카드에서 비교 추가를 누르면 종목을 나란히 비교할 수 있습니다.</p>
+            <p className="screener-empty" role="status" aria-live="polite">결과 카드에서 비교 추가를 누르면 종목을 나란히 비교할 수 있습니다.</p>
           ) : compareLoading ? (
-            <p className="screener-empty">비교 데이터를 불러오는 중...</p>
+            <p className="screener-empty" role="status" aria-live="polite">비교 데이터를 불러오는 중...</p>
           ) : (
             <div className="screener-compare-grid">
               {(compareData?.items || []).map((item) => (
@@ -616,7 +794,7 @@ function StockScreener() {
               <span>{resultRows.length}개</span>
             </div>
             {resultRows.length === 0 ? (
-              <p className="screener-empty">조건에 맞는 종목이 아직 없습니다. 범위를 조금 넓혀보면 후보가 더 잘 나옵니다.</p>
+              <p className="screener-empty" role="status" aria-live="polite">조건에 맞는 종목이 아직 없습니다. 범위를 조금 넓혀보면 후보가 더 잘 나옵니다.</p>
             ) : (
               <div className="screener-result-list">
                 {resultRows.map((item) => (
@@ -634,8 +812,14 @@ function StockScreener() {
                       <span>현재가 <strong>{formatCurrency(item.price)}</strong></span>
                       <span>RSI <strong>{item.rsi14 === null || item.rsi14 === undefined ? '-' : Number(item.rsi14).toFixed(1)}</strong></span>
                       <span>20일 <strong>{formatPercent(item.return_20d)}</strong></span>
+                      <span>PE <strong>{item.pe === null || item.pe === undefined ? '-' : Number(item.pe).toFixed(2)}</strong></span>
+                      <span>배당 <strong>{formatPercent(item.dividend_yield)}</strong></span>
+                      <span>변동성90d <strong>{formatPercent(item.volatility_90d)}</strong></span>
                     </div>
                     <div className="screener-signal-row">
+                      {(item.candidate_tags || []).map((tag) => (
+                        <small key={`${item.code}-${tag}`}>{tag}</small>
+                      ))}
                       {(item.signals || []).length > 0 ? item.signals.map((signal) => (
                         <small key={`${item.code}-${signal}`}>{signal}</small>
                       )) : <small>추가 신호 없음</small>}
@@ -652,6 +836,26 @@ function StockScreener() {
                           }}
                         >
                           분석 엔진
+                        </button>
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            moveToJournal(item);
+                          }}
+                        >
+                          일지 연결
+                        </button>
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            moveToPortfolioDraft(item);
+                          }}
+                        >
+                          대장 초안
                         </button>
                         <button
                           type="button"
@@ -694,6 +898,8 @@ function StockScreener() {
                   <button type="button" className="secondary" onClick={() => toggleCompare(selectedItem)}>
                     {compareCodeSet.has(selectedItem.code) ? 'Compare 해제' : 'Compare 추가'}
                   </button>
+                  <button type="button" className="secondary" onClick={() => moveToJournal(selectedItem)}>일지 연결</button>
+                  <button type="button" className="secondary" onClick={() => moveToPortfolioDraft(selectedItem)}>대장 초안</button>
                   <button type="button" className="secondary" onClick={() => moveToAnalytics(selectedItem)}>분석 엔진으로 보기</button>
                   <button type="button" className="secondary" onClick={moveToResearch}>종목 정보로 보기</button>
                 </div>
@@ -713,22 +919,13 @@ function StockScreener() {
 
             <div className="screener-chart-shell">
               {chartLoading ? (
-                <p className="screener-empty">차트를 불러오는 중...</p>
+                <p className="screener-empty" role="status" aria-live="polite">차트를 불러오는 중...</p>
               ) : chartSeries.length === 0 ? (
-                <p className="screener-empty">선택한 종목의 차트 이력이 없습니다.</p>
+                <p className="screener-empty" role="status" aria-live="polite">선택한 종목의 차트 이력이 없습니다.</p>
               ) : (
-                <ResponsiveContainer width="100%" height={360}>
-                  <LineChart data={chartSeries} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="date" minTickGap={28} />
-                    <YAxis tickFormatter={(value) => Number(value).toLocaleString('ko-KR')} width={82} />
-                    <Tooltip formatter={(value) => formatCurrency(value)} />
-                    <Line type="monotone" dataKey="price" name="종가" stroke="#17324d" strokeWidth={2} dot={false} />
-                    <Line type="monotone" dataKey="ma20" name="MA20" stroke="#33658a" strokeWidth={1.5} dot={false} />
-                    <Line type="monotone" dataKey="upper_bb" name="BB 상단" stroke="#d97706" strokeWidth={1.25} dot={false} strokeDasharray="5 4" />
-                    <Line type="monotone" dataKey="lower_bb" name="BB 하단" stroke="#0f766e" strokeWidth={1.25} dot={false} strokeDasharray="5 4" />
-                  </LineChart>
-                </ResponsiveContainer>
+                <Suspense fallback={<p className="screener-empty" role="status" aria-live="polite">차트 모듈 로딩 중...</p>}>
+                  <ScreenerPriceChart series={chartSeries} formatCurrency={formatCurrency} />
+                </Suspense>
               )}
             </div>
 
@@ -739,7 +936,7 @@ function StockScreener() {
                   <span>{dartProfile?.enabled ? dartProfile.source : '공시 확인 필요'}</span>
                 </div>
                 {dartLoading ? (
-                  <p className="screener-empty">공시 정보를 불러오는 중...</p>
+                  <p className="screener-empty" role="status" aria-live="polite">공시 정보를 불러오는 중...</p>
                 ) : !dartProfile?.enabled ? (
                   <p className="screener-dart-empty">{dartProfile?.reason || '공시 대상 법인을 찾지 못했습니다.'}</p>
                 ) : (

@@ -1,0 +1,19 @@
+.info-page { max-width: 960px; margin: 0 auto; padding: 24px 20px 40px; display: grid; gap: 14px; }
+.info-page h1 { margin: 0; color: #102a43; }
+.info-page .meta { margin: 0; color: #697586; }
+.info-section { background: #fff; border: 1px solid #d9e2ec; border-radius: 8px; padding: 16px; box-shadow: 0 4px 14px rgba(15, 23, 42, .05); }
+.info-section h2 { margin: 0 0 10px; color: #17324d; font-size: 18px; }
+.info-section p { margin: 0 0 8px; color: #334e68; line-height: 1.6; }
+.delete-request-form { display: grid; gap: 8px; }
+.delete-request-form label { color: #486581; font-size: 13px; font-weight: 700; }
+.delete-request-form select, .delete-request-form textarea { width: 100%; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px; font: inherit; }
+.delete-request-form button { border: 0; border-radius: 6px; background: #17324d; color: #fff; padding: 10px 14px; font-weight: 800; justify-self: start; }
+.delete-request-list { display: grid; gap: 10px; }
+.delete-request-item { border: 1px solid #d9e2ec; border-radius: 8px; padding: 12px; background: #fbfdff; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.delete-request-item strong { color: #102a43; }
+.delete-request-item button { border: 0; border-radius: 6px; background: #9f1d18; color: #fff; padding: 8px 11px; font-weight: 700; }
+
+@media (max-width: 640px) {
+  .info-page { padding: 16px 12px 32px; }
+  .delete-request-item { display: grid; }
+}

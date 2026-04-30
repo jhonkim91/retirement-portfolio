@@ -24,13 +24,23 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 from api_client import StockAPIClient
 from models import (
     AccountProfile,
+    AccountWrapper,
+    Benchmark,
     CashBalance,
+    CashFlow,
+    DataDeletionRequest,
     DEFAULT_ACCOUNT_NAME,
+    HoldingLot,
     ImportBatch,
+    PortfolioSnapshot,
     PriceHistory,
     Product,
+    CalendarEvent,
     ReconciliationResult,
     ScreenerScreen,
+    ScreenerWatchItem,
+    SecurityAuditLog,
+    TradeJournal,
     TradeEvent,
     TradeLog,
     TradeSnapshot,
@@ -46,6 +56,10 @@ MARKET_SYNC_TTL_SECONDS = 60 * 5
 _market_sync_cache = {}
 _screener_cache = {}
 
+
+class AccessDeniedError(Exception):
+    pass
+
 POSITIVE_NEWS_KEYWORDS = (
     '성장', '확대', '개선', '호조', '반등', '수혜', '강세', '증가', '흑자', '상향',
     '돌파', '신고가', '매수', '수주', '협력', '안정', '유입', '기대', '효율', '회복'
@@ -58,6 +72,79 @@ NEGATIVE_NEWS_KEYWORDS = (
 
 def current_user_id():
     return int(get_jwt_identity())
+
+
+def client_ip_address():
+    forwarded = str(request.headers.get('X-Forwarded-For') or '').strip()
+    if forwarded:
+        return forwarded.split(',')[0].strip()
+    return str(request.remote_addr or '')
+
+
+def log_security_event(
+    *,
+    user_id=None,
+    event_type='security_event',
+    resource_type='system',
+    resource_id=None,
+    action='access',
+    status='ok',
+    message='',
+    detail=None
+):
+    try:
+        row = SecurityAuditLog(
+            user_id=user_id,
+            event_type=str(event_type or 'security_event')[:64],
+            resource_type=str(resource_type or 'system')[:64],
+            resource_id=str(resource_id)[:128] if resource_id is not None else None,
+            action=str(action or 'access')[:64],
+            status=str(status or 'ok')[:20],
+            ip_address=client_ip_address()[:64],
+            user_agent=str(request.headers.get('User-Agent') or '')[:255],
+            message=str(message or '')[:2000],
+            detail_json=canonical_json(detail or {})
+        )
+        db.session.add(row)
+        return row
+    except Exception:
+        return None
+
+
+def assertCanAccessPortfolio(user_id, portfolio_id):
+    product = Product.query.filter_by(id=portfolio_id).first()
+    if not product:
+        raise ValueError('상품을 찾을 수 없습니다.')
+    if int(product.user_id) != int(user_id):
+        log_security_event(
+            user_id=user_id,
+            event_type='authz_denied',
+            resource_type='portfolio',
+            resource_id=portfolio_id,
+            action='read_or_write',
+            status='denied',
+            message='다른 사용자의 포트폴리오 접근 시도'
+        )
+        raise AccessDeniedError('해당 포트폴리오에 접근할 수 없습니다.')
+    return product
+
+
+def assertCanEditJournalEntry(user_id, entry_id):
+    log = TradeLog.query.filter_by(id=entry_id).first()
+    if not log:
+        raise ValueError('매매일지 기록을 찾을 수 없습니다.')
+    if int(log.user_id) != int(user_id):
+        log_security_event(
+            user_id=user_id,
+            event_type='authz_denied',
+            resource_type='trade_log',
+            resource_id=entry_id,
+            action='edit',
+            status='denied',
+            message='다른 사용자의 매매일지 수정/삭제 시도'
+        )
+        raise AccessDeniedError('해당 매매일지 기록을 수정할 수 없습니다.')
+    return log
 
 
 def normalize_account_name(value):
@@ -128,6 +215,68 @@ def get_account_profile(user_id, account_name):
     db.session.add(profile)
     db.session.flush()
     return profile
+
+
+def perform_soft_delete_user(user, deletion_request=None):
+    marker = datetime.utcnow().strftime('%Y%m%d%H%M%S')
+    user.username = f'deleted_{user.id}_{marker}'
+    user.email = f'deleted+{user.id}.{marker}@anonymized.local'
+    user.password = hashlib.sha256(os.urandom(32)).hexdigest()
+    user.is_deleted = True
+    user.deleted_at = datetime.utcnow()
+    detail = {
+        'mode': 'soft',
+        'retained_financial_records': True
+    }
+    if deletion_request:
+        deletion_request.status = 'executed'
+        deletion_request.processed_at = datetime.utcnow()
+        deletion_request.processed_by = user.id
+        deletion_request.detail_json = canonical_json(detail)
+    log_security_event(
+        user_id=user.id,
+        event_type='privacy_deletion_executed',
+        resource_type='user',
+        resource_id=user.id,
+        action='soft_delete',
+        status='ok',
+        message='사용자 soft delete(익명화) 처리',
+        detail=detail
+    )
+
+
+def perform_hard_delete_user(user_id, deletion_request=None):
+    user = User.query.filter_by(id=user_id).first()
+    if not user:
+        raise ValueError('사용자 정보를 찾을 수 없습니다.')
+
+    detail = {'mode': 'hard', 'retained_financial_records': False}
+    if deletion_request:
+        deletion_request.status = 'executed'
+        deletion_request.processed_at = datetime.utcnow()
+        deletion_request.processed_by = user_id
+        deletion_request.detail_json = canonical_json(detail)
+
+    Product.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    TradeJournal.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    CalendarEvent.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    TradeLog.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    TradeEvent.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    TradeSnapshot.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    ReconciliationResult.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    ImportBatch.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    CashBalance.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    AccountProfile.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    AccountWrapper.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    HoldingLot.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    PortfolioSnapshot.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    CashFlow.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    Benchmark.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    ScreenerScreen.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    ScreenerWatchItem.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    SecurityAuditLog.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    DataDeletionRequest.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    db.session.delete(user)
 
 
 def is_korean_market_open(now=None):
@@ -440,6 +589,641 @@ def parse_json_text(value, fallback):
         return fallback
 
 
+JOURNAL_ALLOWED_HORIZONS = {
+    '1w', '1m', '3m', '6m', '1y', '3y', 'long_term'
+}
+CALENDAR_ALLOWED_EVENT_TYPES = {
+    'earnings',
+    'dividend_ex',
+    'dividend_pay',
+    'disclosure',
+    'contribution',
+    'rebalance',
+    'custom'
+}
+
+
+def parse_string_list(value):
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    raw = str(value or '').strip()
+    if not raw:
+        return []
+    return [item.strip() for item in raw.split(',') if item.strip()]
+
+
+def normalize_journal_horizon(value):
+    horizon = str(value or '').strip().lower()
+    return horizon if horizon in JOURNAL_ALLOWED_HORIZONS else '1m'
+
+
+def normalize_confidence(value):
+    try:
+        confidence = float(value)
+    except (TypeError, ValueError):
+        return 50.0
+    return max(0.0, min(confidence, 100.0))
+
+
+def normalize_event_type(value):
+    event_type = str(value or '').strip().lower()
+    return event_type if event_type in CALENDAR_ALLOWED_EVENT_TYPES else 'custom'
+
+
+def make_event_dedupe_key(event_type, event_date, attached_symbol, title):
+    return '|'.join([
+        normalize_event_type(event_type),
+        str(event_date or ''),
+        str(attached_symbol or '').strip().upper(),
+        str(title or '').strip().lower()
+    ])
+
+
+def build_trade_journal_response(journal):
+    row = journal.to_dict()
+    row['tags'] = parse_json_text(row.pop('tags_json'), [])
+    row['screenshotsOrLinks'] = parse_json_text(row.pop('screenshots_or_links_json'), [])
+    row['targetHorizon'] = row.pop('target_horizon')
+    row['attachedTradeId'] = row.pop('attached_trade_id')
+    row['attachedSymbol'] = row.pop('attached_symbol')
+    return row
+
+
+def build_calendar_event_response(event):
+    row = event.to_dict()
+    row['metadata'] = parse_json_text(row.pop('metadata_json'), {})
+    row['attachedTradeId'] = row.pop('attached_trade_id')
+    row['attachedSymbol'] = row.pop('attached_symbol')
+    return row
+
+
+def collect_system_calendar_events(user_id, account_name, start_date, end_date):
+    account_name = normalize_account_name(account_name)
+    events = []
+
+    logs = (
+        TradeLog.query
+        .filter_by(user_id=user_id, account_name=account_name)
+        .filter(TradeLog.trade_date >= start_date, TradeLog.trade_date <= end_date)
+        .order_by(TradeLog.trade_date.asc(), TradeLog.id.asc())
+        .all()
+    )
+    for log in logs:
+        notes = str(log.notes or '').strip()
+        lowered_notes = notes.lower()
+        symbol = ''
+        if log.product_id:
+            product = Product.query.filter_by(id=log.product_id, user_id=user_id).first()
+            symbol = market_client.clean_code(product.product_code) if product else ''
+        symbol = symbol or market_client.clean_code(log.product_name) or ''
+
+        if log.trade_type == 'deposit':
+            events.append({
+                'id': f'system-deposit-{log.id}',
+                'event_type': 'contribution',
+                'title': '납입 기록',
+                'description': f'납입 {format_number_text(log.total_amount, 0)}',
+                'event_date': log.trade_date.isoformat(),
+                'attachedTradeId': log.id,
+                'attachedSymbol': symbol,
+                'source': 'system',
+                'dedupe_key': make_event_dedupe_key('contribution', log.trade_date.isoformat(), symbol, '납입 기록'),
+                'metadata': {'from_trade_log': True}
+            })
+
+        if ('리밸런싱' in notes) or ('rebalanc' in lowered_notes):
+            events.append({
+                'id': f'system-rebalance-{log.id}',
+                'event_type': 'rebalance',
+                'title': '리밸런싱 점검',
+                'description': notes or '매매일지에 기록된 리밸런싱 이벤트',
+                'event_date': log.trade_date.isoformat(),
+                'attachedTradeId': log.id,
+                'attachedSymbol': symbol,
+                'source': 'system',
+                'dedupe_key': make_event_dedupe_key('rebalance', log.trade_date.isoformat(), symbol, '리밸런싱 점검'),
+                'metadata': {'from_trade_log': True}
+            })
+
+        if '실적' in notes:
+            events.append({
+                'id': f'system-earnings-{log.id}',
+                'event_type': 'earnings',
+                'title': '실적 예정 체크',
+                'description': notes,
+                'event_date': log.trade_date.isoformat(),
+                'attachedTradeId': log.id,
+                'attachedSymbol': symbol,
+                'source': 'system',
+                'dedupe_key': make_event_dedupe_key('earnings', log.trade_date.isoformat(), symbol, '실적 예정 체크'),
+                'metadata': {'from_trade_log': True}
+            })
+
+        if '배당락' in notes:
+            events.append({
+                'id': f'system-dividend-ex-{log.id}',
+                'event_type': 'dividend_ex',
+                'title': '배당락 확인',
+                'description': notes,
+                'event_date': log.trade_date.isoformat(),
+                'attachedTradeId': log.id,
+                'attachedSymbol': symbol,
+                'source': 'system',
+                'dedupe_key': make_event_dedupe_key('dividend_ex', log.trade_date.isoformat(), symbol, '배당락 확인'),
+                'metadata': {'from_trade_log': True}
+            })
+
+        if ('배당지급' in notes) or ('배당' in notes and '배당락' not in notes):
+            events.append({
+                'id': f'system-dividend-pay-{log.id}',
+                'event_type': 'dividend_pay',
+                'title': '배당지급 확인',
+                'description': notes,
+                'event_date': log.trade_date.isoformat(),
+                'attachedTradeId': log.id,
+                'attachedSymbol': symbol,
+                'source': 'system',
+                'dedupe_key': make_event_dedupe_key('dividend_pay', log.trade_date.isoformat(), symbol, '배당지급 확인'),
+                'metadata': {'from_trade_log': True}
+            })
+
+        if '공시' in notes:
+            events.append({
+                'id': f'system-disclosure-{log.id}',
+                'event_type': 'disclosure',
+                'title': '공시 알림',
+                'description': notes,
+                'event_date': log.trade_date.isoformat(),
+                'attachedTradeId': log.id,
+                'attachedSymbol': symbol,
+                'source': 'system',
+                'dedupe_key': make_event_dedupe_key('disclosure', log.trade_date.isoformat(), symbol, '공시 알림'),
+                'metadata': {'from_trade_log': True}
+            })
+
+    cursor = date(start_date.year, start_date.month, 1)
+    while cursor <= end_date:
+        next_month = date(cursor.year + (1 if cursor.month == 12 else 0), 1 if cursor.month == 12 else cursor.month + 1, 1)
+        rebalance_day = next_month
+        while rebalance_day.weekday() >= 5:
+            rebalance_day += timedelta(days=1)
+        if rebalance_day >= start_date and rebalance_day <= end_date:
+            events.append({
+                'id': f'system-monthly-rebalance-{rebalance_day.isoformat()}',
+                'event_type': 'rebalance',
+                'title': '월간 리밸런싱 점검',
+                'description': '월초 리밸런싱/비중 점검 일정',
+                'event_date': rebalance_day.isoformat(),
+                'attachedTradeId': None,
+                'attachedSymbol': '',
+                'source': 'system',
+                'dedupe_key': make_event_dedupe_key('rebalance', rebalance_day.isoformat(), '', '월간 리밸런싱 점검'),
+                'metadata': {'generated': True}
+            })
+        cursor = next_month
+
+    return events
+
+
+def dedupe_and_sort_events(rows):
+    deduped = {}
+    for row in rows:
+        key = row.get('dedupe_key') or make_event_dedupe_key(
+            row.get('event_type'),
+            row.get('event_date'),
+            row.get('attachedSymbol') or row.get('attached_symbol'),
+            row.get('title')
+        )
+        if key not in deduped:
+            deduped[key] = row
+    sorted_rows = list(deduped.values())
+    sorted_rows.sort(key=lambda item: (str(item.get('event_date') or ''), str(item.get('event_type') or ''), str(item.get('title') or '')))
+    return sorted_rows
+
+
+def map_wrapper_type(account_type, account_category):
+    normalized_type = normalize_account_type(account_type)
+    if normalized_type == 'brokerage':
+        return 'brokerage'
+    normalized_category = normalize_account_category(account_category, normalized_type)
+    if normalized_category == 'dc':
+        return 'dc'
+    if normalized_category == 'pension_savings':
+        return 'pension_savings'
+    return 'irp'
+
+
+def build_provenance(source='portfolio_ledger', latency_class='eod', reconciled=False, as_of=None):
+    return {
+        'source': source,
+        'as_of': (as_of or datetime.utcnow()).isoformat(),
+        'latency_class': latency_class,
+        'reconciled': bool(reconciled)
+    }
+
+
+def classify_cash_flow(log):
+    trade_type = str(log.trade_type or '').strip().lower()
+    notes_text = str(log.notes or '').strip().lower()
+    amount = abs(float(log.total_amount or 0))
+
+    if trade_type == 'deposit':
+        return 'deposit', amount
+    if trade_type == 'buy':
+        return 'buy', -amount
+    if trade_type == 'sell':
+        return 'sell', amount
+    if trade_type == 'dividend' or '배당' in notes_text:
+        return 'dividend', amount
+    if trade_type == 'fee' or '수수료' in notes_text:
+        return 'fee', -amount
+    if trade_type == 'tax' or '세금' in notes_text or '원천징수' in notes_text:
+        return 'tax', -amount
+    return 'other', 0.0
+
+
+def get_symbol_for_log(log, product_map, name_map):
+    if log.product_id and log.product_id in product_map:
+        return market_client.clean_code(product_map[log.product_id].product_code) or str(log.product_name or '').strip()
+    normalized_name = str(log.product_name or '').strip().lower()
+    if normalized_name and normalized_name in name_map:
+        return name_map[normalized_name]
+    return market_client.clean_code(log.product_name) or str(log.product_name or '').strip()
+
+
+def collect_account_trend_rows(user_id, account_name, include_sold=True, sync_prices=False):
+    if sync_prices:
+        maybe_sync_account_prices(user_id, account_name)
+    query = Product.query.filter_by(user_id=user_id, account_name=account_name)
+    if not include_sold:
+        query = query.filter_by(status='holding')
+    products = query.all()
+
+    rows = []
+    changed = False
+    for product in products:
+        buy_logs = get_product_buy_logs(product)
+        history_start = min((log.trade_date for log in buy_logs), default=product.purchase_date)
+        history_end = product.sale_date if product.status == 'sold' and product.sale_date else date.today()
+
+        history_points = []
+        if not is_manual_price_product(product.product_code):
+            fetched_histories = market_client.get_historical_prices(product.product_code, history_start, history_end)
+            if fetched_histories:
+                for history_row in fetched_histories:
+                    upsert_price_history(product.id, history_row['date'], history_row['price'])
+                product.current_price = fetched_histories[-1]['price']
+                history_points = fetched_histories
+                changed = True
+
+        if not history_points:
+            histories = PriceHistory.query.filter_by(product_id=product.id)
+            if product.status == 'sold' and product.sale_date:
+                histories = histories.filter(PriceHistory.record_date <= product.sale_date)
+            history_points = [
+                {'date': history.record_date, 'price': history.price}
+                for history in histories.order_by(PriceHistory.record_date).all()
+            ]
+
+        buy_index = 0
+        cumulative_quantity = 0.0
+        cumulative_purchase_value = 0.0
+
+        for history in history_points:
+            record_date = history['date']
+            price = history['price']
+
+            while buy_index < len(buy_logs) and buy_logs[buy_index].trade_date <= record_date:
+                buy_log = buy_logs[buy_index]
+                buy_quantity = float(buy_log.quantity or 0)
+                buy_amount = float(buy_log.total_amount or trade_amount(buy_quantity, buy_log.price, product.unit_type))
+                cumulative_quantity += buy_quantity
+                cumulative_purchase_value += buy_amount
+                buy_index += 1
+
+            if cumulative_quantity <= 0:
+                continue
+
+            effective_purchase_price = Product.price_for_amount(
+                cumulative_purchase_value,
+                cumulative_quantity,
+                product.unit_type
+            )
+            purchase_value = cumulative_purchase_value
+            evaluation_value = Product.amount_for(cumulative_quantity, price, product.unit_type)
+            profit_loss = evaluation_value - purchase_value
+            profit_rate = (profit_loss / purchase_value * 100) if purchase_value else 0
+            price_profit_loss = float(price or 0) - float(effective_purchase_price or 0)
+            price_return_rate = (price_profit_loss / float(effective_purchase_price) * 100) if effective_purchase_price else 0
+            rows.append({
+                'product_id': product.id,
+                'product_name': product.product_name,
+                'product_code': product.product_code,
+                'asset_type': product.asset_type,
+                'status': product.status,
+                'quantity': round(cumulative_quantity, 4),
+                'unit_type': product.unit_type,
+                'unit_label': '좌' if product.unit_type == 'unit' else '주',
+                'purchase_price': round(effective_purchase_price, 4),
+                'purchase_value': round(purchase_value, 2),
+                'price': price,
+                'evaluation_value': round(evaluation_value, 2),
+                'profit_loss': round(profit_loss, 2),
+                'profit_rate': round(profit_rate, 2),
+                'price_return_rate': round(price_return_rate, 2),
+                'record_date': record_date.isoformat()
+            })
+    return rows, changed
+
+
+def refresh_domain_models(user_id, account_names):
+    selected_names = [normalize_account_name(name) for name in account_names if normalize_account_name(name)]
+    profiles = {
+        profile.account_name: profile
+        for profile in AccountProfile.query.filter(
+            AccountProfile.user_id == user_id,
+            AccountProfile.account_name.in_(selected_names)
+        ).all()
+    }
+    wrappers_by_name = {}
+    now = datetime.utcnow()
+
+    for account_name in selected_names:
+        profile = profiles.get(account_name) or get_account_profile(user_id, account_name)
+        wrapper = AccountWrapper.query.filter_by(user_id=user_id, account_name=account_name).first()
+        if not wrapper:
+            wrapper = AccountWrapper(user_id=user_id, account_name=account_name)
+            db.session.add(wrapper)
+            db.session.flush()
+        wrapper.wrapper_type = map_wrapper_type(profile.account_type, profile.account_category)
+        wrapper.provider = 'manual'
+        wrapper.nickname = account_name
+        wrapper.base_currency = 'KRW'
+        wrapper.tags_json = canonical_json([
+            get_account_type_label(normalize_account_type(profile.account_type)),
+            get_account_category_label(profile.account_category, profile.account_type)
+        ])
+        wrapper.source = 'portfolio_ledger'
+        wrapper.as_of = now
+        wrapper.latency_class = 'eod'
+        wrapper.reconciled = False
+        wrappers_by_name[account_name] = wrapper
+
+    wrapper_ids = [wrapper.id for wrapper in wrappers_by_name.values()]
+    HoldingLot.query.filter(
+        HoldingLot.user_id == user_id,
+        HoldingLot.account_wrapper_id.in_(wrapper_ids)
+    ).delete(synchronize_session=False)
+    CashFlow.query.filter(
+        CashFlow.user_id == user_id,
+        CashFlow.account_wrapper_id.in_(wrapper_ids)
+    ).delete(synchronize_session=False)
+    PortfolioSnapshot.query.filter(
+        PortfolioSnapshot.user_id == user_id,
+        db.or_(
+            PortfolioSnapshot.account_wrapper_id.in_(wrapper_ids),
+            PortfolioSnapshot.account_name == '__all__'
+        )
+    ).delete(synchronize_session=False)
+
+    price_series_rows = []
+    snapshots_payload = []
+
+    for account_name in selected_names:
+        wrapper = wrappers_by_name[account_name]
+        products = Product.query.filter_by(user_id=user_id, account_name=account_name).all()
+        product_map = {product.id: product for product in products}
+        name_map = {
+            str(product.product_name or '').strip().lower(): market_client.clean_code(product.product_code) or product.product_name
+            for product in products
+        }
+        logs = (
+            TradeLog.query
+            .filter_by(user_id=user_id, account_name=account_name)
+            .order_by(TradeLog.trade_date.asc(), TradeLog.id.asc())
+            .all()
+        )
+
+        lot_queues = {}
+        daily_flow_map = {}
+        daily_dividend = {}
+        daily_fee = {}
+        daily_tax = {}
+
+        for log in logs:
+            symbol = get_symbol_for_log(log, product_map, name_map)
+            if not symbol:
+                continue
+
+            flow_type, signed_amount = classify_cash_flow(log)
+            flow_date = log.trade_date
+            daily_flow_map[flow_date] = daily_flow_map.get(flow_date, 0.0) + signed_amount
+            if flow_type == 'dividend':
+                daily_dividend[flow_date] = daily_dividend.get(flow_date, 0.0) + abs(signed_amount)
+            elif flow_type == 'fee':
+                daily_fee[flow_date] = daily_fee.get(flow_date, 0.0) + abs(signed_amount)
+            elif flow_type == 'tax':
+                daily_tax[flow_date] = daily_tax.get(flow_date, 0.0) + abs(signed_amount)
+
+            db.session.add(CashFlow(
+                user_id=user_id,
+                account_wrapper_id=wrapper.id,
+                account_name=account_name,
+                flow_date=flow_date,
+                flow_type=flow_type,
+                amount=round(signed_amount, 6),
+                symbol=symbol,
+                fee=round(abs(signed_amount), 6) if flow_type == 'fee' else 0.0,
+                tax=round(abs(signed_amount), 6) if flow_type == 'tax' else 0.0,
+                dividend=round(abs(signed_amount), 6) if flow_type == 'dividend' else 0.0,
+                notes=log.notes,
+                source='portfolio_ledger',
+                as_of=now,
+                latency_class='eod',
+                reconciled=False
+            ))
+
+            if flow_type == 'buy':
+                lot_queues.setdefault(symbol, []).append({
+                    'product_name': str(log.product_name or symbol),
+                    'asset_type': str(log.asset_type or 'risk'),
+                    'quantity': float(log.quantity or 0),
+                    'unit_cost': float(log.price or 0),
+                    'unit_type': normalize_unit_type(log.unit_type),
+                    'acquired_at': log.trade_date
+                })
+            elif flow_type == 'sell':
+                remaining = float(log.quantity or 0)
+                queue = lot_queues.setdefault(symbol, [])
+                while remaining > 0 and queue:
+                    head = queue[0]
+                    head_qty = float(head.get('quantity') or 0)
+                    if head_qty <= remaining + 1e-9:
+                        remaining -= head_qty
+                        queue.pop(0)
+                    else:
+                        head['quantity'] = round(head_qty - remaining, 8)
+                        remaining = 0
+
+        for symbol, queue in lot_queues.items():
+            for lot in queue:
+                lot_qty = float(lot.get('quantity') or 0)
+                if lot_qty <= 0:
+                    continue
+                db.session.add(HoldingLot(
+                    user_id=user_id,
+                    account_wrapper_id=wrapper.id,
+                    account_name=account_name,
+                    symbol=symbol,
+                    product_name=str(lot.get('product_name') or symbol),
+                    asset_type=str(lot.get('asset_type') or 'risk'),
+                    quantity=round(lot_qty, 8),
+                    unit_type=normalize_unit_type(lot.get('unit_type')),
+                    unit_cost=round(float(lot.get('unit_cost') or 0), 8),
+                    fee=0.0,
+                    tax=0.0,
+                    acquired_at=lot.get('acquired_at') or date.today(),
+                    source='portfolio_ledger',
+                    as_of=now,
+                    latency_class='eod',
+                    reconciled=False
+                ))
+
+        trend_rows, changed = collect_account_trend_rows(user_id, account_name, include_sold=True, sync_prices=False)
+        if changed:
+            db.session.flush()
+        grouped = {}
+        for row in trend_rows:
+            record_date = row.get('record_date')
+            if not record_date:
+                continue
+            grouped.setdefault(record_date, []).append(row)
+            symbol = market_client.clean_code(row.get('product_code')) or str(row.get('product_name') or '')
+            price_series_rows.append({
+                'account_wrapper_id': wrapper.id,
+                'account_name': account_name,
+                'product_id': f'{wrapper.id}:{symbol}',
+                'product_name': row.get('product_name'),
+                'product_code': row.get('product_code'),
+                'asset_type': row.get('asset_type'),
+                'quantity': row.get('quantity'),
+                'price': row.get('price'),
+                'evaluation_value': row.get('evaluation_value'),
+                'purchase_value': row.get('purchase_value'),
+                'record_date': record_date
+            })
+
+        cash_balance = float(get_cash_balance(user_id, account_name).amount or 0)
+        for record_date, rows in grouped.items():
+            snapshot_date = datetime.strptime(record_date, '%Y-%m-%d').date()
+            market_value = sum(float(item.get('evaluation_value') or 0) for item in rows)
+            cost_basis = sum(float(item.get('purchase_value') or 0) for item in rows)
+            snapshot_payload = {
+                'holdings': rows,
+                'account_wrapper_id': wrapper.id,
+                'account_name': account_name
+            }
+            net_flow = daily_flow_map.get(snapshot_date, 0.0)
+            dividend_value = daily_dividend.get(snapshot_date, 0.0)
+            fee_value = daily_fee.get(snapshot_date, 0.0)
+            tax_value = daily_tax.get(snapshot_date, 0.0)
+            db.session.add(PortfolioSnapshot(
+                user_id=user_id,
+                account_wrapper_id=wrapper.id,
+                account_name=account_name,
+                snapshot_date=snapshot_date,
+                market_value=round(market_value, 6),
+                cost_basis=round(cost_basis, 6),
+                cash_balance=round(cash_balance, 6),
+                net_flow=round(net_flow, 6),
+                dividend=round(dividend_value, 6),
+                fee=round(fee_value, 6),
+                tax=round(tax_value, 6),
+                payload_json=canonical_json(snapshot_payload),
+                source='portfolio_ledger',
+                as_of=now,
+                latency_class='eod',
+                reconciled=False
+            ))
+            snapshots_payload.append({
+                'account_wrapper_id': wrapper.id,
+                'account_name': account_name,
+                'snapshot_date': record_date,
+                'market_value': round(market_value, 6),
+                'cost_basis': round(cost_basis, 6),
+                'cash_balance': round(cash_balance, 6),
+                'net_flow': round(net_flow, 6),
+                'dividend': round(dividend_value, 6),
+                'fee': round(fee_value, 6),
+                'tax': round(tax_value, 6),
+                'holdings': rows
+            })
+
+        benchmark = Benchmark.query.filter_by(
+            user_id=user_id,
+            account_wrapper_id=wrapper.id,
+            code='069500'
+        ).first()
+        if not benchmark:
+            benchmark = Benchmark(
+                user_id=user_id,
+                account_wrapper_id=wrapper.id,
+                code='069500',
+                name='KODEX 200',
+                provider='krx',
+                is_default=True
+            )
+            db.session.add(benchmark)
+        benchmark.as_of = now
+        benchmark.latency_class = 'delayed'
+        benchmark.reconciled = False
+
+    aggregate_by_date = {}
+    for row in snapshots_payload:
+        key = row['snapshot_date']
+        bucket = aggregate_by_date.setdefault(key, {
+            'market_value': 0.0,
+            'cost_basis': 0.0,
+            'cash_balance': 0.0,
+            'net_flow': 0.0,
+            'dividend': 0.0,
+            'fee': 0.0,
+            'tax': 0.0,
+            'holdings': []
+        })
+        bucket['market_value'] += float(row.get('market_value') or 0)
+        bucket['cost_basis'] += float(row.get('cost_basis') or 0)
+        bucket['cash_balance'] += float(row.get('cash_balance') or 0)
+        bucket['net_flow'] += float(row.get('net_flow') or 0)
+        bucket['dividend'] += float(row.get('dividend') or 0)
+        bucket['fee'] += float(row.get('fee') or 0)
+        bucket['tax'] += float(row.get('tax') or 0)
+        bucket['holdings'].extend(row.get('holdings') or [])
+
+    for date_key, bucket in aggregate_by_date.items():
+        snapshot_date = datetime.strptime(date_key, '%Y-%m-%d').date()
+        db.session.add(PortfolioSnapshot(
+            user_id=user_id,
+            account_wrapper_id=None,
+            account_name='__all__',
+            snapshot_date=snapshot_date,
+            market_value=round(bucket['market_value'], 6),
+            cost_basis=round(bucket['cost_basis'], 6),
+            cash_balance=round(bucket['cash_balance'], 6),
+            net_flow=round(bucket['net_flow'], 6),
+            dividend=round(bucket['dividend'], 6),
+            fee=round(bucket['fee'], 6),
+            tax=round(bucket['tax'], 6),
+            payload_json=canonical_json({'holdings': bucket['holdings'], 'account_name': '__all__'}),
+            source='portfolio_ledger',
+            as_of=now,
+            latency_class='eod',
+            reconciled=False
+        ))
+
+    return wrappers_by_name, price_series_rows, now
+
+
 def create_import_batch(user_id, account_name, batch_type='manual_write', source_name='ui', row_count=1, notes=None):
     batch = ImportBatch(
         user_id=user_id,
@@ -466,6 +1250,501 @@ def finalize_import_batch(batch, status='completed', imported_count=0, skipped_c
         batch.notes_json = canonical_json(notes)
     batch.completed_at = datetime.utcnow()
     return batch
+
+
+IMPORT_COLUMN_ALIASES = {
+    'trade_date': ['trade_date', 'date', '매매일', '거래일', '일자', '체결일'],
+    'product_name': ['product_name', 'name', '종목명', '상품명'],
+    'product_code': ['product_code', 'code', '종목코드', '상품코드', '코드'],
+    'trade_type': ['trade_type', 'type', '구분', '매매구분', '거래유형', '유형'],
+    'quantity': ['quantity', 'qty', '수량', '주수', '좌수'],
+    'unit_type': ['unit_type', 'unit', '단위'],
+    'price': ['price', '단가', '체결가', '매입가', '매도가', '기준가'],
+    'total_amount': ['total_amount', 'amount', '금액', '총액', '거래금액', '매매금액'],
+    'asset_type': ['asset_type', 'asset', '자산구분', '자산구분값'],
+    'notes': ['notes', 'memo', '비고', '메모']
+}
+
+IMPORT_TEMPLATE_HEADERS = [
+    'trade_date',
+    'product_name',
+    'product_code',
+    'trade_type',
+    'quantity',
+    'unit_type',
+    'price',
+    'total_amount',
+    'asset_type',
+    'notes'
+]
+
+IMPORT_TEMPLATE_ROWS = [
+    ['2026-04-01', 'KODEX AI전력핵심설비', '487240', 'buy', '2', 'share', '10000', '20000', 'risk', '첫 매수'],
+    ['2026-04-10', 'KODEX AI전력핵심설비', '487240', 'buy', '1', 'share', '12000', '12000', 'risk', '추가 매수'],
+    ['2026-04-17', 'KODEX AI전력핵심설비', '487240', 'sell', '1', 'share', '13000', '13000', 'risk', '부분 매도']
+]
+
+
+def normalize_import_trade_type(value):
+    raw = str(value or '').strip().lower()
+    if raw in ('buy', '매수', 'b'):
+        return 'buy'
+    if raw in ('sell', '매도', 's'):
+        return 'sell'
+    return ''
+
+
+def normalize_import_asset_type(value):
+    raw = str(value or '').strip().lower()
+    if raw in ('safe', '안전자산', '안전'):
+        return 'safe'
+    if raw in ('cash', '현금'):
+        return 'cash'
+    return 'risk'
+
+
+def normalize_import_unit_type(value):
+    raw = str(value or '').strip().lower()
+    return 'unit' if raw in ('unit', '좌', '좌수') else 'share'
+
+
+def read_import_csv_rows(file_storage):
+    raw = file_storage.read() if file_storage else b''
+    if not raw:
+        raise ValueError('업로드된 파일이 비어 있습니다.')
+
+    text = None
+    for encoding in ('utf-8-sig', 'cp949', 'euc-kr'):
+        try:
+            text = raw.decode(encoding)
+            break
+        except UnicodeDecodeError:
+            continue
+    if text is None:
+        raise ValueError('CSV 인코딩을 해석하지 못했습니다. UTF-8 또는 CP949 파일을 사용하세요.')
+
+    reader = csv.DictReader(io.StringIO(text))
+    if not reader.fieldnames:
+        raise ValueError('CSV 헤더를 찾지 못했습니다.')
+
+    field_map = {}
+    lowered = {str(name or '').strip().lower(): name for name in reader.fieldnames}
+    for target, aliases in IMPORT_COLUMN_ALIASES.items():
+        mapped = None
+        for alias in aliases:
+            alias_key = str(alias).strip().lower()
+            if alias_key in lowered:
+                mapped = lowered[alias_key]
+                break
+        field_map[target] = mapped
+
+    required = ('trade_date', 'product_name', 'trade_type', 'quantity', 'price')
+    missing = [column for column in required if not field_map.get(column)]
+    if missing:
+        raise ValueError(f'필수 컬럼이 부족합니다: {", ".join(missing)}')
+
+    rows = []
+    for index, row in enumerate(reader, start=2):
+        rows.append({
+            'row_index': index,
+            'raw': row,
+            'trade_date': str(row.get(field_map['trade_date']) or '').strip(),
+            'product_name': str(row.get(field_map['product_name']) or '').strip(),
+            'product_code': market_client.clean_code(row.get(field_map['product_code']) or ''),
+            'trade_type': normalize_import_trade_type(row.get(field_map['trade_type'])),
+            'quantity': str(row.get(field_map['quantity']) or '').strip(),
+            'unit_type': normalize_import_unit_type(row.get(field_map['unit_type'])),
+            'price': str(row.get(field_map['price']) or '').strip(),
+            'total_amount': str(row.get(field_map['total_amount']) or '').strip(),
+            'asset_type': normalize_import_asset_type(row.get(field_map['asset_type'])),
+            'notes': str(row.get(field_map['notes']) or '').strip()
+        })
+    return rows
+
+
+def build_import_row_fingerprint(row):
+    product_name = str(row.get('product_name') or '').strip().lower()
+    product_code = market_client.clean_code(row.get('product_code') or '')
+    trade_type = str(row.get('trade_type') or '').strip().lower()
+    trade_date = str(row.get('trade_date') or '').strip()
+    quantity = round(float(row.get('quantity') or 0), 8)
+    price = round(float(row.get('price') or 0), 8)
+    total_amount = round(float(row.get('total_amount') or 0), 6)
+    return canonical_json({
+        'product_name': product_name,
+        'product_code': product_code,
+        'trade_type': trade_type,
+        'trade_date': trade_date,
+        'quantity': quantity,
+        'price': price,
+        'total_amount': total_amount
+    })
+
+
+def normalize_import_rows_for_preview(rows):
+    normalized_rows = []
+    issues = []
+
+    for row in rows:
+        row_index = row['row_index']
+        errors = []
+        product_name = str(row.get('product_name') or '').strip()
+        trade_type = normalize_import_trade_type(row.get('trade_type'))
+
+        if not product_name:
+            errors.append('종목명 누락')
+        if trade_type not in ('buy', 'sell'):
+            errors.append('trade_type은 buy/sell(매수/매도)만 허용')
+
+        try:
+            trade_date = parse_trade_date(row.get('trade_date'))
+        except Exception:
+            trade_date = None
+            errors.append('trade_date 형식 오류(YYYY-MM-DD)')
+
+        try:
+            quantity = parse_positive_float(row.get('quantity'), 'quantity')
+        except Exception as error:
+            quantity = None
+            errors.append(str(error))
+
+        try:
+            price = parse_positive_float(row.get('price'), 'price')
+        except Exception as error:
+            price = None
+            errors.append(str(error))
+
+        unit_type = normalize_import_unit_type(row.get('unit_type'))
+        total_amount = None
+        if row.get('total_amount') not in (None, ''):
+            try:
+                total_amount = parse_positive_float(row.get('total_amount'), 'total_amount')
+            except Exception as error:
+                errors.append(str(error))
+        elif quantity and price:
+            total_amount = trade_amount(quantity, price, unit_type)
+
+        normalized = {
+            'row_index': row_index,
+            'product_name': product_name,
+            'product_code': market_client.clean_code(row.get('product_code') or ''),
+            'trade_type': trade_type,
+            'trade_date': trade_date.isoformat() if trade_date else '',
+            'quantity': quantity,
+            'unit_type': unit_type,
+            'price': price,
+            'total_amount': total_amount,
+            'asset_type': normalize_import_asset_type(row.get('asset_type')),
+            'notes': str(row.get('notes') or '').strip()
+        }
+
+        if errors:
+            issues.append({
+                'row_index': row_index,
+                'severity': 'error',
+                'reasons': errors,
+                'row': normalized
+            })
+            normalized['action'] = 'ignored'
+            normalized['status'] = 'error'
+        else:
+            normalized['action'] = 'new'
+            normalized['status'] = 'ok'
+            normalized['fingerprint'] = build_import_row_fingerprint(normalized)
+        normalized_rows.append(normalized)
+
+    return normalized_rows, issues
+
+
+def classify_import_rows(user_id, account_name, normalized_rows, issues):
+    account_name = normalize_account_name(account_name)
+    existing_logs = (
+        TradeLog.query
+        .filter_by(user_id=user_id, account_name=account_name)
+        .all()
+    )
+    account_products = Product.query.filter_by(user_id=user_id, account_name=account_name).all()
+
+    product_by_code = {}
+    product_by_name = {}
+    for product in account_products:
+        code_key = market_client.clean_code(product.product_code)
+        name_key = str(product.product_name or '').strip().lower()
+        if code_key:
+            product_by_code[code_key] = product
+        if name_key:
+            product_by_name[name_key] = product
+
+    product_ids = {log.product_id for log in existing_logs if log.product_id}
+    product_code_map = {}
+    if product_ids:
+        for product_row in Product.query.filter(Product.id.in_(product_ids)).all():
+            product_code_map[product_row.id] = market_client.clean_code(product_row.product_code)
+
+    existing_fingerprints = {}
+    conflict_keys = {}
+    for log in existing_logs:
+        mapped_code = product_code_map.get(log.product_id, '')
+        key = canonical_json({
+            'product_name': str(log.product_name or '').strip().lower(),
+            'product_code': mapped_code,
+            'trade_type': str(log.trade_type or '').strip().lower(),
+            'trade_date': log.trade_date.isoformat() if log.trade_date else '',
+            'quantity': round(float(log.quantity or 0), 8),
+            'price': round(float(log.price or 0), 8),
+            'total_amount': round(float(log.total_amount or 0), 6)
+        })
+        existing_fingerprints.setdefault(key, []).append(log.id)
+
+        conflict_key = canonical_json({
+            'product_name': str(log.product_name or '').strip().lower(),
+            'product_code': mapped_code,
+            'trade_type': str(log.trade_type or '').strip().lower(),
+            'trade_date': log.trade_date.isoformat() if log.trade_date else ''
+        })
+        bucket = conflict_keys.setdefault(conflict_key, {'ids': [], 'logs': []})
+        bucket['ids'].append(log.id)
+        bucket['logs'].append({
+            'id': log.id,
+            'product_name': log.product_name,
+            'product_code': mapped_code,
+            'trade_type': log.trade_type,
+            'trade_date': log.trade_date.isoformat() if log.trade_date else None,
+            'quantity': float(log.quantity or 0),
+            'price': float(log.price or 0),
+            'total_amount': float(log.total_amount or 0)
+        })
+
+    imported = 0
+    duplicate = 0
+    conflict = 0
+    ignored = len(issues)
+
+    for row in normalized_rows:
+        if row.get('status') == 'error':
+            continue
+        row_code = market_client.clean_code(row.get('product_code') or '')
+        row_name_key = str(row.get('product_name') or '').strip().lower()
+        mapped_product = product_by_code.get(row_code) or product_by_name.get(row_name_key)
+        if mapped_product:
+            row['mapping_hint'] = {
+                'product_id': mapped_product.id,
+                'product_name': mapped_product.product_name,
+                'product_code': mapped_product.product_code,
+                'status': mapped_product.status
+            }
+
+        fingerprint = row.get('fingerprint') or build_import_row_fingerprint(row)
+        if fingerprint in existing_fingerprints:
+            row['action'] = 'duplicate'
+            row['status'] = 'duplicate'
+            row['duplicate_log_ids'] = existing_fingerprints.get(fingerprint, [])
+            duplicate += 1
+            continue
+
+        conflict_key = canonical_json({
+            'product_name': str(row.get('product_name') or '').strip().lower(),
+            'product_code': market_client.clean_code(row.get('product_code') or ''),
+            'trade_type': str(row.get('trade_type') or '').strip().lower(),
+            'trade_date': str(row.get('trade_date') or '').strip()
+        })
+        if conflict_key in conflict_keys:
+            conflict_payload = conflict_keys[conflict_key]
+            row['action'] = 'conflict'
+            row['status'] = 'warning'
+            row['conflict_with'] = conflict_payload.get('ids', [])
+            row['conflict_with_logs'] = conflict_payload.get('logs', [])
+            conflict += 1
+            continue
+
+        row['action'] = 'new'
+        row['status'] = 'ok'
+        imported += 1
+
+    summary = {
+        'row_count': len(normalized_rows),
+        'new_count': imported,
+        'duplicate_count': duplicate,
+        'conflict_count': conflict,
+        'ignored_count': ignored,
+        'issue_count': len(issues)
+    }
+    return summary
+
+
+def find_import_target_product(user_id, account_name, row):
+    account_name = normalize_account_name(account_name)
+    code = market_client.clean_code(row.get('product_code') or '')
+    name = str(row.get('product_name') or '').strip()
+
+    query = Product.query.filter_by(user_id=user_id, account_name=account_name)
+    if code:
+        product = query.filter_by(product_code=code).order_by(Product.id.desc()).first()
+        if product:
+            return product
+    return query.filter_by(product_name=name).order_by(Product.id.desc()).first()
+
+
+def apply_import_trade_row(user_id, account_name, row, batch_id, forced_product_id=None):
+    trade_type = row['trade_type']
+    quantity = float(row['quantity'])
+    price = float(row['price'])
+    unit_type = normalize_import_unit_type(row.get('unit_type'))
+    trade_date = parse_trade_date(row['trade_date'])
+    total_amount = float(row.get('total_amount') or trade_amount(quantity, price, unit_type))
+    product_name = str(row.get('product_name') or '').strip()
+    product_code = market_client.clean_code(row.get('product_code') or '')
+    asset_type = normalize_import_asset_type(row.get('asset_type'))
+
+    product = None
+    if forced_product_id is not None:
+        product = Product.query.filter_by(
+            id=int(forced_product_id),
+            user_id=user_id,
+            account_name=normalize_account_name(account_name)
+        ).first()
+    if not product:
+        product = find_import_target_product(user_id, account_name, row)
+    if trade_type == 'sell' and not product:
+        raise ValueError(f'매도 대상 상품을 찾지 못했습니다: {product_name}')
+
+    if trade_type == 'buy' and not product:
+        product = Product(
+            user_id=user_id,
+            account_name=normalize_account_name(account_name),
+            product_name=product_name,
+            product_code=product_code,
+            purchase_price=price,
+            quantity=quantity,
+            unit_type=unit_type,
+            purchase_date=trade_date,
+            asset_type=asset_type,
+            current_price=price,
+            status='holding'
+        )
+        db.session.add(product)
+        db.session.flush()
+
+    if product:
+        product.product_name = product_name or product.product_name
+        if product_code:
+            product.product_code = product_code
+        product.asset_type = asset_type or product.asset_type
+        if not product.unit_type:
+            product.unit_type = unit_type
+
+    trade_log = TradeLog(
+        user_id=user_id,
+        account_name=normalize_account_name(account_name),
+        product_id=product.id if product else None,
+        product_name=product_name,
+        trade_type=trade_type,
+        quantity=quantity,
+        unit_type=unit_type,
+        price=price,
+        total_amount=total_amount,
+        trade_date=trade_date,
+        asset_type=asset_type,
+        notes=str(row.get('notes') or '')
+    )
+    db.session.add(trade_log)
+    db.session.flush()
+
+    if product:
+        sync_product_from_trade_log(trade_log)
+        if trade_type == 'sell':
+            latest_product = Product.query.filter_by(id=product.id).first()
+            if latest_product and latest_product.status != 'sold':
+                latest_product.status = 'sold'
+                latest_product.sale_date = trade_date
+                latest_product.sale_price = price
+
+    event = append_trade_event(
+        user_id=user_id,
+        account_name=normalize_account_name(account_name),
+        event_type='trade_created',
+        trade_log_id=trade_log.id,
+        product_id=trade_log.product_id,
+        import_batch_id=batch_id,
+        payload={
+            'trade_log': serialize_trade_log(trade_log),
+            'product': serialize_product(Product.query.filter_by(id=trade_log.product_id).first() if trade_log.product_id else None),
+            'reason': 'csv_import_commit'
+        }
+    )
+    capture_trade_snapshot(
+        user_id,
+        normalize_account_name(account_name),
+        import_batch_id=batch_id,
+        trade_event_id=event.id,
+        product=Product.query.filter_by(id=trade_log.product_id).first() if trade_log.product_id else None,
+        snapshot_payload=serialize_trade_log(trade_log),
+        snapshot_kind='import_commit'
+    )
+    return trade_log, event
+
+
+def build_import_commit_projection(rows, *, apply_conflicts=False, conflict_row_indexes=None, row_mapping_overrides=None):
+    selected_conflict_rows = {
+        int(item) for item in (conflict_row_indexes or [])
+        if str(item).strip().isdigit()
+    }
+    mapping_overrides = {}
+    for key, value in (row_mapping_overrides or {}).items():
+        try:
+            row_index = int(key)
+            product_id = int(value)
+        except (TypeError, ValueError):
+            continue
+        if row_index > 0 and product_id > 0:
+            mapping_overrides[row_index] = product_id
+
+    imported_count = 0
+    skipped_count = 0
+    selected_conflicts = []
+
+    for row in rows:
+        action = str(row.get('action') or '')
+        row_index = int(row.get('row_index') or 0)
+
+        if action in ('ignored', 'duplicate'):
+            skipped_count += 1
+            continue
+
+        if action == 'conflict':
+            should_import = bool(apply_conflicts or row_index in selected_conflict_rows)
+            if should_import:
+                imported_count += 1
+                selected_conflicts.append({
+                    'row_index': row_index,
+                    'product_name': row.get('product_name'),
+                    'product_code': row.get('product_code'),
+                    'mapped_product_id': mapping_overrides.get(row_index),
+                    'mapping_hint': row.get('mapping_hint') or {}
+                })
+            else:
+                skipped_count += 1
+            continue
+
+        if action == 'new':
+            imported_count += 1
+            continue
+
+        skipped_count += 1
+
+    return {
+        'total_rows': len(rows),
+        'imported_count': imported_count,
+        'skipped_count': skipped_count,
+        'selected_conflict_count': len(selected_conflicts),
+        'mapped_conflict_count': sum(1 for item in selected_conflicts if item.get('mapped_product_id')),
+        'selected_conflicts': selected_conflicts
+    }
+
+
+def build_projection_signature(projection):
+    payload = canonical_json(projection or {})
+    return hashlib.sha256(payload.encode('utf-8')).hexdigest()
 
 
 def capture_trade_snapshot(
@@ -932,7 +2211,248 @@ def calculate_macd(values):
     }
 
 
-def build_screener_snapshot(histories):
+def parse_optional_float(value, minimum=None, maximum=None):
+    if value in (None, ''):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(number) or math.isinf(number):
+        return None
+    if minimum is not None and number < minimum:
+        number = minimum
+    if maximum is not None and number > maximum:
+        number = maximum
+    return number
+
+
+def annualized_volatility(values, period):
+    if period <= 1 or len(values) <= period:
+        return None
+    window = [float(item) for item in values[-(period + 1):]]
+    returns = []
+    for previous, current in zip(window[:-1], window[1:]):
+        if previous <= 0:
+            continue
+        returns.append(math.log(current / previous))
+    if len(returns) < period // 2:
+        return None
+    avg = sum(returns) / len(returns)
+    variance = sum((item - avg) ** 2 for item in returns) / len(returns)
+    return math.sqrt(variance) * math.sqrt(252) * 100
+
+
+def build_candidate_tags(item):
+    name = str(item.get('name') or '').strip()
+    product_type = str(item.get('type') or '').lower()
+    normalized_name = re.sub(r'\s+', '', name).lower()
+
+    is_etf = (
+        'etf' in product_type
+        or name.upper().startswith(('KODEX', 'TIGER', 'ARIRANG', 'KBSTAR', 'ACE', 'KOSEF'))
+        or 'etn' in product_type
+    )
+    tags = ['domestic_stock']
+    if is_etf:
+        tags = ['etf_candidate']
+
+    pension_keywords = ('연금', '배당', '인컴', '채권', 'trf', 'tdf', '저변동', '코스피200', 's&p500', '나스닥100')
+    if is_etf and any(keyword in normalized_name for keyword in pension_keywords):
+        tags.append('pension_candidate')
+    return tags
+
+
+def normalize_provider_fundamentals(provider_rows):
+    normalized = {
+        'pe': None,
+        'pb': None,
+        'ps': None,
+        'roe': None,
+        'operating_margin': None,
+        'debt_to_equity': None,
+        'dividend_yield': None,
+        'beta': None,
+        'source': 'manual'
+    }
+    for row in provider_rows:
+        if not isinstance(row, dict):
+            continue
+        source = row.get('source')
+        payload = row.get('payload') or {}
+        if not isinstance(payload, dict):
+            continue
+
+        pe = parse_optional_float(payload.get('trailingPE'))
+        pb = parse_optional_float(payload.get('priceToBook'))
+        ps = parse_optional_float(payload.get('priceToSalesTrailing12Months'))
+        roe = parse_optional_float(payload.get('returnOnEquity'))
+        op_margin = parse_optional_float(payload.get('operatingMargins'))
+        debt_to_equity = parse_optional_float(payload.get('debtToEquity'))
+        dividend_yield = parse_optional_float(payload.get('dividendYield'))
+        beta = parse_optional_float(payload.get('beta'))
+
+        if normalized['pe'] is None and pe is not None:
+            normalized['pe'] = pe
+            normalized['source'] = source or normalized['source']
+        if normalized['pb'] is None and pb is not None:
+            normalized['pb'] = pb
+            normalized['source'] = source or normalized['source']
+        if normalized['ps'] is None and ps is not None:
+            normalized['ps'] = ps
+            normalized['source'] = source or normalized['source']
+        if normalized['roe'] is None and roe is not None:
+            normalized['roe'] = roe * 100 if abs(roe) <= 1 else roe
+            normalized['source'] = source or normalized['source']
+        if normalized['operating_margin'] is None and op_margin is not None:
+            normalized['operating_margin'] = op_margin * 100 if abs(op_margin) <= 1 else op_margin
+            normalized['source'] = source or normalized['source']
+        if normalized['debt_to_equity'] is None and debt_to_equity is not None:
+            normalized['debt_to_equity'] = debt_to_equity
+            normalized['source'] = source or normalized['source']
+        if normalized['dividend_yield'] is None and dividend_yield is not None:
+            normalized['dividend_yield'] = dividend_yield * 100 if abs(dividend_yield) <= 1 else dividend_yield
+            normalized['source'] = source or normalized['source']
+        if normalized['beta'] is None and beta is not None:
+            normalized['beta'] = beta
+            normalized['source'] = source or normalized['source']
+    return normalized
+
+
+def fetch_normalized_fundamentals(code):
+    cleaned_code = market_client.clean_code(code)
+    if not cleaned_code:
+        return normalize_provider_fundamentals([])
+
+    cached = market_client.get_cached_value('screener_fundamentals', cleaned_code, 60 * 60 * 8)
+    if cached is not None:
+        return cached
+
+    provider_rows = []
+    try:
+        import yfinance as yf
+        symbol = market_client.normalize_symbol(cleaned_code)
+        ticker = yf.Ticker(symbol)
+        payload = {}
+        try:
+            info = ticker.info or {}
+            payload.update(info if isinstance(info, dict) else {})
+        except Exception:
+            pass
+        try:
+            fast_info = ticker.fast_info
+            if hasattr(fast_info, 'items'):
+                payload.update(dict(fast_info.items()))
+        except Exception:
+            pass
+        if payload:
+            provider_rows.append({'source': 'yahoo', 'payload': payload})
+    except Exception:
+        provider_rows = []
+
+    normalized = normalize_provider_fundamentals(provider_rows)
+    market_client.set_cached_value('screener_fundamentals', cleaned_code, normalized)
+    return normalized
+
+
+def normalize_screener_filters(raw_filters):
+    raw = raw_filters if isinstance(raw_filters, dict) else {}
+    valuation = raw.get('valuation') if isinstance(raw.get('valuation'), dict) else {}
+    momentum = raw.get('momentum') if isinstance(raw.get('momentum'), dict) else {}
+    quality = raw.get('quality') if isinstance(raw.get('quality'), dict) else {}
+    dividend = raw.get('dividend') if isinstance(raw.get('dividend'), dict) else {}
+    volatility = raw.get('volatility') if isinstance(raw.get('volatility'), dict) else {}
+    candidate = raw.get('candidate') if isinstance(raw.get('candidate'), dict) else {}
+
+    include_missing = str(raw.get('missing_policy', candidate.get('missing_policy') or ('include' if raw.get('include_missing', True) else 'exclude'))).lower() != 'exclude'
+
+    return {
+        'rsi_min': parse_optional_float(raw.get('rsi_min', momentum.get('rsi_min')), 0, 100) if raw.get('rsi_min', momentum.get('rsi_min')) not in (None, '') else None,
+        'rsi_max': parse_optional_float(raw.get('rsi_max', momentum.get('rsi_max')), 0, 100) if raw.get('rsi_max', momentum.get('rsi_max')) not in (None, '') else None,
+        'min_return_20d': parse_optional_float(raw.get('min_return_20d', momentum.get('return_20d_min'))),
+        'max_return_20d': parse_optional_float(raw.get('max_return_20d', momentum.get('return_20d_max'))),
+        'require_ma_cross': bool(raw.get('require_ma_cross')),
+        'require_bb_breakout': bool(raw.get('require_bb_breakout')),
+        'require_macd_positive': bool(raw.get('require_macd_positive')),
+        'pe_max': parse_optional_float(raw.get('pe_max', valuation.get('pe_max'))),
+        'pb_max': parse_optional_float(raw.get('pb_max', valuation.get('pb_max'))),
+        'ps_max': parse_optional_float(raw.get('ps_max', valuation.get('ps_max'))),
+        'roe_min': parse_optional_float(raw.get('roe_min', quality.get('roe_min'))),
+        'operating_margin_min': parse_optional_float(raw.get('operating_margin_min', quality.get('operating_margin_min'))),
+        'debt_to_equity_max': parse_optional_float(raw.get('debt_to_equity_max', quality.get('debt_to_equity_max'))),
+        'dividend_yield_min': parse_optional_float(raw.get('dividend_yield_min', dividend.get('yield_min'))),
+        'volatility_30d_max': parse_optional_float(raw.get('volatility_30d_max', volatility.get('vol_30d_max'))),
+        'volatility_90d_max': parse_optional_float(raw.get('volatility_90d_max', volatility.get('vol_90d_max'))),
+        'volatility_1y_max': parse_optional_float(raw.get('volatility_1y_max', volatility.get('vol_1y_max'))),
+        'include_etf_candidates': bool(raw.get('include_etf_candidates', candidate.get('include_etf_candidates', True))),
+        'include_pension_candidates': bool(raw.get('include_pension_candidates', candidate.get('include_pension_candidates', True))),
+        'include_missing': include_missing
+    }
+
+
+def has_fundamental_filters(filters):
+    for key in (
+        'pe_max',
+        'pb_max',
+        'ps_max',
+        'roe_min',
+        'operating_margin_min',
+        'debt_to_equity_max',
+        'dividend_yield_min'
+    ):
+        if filters.get(key) is not None:
+            return True
+    return False
+
+
+def build_screener_condition_expression(filters):
+    if not isinstance(filters, dict):
+        return ''
+    clauses = []
+    if filters.get('rsi_min') is not None:
+        clauses.append(f"RSI14 >= {filters['rsi_min']}")
+    if filters.get('rsi_max') is not None:
+        clauses.append(f"RSI14 <= {filters['rsi_max']}")
+    if filters.get('min_return_20d') is not None:
+        clauses.append(f"20d return >= {filters['min_return_20d']}%")
+    if filters.get('max_return_20d') is not None:
+        clauses.append(f"20d return <= {filters['max_return_20d']}%")
+    if filters.get('pe_max') is not None:
+        clauses.append(f"PE <= {filters['pe_max']}")
+    if filters.get('pb_max') is not None:
+        clauses.append(f"PB <= {filters['pb_max']}")
+    if filters.get('ps_max') is not None:
+        clauses.append(f"PS <= {filters['ps_max']}")
+    if filters.get('roe_min') is not None:
+        clauses.append(f"ROE >= {filters['roe_min']}%")
+    if filters.get('operating_margin_min') is not None:
+        clauses.append(f"OperatingMargin >= {filters['operating_margin_min']}%")
+    if filters.get('debt_to_equity_max') is not None:
+        clauses.append(f"Debt/Equity <= {filters['debt_to_equity_max']}")
+    if filters.get('dividend_yield_min') is not None:
+        clauses.append(f"DividendYield >= {filters['dividend_yield_min']}%")
+    if filters.get('volatility_30d_max') is not None:
+        clauses.append(f"Vol30d <= {filters['volatility_30d_max']}%")
+    if filters.get('volatility_90d_max') is not None:
+        clauses.append(f"Vol90d <= {filters['volatility_90d_max']}%")
+    if filters.get('volatility_1y_max') is not None:
+        clauses.append(f"Vol1y <= {filters['volatility_1y_max']}%")
+    if filters.get('require_ma_cross'):
+        clauses.append('MA5 > MA20')
+    if filters.get('require_bb_breakout'):
+        clauses.append('Price >= BollingerUpper')
+    if filters.get('require_macd_positive'):
+        clauses.append('MACD histogram > 0')
+    if not filters.get('include_etf_candidates', True):
+        clauses.append('exclude ETF candidates')
+    if not filters.get('include_pension_candidates', True):
+        clauses.append('exclude pension candidates')
+    if not filters.get('include_missing', True):
+        clauses.append('exclude missing metrics')
+    return ' AND '.join(clauses)
+
+
+def build_screener_snapshot(histories, fundamentals=None):
     closes = [float(row['price']) for row in histories if row.get('price') is not None]
     if len(closes) < 30:
         return None
@@ -948,8 +2468,13 @@ def build_screener_snapshot(histories):
     macd = calculate_macd(closes)
     return_20d = ((latest_price / closes[-21]) - 1) * 100 if len(closes) > 21 and closes[-21] else None
     return_60d = ((latest_price / closes[-61]) - 1) * 100 if len(closes) > 61 and closes[-61] else None
+    return_120d = ((latest_price / closes[-121]) - 1) * 100 if len(closes) > 121 and closes[-121] else None
     ma_gap = ((ma5 / ma20) - 1) * 100 if ma5 and ma20 else None
     bb_percent = ((latest_price - lower_bb) / (upper_bb - lower_bb) * 100) if upper_bb and lower_bb and upper_bb > lower_bb else None
+    vol30 = annualized_volatility(closes, 30)
+    vol90 = annualized_volatility(closes, 90)
+    vol252 = annualized_volatility(closes, 252)
+    fundamentals = fundamentals or {}
 
     signals = []
     if ma5 and ma20 and ma5 > ma20:
@@ -973,30 +2498,72 @@ def build_screener_snapshot(histories):
         'rsi14': to_rounded_float(rsi14, 2),
         'return_20d': to_rounded_float(return_20d, 2),
         'return_60d': to_rounded_float(return_60d, 2),
+        'return_120d': to_rounded_float(return_120d, 2),
+        'volatility_30d': to_rounded_float(vol30, 2),
+        'volatility_90d': to_rounded_float(vol90, 2),
+        'volatility_1y': to_rounded_float(vol252, 2),
         'ma_gap': to_rounded_float(ma_gap, 2),
         'macd': macd['macd'],
         'macd_signal': macd['signal'],
         'macd_histogram': macd['histogram'],
+        'pe': to_rounded_float(fundamentals.get('pe'), 2),
+        'pb': to_rounded_float(fundamentals.get('pb'), 2),
+        'ps': to_rounded_float(fundamentals.get('ps'), 2),
+        'roe': to_rounded_float(fundamentals.get('roe'), 2),
+        'operating_margin': to_rounded_float(fundamentals.get('operating_margin'), 2),
+        'debt_to_equity': to_rounded_float(fundamentals.get('debt_to_equity'), 2),
+        'dividend_yield': to_rounded_float(fundamentals.get('dividend_yield'), 2),
+        'beta': to_rounded_float(fundamentals.get('beta'), 2),
+        'fundamental_source': fundamentals.get('source') or 'manual',
         'signal_count': len(signals),
         'signals': signals
     }
 
 
 def passes_screener_filters(snapshot, filters):
-    rsi_min = float(filters.get('rsi_min', 0))
-    rsi_max = float(filters.get('rsi_max', 100))
-    min_return = float(filters.get('min_return_20d', -100))
-    max_return = float(filters.get('max_return_20d', 1000))
+    rsi_min = filters.get('rsi_min')
+    rsi_max = filters.get('rsi_max')
+    min_return = filters.get('min_return_20d')
+    max_return = filters.get('max_return_20d')
     require_ma_cross = bool(filters.get('require_ma_cross'))
     require_bb_breakout = bool(filters.get('require_bb_breakout'))
     require_macd_positive = bool(filters.get('require_macd_positive'))
+    include_missing = bool(filters.get('include_missing', True))
+
+    def check_min(metric_key, threshold):
+        if threshold is None:
+            return True
+        value = snapshot.get(metric_key)
+        if value is None:
+            return include_missing
+        return float(value) >= float(threshold)
+
+    def check_max(metric_key, threshold):
+        if threshold is None:
+            return True
+        value = snapshot.get(metric_key)
+        if value is None:
+            return include_missing
+        return float(value) <= float(threshold)
 
     rsi14 = snapshot.get('rsi14')
-    if rsi14 is None or rsi14 < rsi_min or rsi14 > rsi_max:
+    if rsi_min is not None and (rsi14 is None and not include_missing):
+        return False
+    if rsi_max is not None and (rsi14 is None and not include_missing):
+        return False
+    if rsi14 is not None and rsi_min is not None and rsi14 < rsi_min:
+        return False
+    if rsi14 is not None and rsi_max is not None and rsi14 > rsi_max:
         return False
 
     return_20d = snapshot.get('return_20d')
-    if return_20d is None or return_20d < min_return or return_20d > max_return:
+    if min_return is not None and return_20d is None and not include_missing:
+        return False
+    if max_return is not None and return_20d is None and not include_missing:
+        return False
+    if return_20d is not None and min_return is not None and return_20d < min_return:
+        return False
+    if return_20d is not None and max_return is not None and return_20d > max_return:
         return False
 
     if require_ma_cross and not (snapshot.get('ma5') and snapshot.get('ma20') and snapshot['ma5'] > snapshot['ma20']):
@@ -1004,6 +2571,26 @@ def passes_screener_filters(snapshot, filters):
     if require_bb_breakout and not (snapshot.get('upper_bb') and snapshot.get('price') and snapshot['price'] >= snapshot['upper_bb']):
         return False
     if require_macd_positive and not ((snapshot.get('macd_histogram') or 0) > 0):
+        return False
+    if not check_max('pe', filters.get('pe_max')):
+        return False
+    if not check_max('pb', filters.get('pb_max')):
+        return False
+    if not check_max('ps', filters.get('ps_max')):
+        return False
+    if not check_min('roe', filters.get('roe_min')):
+        return False
+    if not check_min('operating_margin', filters.get('operating_margin_min')):
+        return False
+    if not check_max('debt_to_equity', filters.get('debt_to_equity_max')):
+        return False
+    if not check_min('dividend_yield', filters.get('dividend_yield_min')):
+        return False
+    if not check_max('volatility_30d', filters.get('volatility_30d_max')):
+        return False
+    if not check_max('volatility_90d', filters.get('volatility_90d_max')):
+        return False
+    if not check_max('volatility_1y', filters.get('volatility_1y_max')):
         return False
 
     return True
@@ -1060,7 +2647,7 @@ def build_dart_metric_rows(dart_snapshot):
     return rows
 
 
-def build_screener_compare_item(code):
+def build_screener_compare_item(code, include_dart=True):
     cleaned_code = market_client.clean_code(code)
     if not cleaned_code:
         raise ValueError('종목 코드가 필요합니다.')
@@ -1072,7 +2659,19 @@ def build_screener_compare_item(code):
     histories = market_client.get_historical_prices(cleaned_code, start_date, end_date)
     snapshot = build_screener_snapshot(histories) if histories else None
     quote = build_quote_snapshot(cleaned_code)
-    dart_snapshot = market_client.get_dart_snapshot(cleaned_code)
+    if include_dart:
+        try:
+            dart_snapshot = market_client.get_dart_snapshot(cleaned_code)
+        except Exception:
+            dart_snapshot = {
+                'enabled': False,
+                'reason': 'Open DART 조회가 지연되어 이번 비교에서는 제외했습니다.'
+            }
+    else:
+        dart_snapshot = {
+            'enabled': False,
+            'reason': '비교 화면에서는 Open DART 상세를 생략합니다. 종목 상세에서 확인하세요.'
+        }
 
     return {
         'name': (product_match or {}).get('name') or cleaned_code,
@@ -1670,6 +3269,15 @@ def register():
         password_hash = hashlib.sha256(data['password'].encode()).hexdigest()
         user = User(username=data['username'], email=data['email'], password=password_hash)
         db.session.add(user)
+        log_security_event(
+            user_id=None,
+            event_type='auth_register',
+            resource_type='user',
+            resource_id=data['username'],
+            action='register',
+            status='ok',
+            message='신규 회원가입'
+        )
         db.session.commit()
 
         return jsonify({'message': '회원가입이 완료되었습니다.', 'user': user.to_dict()}), 201
@@ -1685,10 +3293,30 @@ def login():
         user = User.query.filter_by(username=data.get('username')).first()
         password_hash = hashlib.sha256((data.get('password') or '').encode()).hexdigest()
 
-        if not user or user.password != password_hash:
+        if not user or user.password != password_hash or user.is_deleted:
+            log_security_event(
+                user_id=user.id if user else None,
+                event_type='auth_login',
+                resource_type='user',
+                resource_id=data.get('username'),
+                action='login',
+                status='denied',
+                message='로그인 실패'
+            )
+            db.session.commit()
             return jsonify({'error': '사용자명 또는 비밀번호가 올바르지 않습니다.'}), 401
 
         access_token = create_access_token(identity=str(user.id))
+        log_security_event(
+            user_id=user.id,
+            event_type='auth_login',
+            resource_type='user',
+            resource_id=user.id,
+            action='login',
+            status='ok',
+            message='로그인 성공'
+        )
+        db.session.commit()
         return jsonify({'access_token': access_token, 'user': user.to_dict()}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1702,6 +3330,127 @@ def get_portfolio_summary():
         account_name = current_account_name()
         return jsonify(build_portfolio_summary_payload(user_id, account_name, sync_prices=True)), 200
     except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/privacy/policy', methods=['GET'])
+def get_privacy_policy():
+    policy = {
+        'title': '개인정보 처리방침',
+        'effective_date': '2026-04-29',
+        'items': [
+            {
+                'heading': '수집 항목',
+                'content': '계정 정보(사용자명, 이메일), 포트폴리오/매매일지 데이터, 인증 토큰 검증 정보, 접근 로그'
+            },
+            {
+                'heading': '이용 목적',
+                'content': '서비스 제공, 포트폴리오 분석, 보안 감사 및 이상 접근 탐지, 사용자 요청 처리'
+            },
+            {
+                'heading': '보관 및 삭제',
+                'content': '사용자 요청에 따라 soft delete(익명화) 또는 hard delete(완전삭제) 정책을 선택할 수 있습니다.'
+            },
+            {
+                'heading': '국외 이전 가능성',
+                'content': 'OpenAI/OpenDART/Naver/Yahoo 등 외부 데이터 API 사용 시 서비스 특성상 국외 전송이 발생할 수 있습니다.'
+            }
+        ]
+    }
+    return jsonify(policy), 200
+
+
+@api.route('/privacy/contact', methods=['GET'])
+def get_privacy_contact():
+    return jsonify({
+        'email': os.getenv('PRIVACY_CONTACT_EMAIL', 'privacy@example.com'),
+        'name': os.getenv('PRIVACY_CONTACT_NAME', '개인정보 보호 담당자'),
+        'country_transfer_notice': '외부 API 연동 시 일부 요청 데이터가 해외 인프라를 경유할 수 있습니다.'
+    }), 200
+
+
+@api.route('/privacy/deletion-requests', methods=['GET'])
+@jwt_required()
+def list_deletion_requests():
+    try:
+        user_id = current_user_id()
+        rows = (
+            DataDeletionRequest.query
+            .filter_by(user_id=user_id)
+            .order_by(DataDeletionRequest.requested_at.desc(), DataDeletionRequest.id.desc())
+            .all()
+        )
+        return jsonify({'requests': [row.to_dict() for row in rows]}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/privacy/deletion-requests', methods=['POST'])
+@jwt_required()
+def create_deletion_request():
+    try:
+        user_id = current_user_id()
+        data = request.get_json() or {}
+        mode = str(data.get('mode') or 'soft').strip().lower()
+        if mode not in ('soft', 'hard'):
+            return jsonify({'error': 'mode는 soft 또는 hard만 지원합니다.'}), 400
+
+        row = DataDeletionRequest(
+            user_id=user_id,
+            mode=mode,
+            reason=str(data.get('reason') or '').strip()[:2000],
+            status='pending',
+            requested_at=datetime.utcnow()
+        )
+        db.session.add(row)
+        log_security_event(
+            user_id=user_id,
+            event_type='privacy_deletion_requested',
+            resource_type='user',
+            resource_id=user_id,
+            action='request_delete',
+            status='ok',
+            message=f'{mode} 삭제 요청 등록',
+            detail={'mode': mode}
+        )
+        db.session.commit()
+        return jsonify({'message': '삭제 요청이 접수되었습니다.', 'request': row.to_dict()}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/privacy/deletion-requests/<int:request_id>/execute', methods=['POST'])
+@jwt_required()
+def execute_deletion_request(request_id):
+    try:
+        user_id = current_user_id()
+        row = DataDeletionRequest.query.filter_by(id=request_id, user_id=user_id).first()
+        if not row:
+            return jsonify({'error': '삭제 요청을 찾을 수 없습니다.'}), 404
+        if row.status != 'pending':
+            return jsonify({'error': '이미 처리된 요청입니다.'}), 400
+
+        user = User.query.filter_by(id=user_id).first()
+        if not user:
+            return jsonify({'error': '사용자 정보를 찾을 수 없습니다.'}), 404
+
+        if row.mode == 'hard':
+            perform_hard_delete_user(user_id, row)
+            db.session.commit()
+            return jsonify({
+                'message': 'hard delete가 완료되었습니다. 다시 로그인할 수 없습니다.',
+                'mode': 'hard'
+            }), 200
+
+        perform_soft_delete_user(user, row)
+        db.session.commit()
+        return jsonify({
+            'message': 'soft delete(익명화)가 완료되었습니다. 다시 로그인할 수 없습니다.',
+            'mode': 'soft'
+        }), 200
+    except Exception as e:
+        db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
 
@@ -1762,6 +3511,19 @@ def add_account():
         profile.account_type = account_type
         profile.account_category = account_category
         balance = get_cash_balance(user_id, account_name)
+        wrapper = AccountWrapper.query.filter_by(user_id=user_id, account_name=account_name).first()
+        if not wrapper:
+            wrapper = AccountWrapper(user_id=user_id, account_name=account_name)
+            db.session.add(wrapper)
+        wrapper.wrapper_type = map_wrapper_type(account_type, account_category)
+        wrapper.provider = 'manual'
+        wrapper.nickname = account_name
+        wrapper.base_currency = 'KRW'
+        wrapper.tags_json = canonical_json([get_account_type_label(account_type), get_account_category_label(account_category, account_type)])
+        wrapper.source = 'portfolio_ledger'
+        wrapper.as_of = datetime.utcnow()
+        wrapper.latency_class = 'eod'
+        wrapper.reconciled = False
 
         if created:
             db.session.refresh(balance)
@@ -1805,9 +3567,16 @@ def delete_account(account_name):
         TradeLog.query.filter_by(user_id=user_id, account_name=normalized_name).delete(synchronize_session=False)
         TradeEvent.query.filter_by(user_id=user_id, account_name=normalized_name).delete(synchronize_session=False)
         TradeSnapshot.query.filter_by(user_id=user_id, account_name=normalized_name).delete(synchronize_session=False)
+        PortfolioSnapshot.query.filter_by(user_id=user_id, account_name=normalized_name).delete(synchronize_session=False)
         ReconciliationResult.query.filter_by(user_id=user_id, account_name=normalized_name).delete(synchronize_session=False)
         ImportBatch.query.filter_by(user_id=user_id, account_name=normalized_name).delete(synchronize_session=False)
         CashBalance.query.filter_by(user_id=user_id, account_name=normalized_name).delete(synchronize_session=False)
+        wrapper = AccountWrapper.query.filter_by(user_id=user_id, account_name=normalized_name).first()
+        if wrapper:
+            HoldingLot.query.filter_by(user_id=user_id, account_wrapper_id=wrapper.id).delete(synchronize_session=False)
+            CashFlow.query.filter_by(user_id=user_id, account_wrapper_id=wrapper.id).delete(synchronize_session=False)
+            Benchmark.query.filter_by(user_id=user_id, account_wrapper_id=wrapper.id).delete(synchronize_session=False)
+            db.session.delete(wrapper)
         AccountProfile.query.filter_by(user_id=user_id, account_name=normalized_name).delete(synchronize_session=False)
         db.session.commit()
 
@@ -1860,6 +3629,10 @@ def rename_account(account_name):
             {'account_name': next_name},
             synchronize_session=False
         )
+        PortfolioSnapshot.query.filter_by(user_id=user_id, account_name=current_name).update(
+            {'account_name': next_name},
+            synchronize_session=False
+        )
         ReconciliationResult.query.filter_by(user_id=user_id, account_name=current_name).update(
             {'account_name': next_name},
             synchronize_session=False
@@ -1872,6 +3645,22 @@ def rename_account(account_name):
             {'account_name': next_name},
             synchronize_session=False
         )
+        wrapper = AccountWrapper.query.filter_by(user_id=user_id, account_name=current_name).first()
+        if wrapper:
+            wrapper.account_name = next_name
+            wrapper.nickname = next_name
+            HoldingLot.query.filter_by(user_id=user_id, account_wrapper_id=wrapper.id).update(
+                {'account_name': next_name},
+                synchronize_session=False
+            )
+            CashFlow.query.filter_by(user_id=user_id, account_wrapper_id=wrapper.id).update(
+                {'account_name': next_name},
+                synchronize_session=False
+            )
+            PortfolioSnapshot.query.filter_by(user_id=user_id, account_wrapper_id=wrapper.id).update(
+                {'account_name': next_name},
+                synchronize_session=False
+            )
         profile = AccountProfile.query.filter_by(user_id=user_id, account_name=current_name).first()
         if profile:
             profile.account_name = next_name
@@ -1996,7 +3785,8 @@ def run_stock_screener():
         market = str(data.get('market') or 'KOSPI').strip().upper()
         page_count = max(1, min(int(data.get('pages') or 2), 5))
         limit = max(5, min(int(data.get('limit') or 24), 60))
-        filters = data.get('filters') or {}
+        filters = normalize_screener_filters(data.get('filters') or {})
+        require_fundamentals = has_fundamental_filters(filters)
 
         cache_key = hashlib.sha1(json.dumps({
             'market': market,
@@ -2006,7 +3796,10 @@ def run_stock_screener():
         }, sort_keys=True).encode('utf-8')).hexdigest()
         cached = _screener_cache.get(cache_key)
         if cached and (datetime.now(MARKET_TIMEZONE).timestamp() - cached['saved_at']) < 60 * 20:
-            return jsonify(cached['value']), 200
+            cached_value = dict(cached['value'])
+            cached_value['cache_hit'] = True
+            cached_value['cache_ttl_seconds'] = 60 * 20
+            return jsonify(cached_value), 200
 
         universe = market_client.get_market_universe(market, page_count)
         end_date = date.today()
@@ -2016,11 +3809,18 @@ def run_stock_screener():
 
         for item in universe:
             histories = market_client.get_historical_prices(item['code'], start_date, end_date)
-            snapshot = build_screener_snapshot(histories)
+            fundamentals = fetch_normalized_fundamentals(item['code']) if require_fundamentals else {}
+            snapshot = build_screener_snapshot(histories, fundamentals=fundamentals)
             if not snapshot:
                 continue
             scanned += 1
             if not passes_screener_filters(snapshot, filters):
+                continue
+
+            candidate_tags = build_candidate_tags(item)
+            if not filters.get('include_etf_candidates', True) and 'etf_candidate' in candidate_tags:
+                continue
+            if not filters.get('include_pension_candidates', True) and 'pension_candidate' in candidate_tags:
                 continue
 
             rows.append({
@@ -2028,6 +3828,7 @@ def run_stock_screener():
                 'code': item['code'],
                 'exchange': item.get('exchange') or market,
                 'type': item.get('type') or 'stock/ETF',
+                'candidate_tags': candidate_tags,
                 **snapshot
             })
 
@@ -2039,17 +3840,27 @@ def run_stock_screener():
             )
         )
 
+        generated_at = datetime.now(MARKET_TIMEZONE)
         result = {
             'market': market,
             'pages': page_count,
+            'filters': filters,
             'scanned_count': scanned,
             'result_count': len(rows),
             'results': rows[:limit],
-            'generated_at': datetime.now(MARKET_TIMEZONE).isoformat(),
-            'coverage_note': f'네이버 시가총액 페이지 기준 상위 {page_count}페이지 대표 종목군을 스캔했습니다.'
+            'generated_at': generated_at.isoformat(),
+            'coverage_note': f'네이버 시가총액 페이지 기준 상위 {page_count}페이지 대표 종목군을 스캔했습니다.',
+            'cache_hit': False,
+            'cache_ttl_seconds': 60 * 20,
+            'provenance': {
+                'source': 'krx',
+                'asOf': generated_at.isoformat(),
+                'latencyClass': 'eod',
+                'reconciled': False
+            }
         }
         _screener_cache[cache_key] = {
-            'saved_at': datetime.now(MARKET_TIMEZONE).timestamp(),
+            'saved_at': generated_at.timestamp(),
             'value': result
         }
         return jsonify(result), 200
@@ -2092,10 +3903,24 @@ def get_screener_compare():
         if not codes:
             return jsonify({'error': '비교할 종목 코드를 1개 이상 선택하세요.'}), 400
 
-        rows = [build_screener_compare_item(code) for code in codes]
+        rows = []
+        skipped = []
+        for code in codes:
+            try:
+                rows.append(build_screener_compare_item(code, include_dart=False))
+            except Exception as e:
+                skipped.append({
+                    'code': code,
+                    'reason': str(e)
+                })
+
+        if not rows:
+            return jsonify({'error': '비교 데이터를 불러오지 못했습니다.', 'skipped': skipped}), 503
+
         return jsonify({
             'compare_count': len(rows),
             'items': rows,
+            'skipped': skipped,
             'generated_at': datetime.now(MARKET_TIMEZONE).isoformat()
         }), 200
     except ValueError as e:
@@ -2132,7 +3957,7 @@ def save_screener_screen():
         market = str(data.get('market') or 'KOSPI').strip().upper()
         pages = max(1, min(int(data.get('pages') or 2), 5))
         limit = max(5, min(int(data.get('limit') or 24), 60))
-        filters = data.get('filters') or {}
+        filters = normalize_screener_filters(data.get('filters') or {})
         result_codes = [market_client.clean_code(code) for code in (data.get('result_codes') or []) if market_client.clean_code(code)]
         compare_codes = [market_client.clean_code(code) for code in (data.get('compare_codes') or []) if market_client.clean_code(code)]
         notes = str(data.get('notes') or '').strip()
@@ -2166,6 +3991,9 @@ def save_screener_screen():
     except ValueError as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 400
+    except AccessDeniedError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 403
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
@@ -2181,6 +4009,105 @@ def delete_screener_screen(screen_id):
         db.session.delete(screen)
         db.session.commit()
         return jsonify({'message': '저장 화면을 삭제했습니다.'}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/screener/watch-items', methods=['GET'])
+@jwt_required()
+def list_screener_watch_items():
+    try:
+        user_id = current_user_id()
+        account_name = normalize_account_name(request.args.get('account_name') or DEFAULT_ACCOUNT_NAME)
+        rows = (
+            ScreenerWatchItem.query
+            .filter_by(user_id=user_id, account_name=account_name)
+            .order_by(ScreenerWatchItem.updated_at.desc(), ScreenerWatchItem.id.desc())
+            .all()
+        )
+        return jsonify({
+            'account_name': account_name,
+            'count': len(rows),
+            'items': [build_screener_watch_item_response(row) for row in rows]
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/screener/watch-items', methods=['POST'])
+@jwt_required()
+def save_screener_watch_item():
+    try:
+        user_id = current_user_id()
+        data = request.get_json() or {}
+        account_name = normalize_account_name(data.get('account_name') or DEFAULT_ACCOUNT_NAME)
+        symbol = market_client.clean_code(data.get('symbol'))
+        if not symbol:
+            return jsonify({'error': '관심종목으로 저장할 코드가 필요합니다.'}), 400
+
+        name = str(data.get('name') or symbol).strip()[:255] or symbol
+        exchange = str(data.get('exchange') or '').strip()[:20] or None
+        candidate_tags = parse_string_list(data.get('candidate_tags'))
+        source = str(data.get('source') or 'screener').strip()[:24] or 'screener'
+
+        row = ScreenerWatchItem.query.filter_by(
+            user_id=user_id,
+            account_name=account_name,
+            symbol=symbol
+        ).first()
+        created = row is None
+        if created:
+            row = ScreenerWatchItem(
+                user_id=user_id,
+                account_name=account_name,
+                symbol=symbol
+            )
+            db.session.add(row)
+
+        row.name = name
+        row.exchange = exchange
+        row.candidate_tags_json = canonical_json(candidate_tags)
+        row.source = source
+        db.session.commit()
+
+        rows = (
+            ScreenerWatchItem.query
+            .filter_by(user_id=user_id, account_name=account_name)
+            .order_by(ScreenerWatchItem.updated_at.desc(), ScreenerWatchItem.id.desc())
+            .all()
+        )
+        return jsonify({
+            'message': '관심종목을 추가했습니다.' if created else '관심종목을 업데이트했습니다.',
+            'item': build_screener_watch_item_response(row),
+            'items': [build_screener_watch_item_response(item) for item in rows]
+        }), 201 if created else 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/screener/watch-items/<string:symbol>', methods=['DELETE'])
+@jwt_required()
+def delete_screener_watch_item(symbol):
+    try:
+        user_id = current_user_id()
+        account_name = normalize_account_name(request.args.get('account_name') or DEFAULT_ACCOUNT_NAME)
+        cleaned_symbol = market_client.clean_code(symbol)
+        if not cleaned_symbol:
+            return jsonify({'error': '삭제할 코드가 필요합니다.'}), 400
+
+        row = ScreenerWatchItem.query.filter_by(
+            user_id=user_id,
+            account_name=account_name,
+            symbol=cleaned_symbol
+        ).first()
+        if not row:
+            return jsonify({'error': '관심종목을 찾을 수 없습니다.'}), 404
+
+        db.session.delete(row)
+        db.session.commit()
+        return jsonify({'message': '관심종목을 삭제했습니다.', 'symbol': cleaned_symbol}), 200
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
@@ -2217,6 +4144,247 @@ def list_import_batches():
         return jsonify({'error': str(e)}), 500
 
 
+@api.route('/imports/preview', methods=['POST'])
+@jwt_required()
+def preview_import_rows():
+    try:
+        user_id = current_user_id()
+        file_storage = request.files.get('file')
+        if not file_storage:
+            return jsonify({'error': '업로드할 CSV 파일이 필요합니다.'}), 400
+
+        account_name = normalize_account_name(request.form.get('account_name') or DEFAULT_ACCOUNT_NAME)
+        source_name = str(request.form.get('source_name') or 'csv_upload').strip() or 'csv_upload'
+        rows = read_import_csv_rows(file_storage)
+        if len(rows) > 1500:
+            return jsonify({'error': '한 번에 최대 1500행까지만 미리보기를 지원합니다.'}), 400
+
+        normalized_rows, issues = normalize_import_rows_for_preview(rows)
+        summary = classify_import_rows(user_id, account_name, normalized_rows, issues)
+
+        batch = create_import_batch(
+            user_id,
+            account_name,
+            batch_type='csv_import_preview',
+            source_name=source_name,
+            row_count=len(normalized_rows),
+            notes={
+                'stage': 'preview',
+                'summary': summary,
+                'issues': issues,
+                'rows': normalized_rows
+            }
+        )
+        batch.status = 'preview'
+        db.session.commit()
+
+        return jsonify({
+            'message': '미리보기를 생성했습니다.',
+            'batch_id': batch.id,
+            'summary': summary,
+            'rows': normalized_rows[:200],
+            'issues': issues[:200],
+            'batch': build_import_batch_response(batch)
+        }), 200
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/imports/template', methods=['GET'])
+@jwt_required()
+def download_import_template():
+    try:
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(IMPORT_TEMPLATE_HEADERS)
+        writer.writerows(IMPORT_TEMPLATE_ROWS)
+        body = output.getvalue().encode('utf-8-sig')
+        output.close()
+
+        return Response(
+            body,
+            mimetype='text/csv; charset=utf-8',
+            headers={
+                'Content-Disposition': 'attachment; filename="import-template.csv"'
+            }
+        )
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/imports/commit', methods=['POST'])
+@jwt_required()
+def commit_import_rows():
+    try:
+        user_id = current_user_id()
+        payload = request.get_json() or {}
+        batch_id = str(payload.get('batch_id') or '').strip()
+        apply_conflicts = bool(payload.get('apply_conflicts', False))
+        strict_projection_check = bool(payload.get('strict_projection_check', False))
+        expected_projection_signature = str(payload.get('expected_projection_signature') or '').strip()
+        conflict_row_indexes = {
+            int(item) for item in (payload.get('conflict_row_indexes') or [])
+            if str(item).strip().isdigit()
+        }
+        row_mapping_overrides = payload.get('row_mapping_overrides') or {}
+
+        if not batch_id:
+            return jsonify({'error': 'batch_id가 필요합니다.'}), 400
+
+        batch = ImportBatch.query.filter_by(id=batch_id, user_id=user_id).first()
+        if not batch:
+            return jsonify({'error': '가져오기 배치를 찾지 못했습니다.'}), 404
+
+        notes = parse_json_text(batch.notes_json, {})
+        rows = notes.get('rows') or []
+        if not rows:
+            return jsonify({'error': '커밋할 미리보기 데이터가 없습니다.'}), 400
+        preflight_projection = build_import_commit_projection(
+            rows,
+            apply_conflicts=apply_conflicts,
+            conflict_row_indexes=sorted(conflict_row_indexes),
+            row_mapping_overrides=row_mapping_overrides
+        )
+        preflight_signature = build_projection_signature(preflight_projection)
+        preflight_calculated_at = datetime.utcnow().isoformat()
+        if strict_projection_check and expected_projection_signature and preflight_signature != expected_projection_signature:
+            return jsonify({
+                'error': 'dry-run 결과가 최신이 아닙니다. 예상 결과를 다시 확인한 뒤 커밋하세요.',
+                'code': 'DRY_RUN_STALE',
+                'expected_projection_signature': expected_projection_signature,
+                'current_projection_signature': preflight_signature,
+                'projection': preflight_projection,
+                'current_projection_calculated_at': preflight_calculated_at
+            }), 409
+
+        imported_count = 0
+        skipped_count = 0
+        error_count = 0
+        imported_log_ids = []
+        commit_errors = []
+
+        for row in rows:
+            action = str(row.get('action') or '')
+            row_index = int(row.get('row_index') or 0)
+            if action in ('ignored', 'duplicate'):
+                skipped_count += 1
+                continue
+            if action == 'conflict' and not apply_conflicts and row_index not in conflict_row_indexes:
+                skipped_count += 1
+                continue
+
+            try:
+                forced_product_id = None
+                if row_index:
+                    override = row_mapping_overrides.get(str(row_index)) or row_mapping_overrides.get(row_index)
+                    if override not in (None, ''):
+                        forced_product_id = int(override)
+                trade_log, _ = apply_import_trade_row(
+                    user_id,
+                    batch.account_name,
+                    row,
+                    batch.id,
+                    forced_product_id=forced_product_id
+                )
+                imported_count += 1
+                imported_log_ids.append(trade_log.id)
+            except Exception as error:
+                error_count += 1
+                commit_errors.append({
+                    'row_index': row.get('row_index'),
+                    'message': str(error)
+                })
+
+        reconciliation_result, reconciliation_summary = store_reconciliation_result(
+            user_id,
+            batch.account_name,
+            import_batch_id=batch.id,
+            scope='account'
+        )
+
+        finalize_import_batch(
+            batch,
+            status='completed' if error_count == 0 else 'partial',
+            imported_count=imported_count,
+            skipped_count=skipped_count,
+            error_count=error_count,
+            notes={
+                **notes,
+                'stage': 'committed',
+                'apply_conflicts': apply_conflicts,
+                'selected_conflict_rows': sorted(conflict_row_indexes),
+                'commit_summary': {
+                    'imported_count': imported_count,
+                    'skipped_count': skipped_count,
+                    'error_count': error_count
+                },
+                'commit_errors': commit_errors,
+                'imported_log_ids': imported_log_ids[:500],
+                'reconciliation_status': reconciliation_result.status,
+                'mismatch_count': reconciliation_summary['mismatch_count']
+            }
+        )
+        db.session.commit()
+
+        return jsonify({
+            'message': '가져오기 커밋이 완료되었습니다.',
+            'batch': build_import_batch_response(batch),
+            'imported_log_ids': imported_log_ids,
+            'commit_errors': commit_errors,
+            'reconciliation': build_reconciliation_result_response(reconciliation_result),
+            'projection': preflight_projection,
+            'projection_signature': preflight_signature,
+            'projection_calculated_at': preflight_calculated_at
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/imports/dry-run', methods=['POST'])
+@jwt_required()
+def dry_run_import_commit():
+    try:
+        user_id = current_user_id()
+        payload = request.get_json() or {}
+        batch_id = str(payload.get('batch_id') or '').strip()
+        apply_conflicts = bool(payload.get('apply_conflicts', False))
+        conflict_row_indexes = payload.get('conflict_row_indexes') or []
+        row_mapping_overrides = payload.get('row_mapping_overrides') or {}
+
+        if not batch_id:
+            return jsonify({'error': 'batch_id가 필요합니다.'}), 400
+
+        batch = ImportBatch.query.filter_by(id=batch_id, user_id=user_id).first()
+        if not batch:
+            return jsonify({'error': '가져오기 배치를 찾지 못했습니다.'}), 404
+
+        notes = parse_json_text(batch.notes_json, {})
+        rows = notes.get('rows') or []
+        if not rows:
+            return jsonify({'error': '미리보기 데이터가 없어 dry-run을 계산할 수 없습니다.'}), 400
+
+        projection = build_import_commit_projection(
+            rows,
+            apply_conflicts=apply_conflicts,
+            conflict_row_indexes=conflict_row_indexes,
+            row_mapping_overrides=row_mapping_overrides
+        )
+        signature = build_projection_signature(projection)
+        return jsonify({
+            'batch_id': batch.id,
+            'projection': projection,
+            'projection_signature': signature,
+            'calculated_at': datetime.utcnow().isoformat()
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @api.route('/trade-snapshots', methods=['GET'])
 @jwt_required()
 def list_trade_snapshots():
@@ -2232,6 +4400,25 @@ def list_trade_snapshots():
             .all()
         )
         return jsonify({'snapshots': [build_trade_snapshot_response(row) for row in rows]}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/reconciliation/latest', methods=['GET'])
+@jwt_required()
+def get_latest_reconciliation_result():
+    try:
+        user_id = current_user_id()
+        account_name = current_account_name()
+        row = (
+            ReconciliationResult.query
+            .filter_by(user_id=user_id, account_name=account_name)
+            .order_by(ReconciliationResult.created_at.desc(), ReconciliationResult.id.desc())
+            .first()
+        )
+        if not row:
+            return jsonify({'result': None}), 200
+        return jsonify({'result': build_reconciliation_result_response(row)}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -2421,6 +4608,134 @@ def get_all_products():
         return jsonify({'error': str(e)}), 500
 
 
+@api.route('/portfolio/domain-model', methods=['GET'])
+@jwt_required()
+def get_portfolio_domain_model():
+    try:
+        user_id = current_user_id()
+        scope = str(request.args.get('scope') or 'account').strip().lower()
+        if scope == 'all':
+            account_names = [item['account_name'] for item in list_user_accounts(user_id)]
+        else:
+            account_names = [current_account_name()]
+
+        wrappers_by_name, price_series_rows, as_of = refresh_domain_models(user_id, account_names)
+        db.session.commit()
+
+        wrapper_ids = [wrapper.id for wrapper in wrappers_by_name.values()]
+        wrappers = []
+        for account_name in account_names:
+            wrapper = wrappers_by_name.get(account_name)
+            if not wrapper:
+                continue
+            wrapper_row = wrapper.to_dict()
+            wrapper_row['tags'] = parse_json_text(wrapper_row.pop('tags_json'), [])
+            wrapper_row['provenance'] = {
+                'source': wrapper_row.pop('source'),
+                'asOf': wrapper_row.pop('as_of'),
+                'latencyClass': wrapper_row.pop('latency_class'),
+                'reconciled': wrapper_row.pop('reconciled')
+            }
+            wrappers.append(wrapper_row)
+
+        lots = [
+            {
+                **row.to_dict(),
+                'provenance': {
+                    'source': row.source,
+                    'asOf': row.as_of.isoformat() if row.as_of else None,
+                    'latencyClass': row.latency_class,
+                    'reconciled': bool(row.reconciled)
+                }
+            }
+            for row in HoldingLot.query.filter(
+                HoldingLot.user_id == user_id,
+                HoldingLot.account_wrapper_id.in_(wrapper_ids)
+            ).order_by(HoldingLot.account_name.asc(), HoldingLot.symbol.asc(), HoldingLot.acquired_at.asc()).all()
+        ]
+
+        cash_flows = [
+            {
+                **row.to_dict(),
+                'provenance': {
+                    'source': row.source,
+                    'asOf': row.as_of.isoformat() if row.as_of else None,
+                    'latencyClass': row.latency_class,
+                    'reconciled': bool(row.reconciled)
+                }
+            }
+            for row in CashFlow.query.filter(
+                CashFlow.user_id == user_id,
+                CashFlow.account_wrapper_id.in_(wrapper_ids)
+            ).order_by(CashFlow.flow_date.asc(), CashFlow.id.asc()).all()
+        ]
+
+        snapshots = [
+            {
+                **row.to_dict(),
+                'payload': parse_json_text(row.payload_json, {}),
+                'provenance': {
+                    'source': row.source,
+                    'asOf': row.as_of.isoformat() if row.as_of else None,
+                    'latencyClass': row.latency_class,
+                    'reconciled': bool(row.reconciled)
+                }
+            }
+            for row in PortfolioSnapshot.query.filter(
+                PortfolioSnapshot.user_id == user_id,
+                db.or_(
+                    PortfolioSnapshot.account_wrapper_id.in_(wrapper_ids),
+                    PortfolioSnapshot.account_name == '__all__'
+                )
+            ).order_by(PortfolioSnapshot.snapshot_date.asc(), PortfolioSnapshot.id.asc()).all()
+        ]
+
+        benchmarks = []
+        benchmark_start = date.today() - timedelta(days=400)
+        benchmark_end = date.today()
+        for row in Benchmark.query.filter(
+            Benchmark.user_id == user_id,
+            Benchmark.account_wrapper_id.in_(wrapper_ids)
+        ).order_by(Benchmark.account_wrapper_id.asc(), Benchmark.id.asc()).all():
+            series = market_client.get_historical_prices(row.code, benchmark_start, benchmark_end)
+            benchmark_row = row.to_dict()
+            benchmark_row['series'] = [
+                {
+                    'date': item['date'].isoformat() if isinstance(item.get('date'), date) else str(item.get('date')),
+                    'price': float(item.get('price') or 0)
+                }
+                for item in series
+                if item.get('date') and item.get('price') is not None
+            ]
+            benchmark_row['provenance'] = {
+                'source': row.source,
+                'asOf': row.as_of.isoformat() if row.as_of else None,
+                'latencyClass': row.latency_class,
+                'reconciled': bool(row.reconciled)
+            }
+            benchmarks.append(benchmark_row)
+
+        return jsonify({
+            'scope': 'all' if scope == 'all' else 'account',
+            'account_names': account_names,
+            'account_wrappers': wrappers,
+            'holdings_lots': lots,
+            'cash_flows': cash_flows,
+            'portfolio_snapshots': snapshots,
+            'benchmarks': benchmarks,
+            'price_series': price_series_rows,
+            'provenance': {
+                'source': 'portfolio_ledger',
+                'asOf': as_of.isoformat(),
+                'latencyClass': 'eod',
+                'reconciled': False
+            }
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
 @api.route('/products', methods=['POST'])
 @jwt_required()
 def add_product():
@@ -2532,8 +4847,9 @@ def add_product():
 def update_product(product_id):
     try:
         data = request.get_json() or {}
-        product = Product.query.filter_by(id=product_id, user_id=current_user_id(), status='holding').first()
-        if not product:
+        user_id = current_user_id()
+        product = assertCanAccessPortfolio(user_id, product_id)
+        if product.status != 'holding':
             return jsonify({'error': '보유 중인 상품을 찾을 수 없습니다.'}), 404
 
         product.product_name = data.get('product_name') or product.product_name
@@ -2584,6 +4900,9 @@ def update_product(product_id):
     except ValueError as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 400
+    except AccessDeniedError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 403
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
@@ -2594,8 +4913,9 @@ def update_product(product_id):
 def add_product_buy(product_id):
     try:
         data = request.get_json() or {}
-        product = Product.query.filter_by(id=product_id, user_id=current_user_id(), status='holding').first()
-        if not product:
+        user_id = current_user_id()
+        product = assertCanAccessPortfolio(user_id, product_id)
+        if product.status != 'holding':
             return jsonify({'error': '보유 중인 상품을 찾을 수 없습니다.'}), 404
         batch = create_import_batch(
             product.user_id,
@@ -2679,6 +4999,9 @@ def add_product_buy(product_id):
     except ValueError as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 400
+    except AccessDeniedError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 403
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
@@ -2689,9 +5012,8 @@ def add_product_buy(product_id):
 def sell_product(product_id):
     try:
         data = request.get_json() or {}
-        product = Product.query.filter_by(id=product_id, user_id=current_user_id()).first()
-        if not product:
-            return jsonify({'error': '상품을 찾을 수 없습니다.'}), 404
+        user_id = current_user_id()
+        product = assertCanAccessPortfolio(user_id, product_id)
         if product.status == 'sold':
             return jsonify({'error': '이미 매도 완료된 상품입니다.'}), 400
         batch = create_import_batch(
@@ -2766,6 +5088,9 @@ def sell_product(product_id):
     except ValueError as e:
         db.session.rollback()
         return jsonify({'error': f'입력 형식 오류: {str(e)}'}), 400
+    except AccessDeniedError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 403
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
@@ -2845,9 +5170,7 @@ def delete_user_product(user_id, product_id, import_batch_id=None):
 def delete_product(product_id):
     try:
         user_id = current_user_id()
-        product = Product.query.filter_by(id=product_id, user_id=user_id).first()
-        if not product:
-            return jsonify({'error': '상품을 찾을 수 없습니다.'}), 404
+        product = assertCanAccessPortfolio(user_id, product_id)
         batch = create_import_batch(
             user_id,
             product.account_name,
@@ -2878,6 +5201,9 @@ def delete_product(product_id):
             'message': '상품과 관련 매매일지, 가격 이력을 삭제했습니다.',
             'deleted_trade_logs': deleted_logs
         }), 200
+    except AccessDeniedError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 403
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
@@ -2888,9 +5214,7 @@ def delete_product(product_id):
 def delete_product_with_post(product_id):
     try:
         user_id = current_user_id()
-        product = Product.query.filter_by(id=product_id, user_id=user_id).first()
-        if not product:
-            return jsonify({'error': '상품을 찾을 수 없습니다.'}), 404
+        product = assertCanAccessPortfolio(user_id, product_id)
         batch = create_import_batch(
             user_id,
             product.account_name,
@@ -2921,6 +5245,9 @@ def delete_product_with_post(product_id):
             'message': '상품과 관련 매매일지, 가격 이력을 삭제했습니다.',
             'deleted_trade_logs': deleted_logs
         }), 200
+    except AccessDeniedError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 403
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
@@ -2931,9 +5258,7 @@ def delete_product_with_post(product_id):
 def update_product_price(product_id):
     try:
         data = request.get_json() or {}
-        product = Product.query.filter_by(id=product_id, user_id=current_user_id()).first()
-        if not product:
-            return jsonify({'error': '상품을 찾을 수 없습니다.'}), 404
+        product = assertCanAccessPortfolio(current_user_id(), product_id)
         if product.status == 'sold':
             return jsonify({'error': '매도 완료된 상품은 가격을 갱신할 수 없습니다.'}), 400
 
@@ -2945,6 +5270,9 @@ def update_product_price(product_id):
             db.session.add(PriceHistory(product_id=product.id, price=product.current_price, record_date=date.today()))
         db.session.commit()
         return jsonify({'message': '기준가가 갱신되었습니다.', 'product': product.to_dict()}), 200
+    except AccessDeniedError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 403
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
@@ -2954,14 +5282,14 @@ def update_product_price(product_id):
 @jwt_required()
 def get_price_history(product_id):
     try:
-        product = Product.query.filter_by(id=product_id, user_id=current_user_id()).first()
-        if not product:
-            return jsonify({'error': '상품을 찾을 수 없습니다.'}), 404
+        product = assertCanAccessPortfolio(current_user_id(), product_id)
 
         histories = PriceHistory.query.filter_by(product_id=product_id)
         if product.status == 'sold' and product.sale_date:
             histories = histories.filter(PriceHistory.record_date <= product.sale_date)
         return jsonify([h.to_dict() for h in histories.order_by(PriceHistory.record_date).all()]), 200
+    except AccessDeniedError as e:
+        return jsonify({'error': str(e)}), 403
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -2973,89 +5301,342 @@ def get_portfolio_trends():
         user_id = current_user_id()
         account_name = current_account_name()
         include_sold = str(request.args.get('include_sold') or '').strip().lower() in ('1', 'true', 'yes', 'all')
-        maybe_sync_account_prices(user_id, account_name)
-        query = Product.query.filter_by(user_id=user_id, account_name=account_name)
-        if not include_sold:
-            query = query.filter_by(status='holding')
-        products = query.all()
-        rows = []
-        changed = False
-        for product in products:
-            buy_logs = get_product_buy_logs(product)
-            history_start = min((log.trade_date for log in buy_logs), default=product.purchase_date)
-            history_end = product.sale_date if product.status == 'sold' and product.sale_date else date.today()
-
-            history_points = []
-            if not is_manual_price_product(product.product_code):
-                fetched_histories = market_client.get_historical_prices(product.product_code, history_start, history_end)
-                if fetched_histories:
-                    for history_row in fetched_histories:
-                        upsert_price_history(product.id, history_row['date'], history_row['price'])
-                    product.current_price = fetched_histories[-1]['price']
-                    history_points = fetched_histories
-                    changed = True
-
-            if not history_points:
-                histories = PriceHistory.query.filter_by(product_id=product.id)
-                if product.status == 'sold' and product.sale_date:
-                    histories = histories.filter(PriceHistory.record_date <= product.sale_date)
-                history_points = [
-                    {'date': history.record_date, 'price': history.price}
-                    for history in histories.order_by(PriceHistory.record_date).all()
-                ]
-
-            buy_index = 0
-            cumulative_quantity = 0.0
-            cumulative_purchase_value = 0.0
-
-            for history in history_points:
-                record_date = history['date']
-                price = history['price']
-
-                while buy_index < len(buy_logs) and buy_logs[buy_index].trade_date <= record_date:
-                    buy_log = buy_logs[buy_index]
-                    buy_quantity = float(buy_log.quantity or 0)
-                    buy_amount = float(buy_log.total_amount or trade_amount(buy_quantity, buy_log.price, product.unit_type))
-                    cumulative_quantity += buy_quantity
-                    cumulative_purchase_value += buy_amount
-                    buy_index += 1
-
-                if cumulative_quantity <= 0:
-                    continue
-
-                effective_purchase_price = Product.price_for_amount(
-                    cumulative_purchase_value,
-                    cumulative_quantity,
-                    product.unit_type
-                )
-                purchase_value = cumulative_purchase_value
-                evaluation_value = Product.amount_for(cumulative_quantity, price, product.unit_type)
-                profit_loss = evaluation_value - purchase_value
-                profit_rate = (profit_loss / purchase_value * 100) if purchase_value else 0
-                price_profit_loss = float(price or 0) - float(effective_purchase_price or 0)
-                price_return_rate = (price_profit_loss / float(effective_purchase_price) * 100) if effective_purchase_price else 0
-                rows.append({
-                    'product_id': product.id,
-                    'product_name': product.product_name,
-                    'product_code': product.product_code,
-                    'asset_type': product.asset_type,
-                    'status': product.status,
-                    'quantity': round(cumulative_quantity, 4),
-                    'unit_type': product.unit_type,
-                    'unit_label': '좌' if product.unit_type == 'unit' else '주',
-                    'purchase_price': round(effective_purchase_price, 4),
-                    'purchase_value': round(purchase_value, 2),
-                    'price': price,
-                    'evaluation_value': round(evaluation_value, 2),
-                    'profit_loss': round(profit_loss, 2),
-                    'profit_rate': round(profit_rate, 2),
-                    'price_return_rate': round(price_return_rate, 2),
-                    'record_date': record_date.isoformat()
-                })
+        rows, changed = collect_account_trend_rows(user_id, account_name, include_sold=include_sold, sync_prices=True)
         if changed:
             db.session.commit()
         rows.sort(key=lambda item: (item['record_date'], item['product_name']))
         return jsonify(rows), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/trade-journals', methods=['GET'])
+@jwt_required()
+def get_trade_journals():
+    try:
+        user_id = current_user_id()
+        account_name = current_account_name()
+        query = TradeJournal.query.filter_by(user_id=user_id, account_name=account_name)
+
+        attached_trade_id = request.args.get('attached_trade_id')
+        if attached_trade_id:
+            query = query.filter_by(attached_trade_id=int(attached_trade_id))
+
+        date_from = request.args.get('date_from')
+        date_to = request.args.get('date_to')
+        if date_from:
+            query = query.filter(TradeJournal.entry_date >= parse_trade_date(date_from))
+        if date_to:
+            query = query.filter(TradeJournal.entry_date <= parse_trade_date(date_to))
+
+        tag = str(request.args.get('tag') or '').strip().lower()
+        keyword = str(request.args.get('q') or '').strip().lower()
+
+        rows = [build_trade_journal_response(row) for row in query.order_by(TradeJournal.entry_date.desc(), TradeJournal.id.desc()).all()]
+        if tag:
+            rows = [row for row in rows if any(str(item).strip().lower() == tag for item in row.get('tags', []))]
+        if keyword:
+            rows = [
+                row for row in rows
+                if keyword in str(row.get('thesis') or '').lower()
+                or keyword in str(row.get('trigger') or '').lower()
+                or keyword in str(row.get('invalidation') or '').lower()
+            ]
+
+        return jsonify({'journals': rows, 'count': len(rows)}), 200
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/trade-journals', methods=['POST'])
+@jwt_required()
+def create_trade_journal():
+    try:
+        user_id = current_user_id()
+        account_name = current_account_name()
+        data = request.get_json() or {}
+        thesis = str(data.get('thesis') or '').strip()
+        if not thesis:
+            return jsonify({'error': 'thesis는 필수입니다.'}), 400
+
+        attached_trade_id = data.get('attachedTradeId') or data.get('attached_trade_id')
+        attached_symbol = str(data.get('attachedSymbol') or data.get('attached_symbol') or '').strip().upper()
+        if attached_trade_id not in (None, ''):
+            attached_trade = assertCanEditJournalEntry(user_id, int(attached_trade_id))
+            if normalize_account_name(attached_trade.account_name) != account_name:
+                return jsonify({'error': '선택한 통장의 거래와만 연결할 수 있습니다.'}), 400
+            if not attached_symbol and attached_trade.product_id:
+                product = Product.query.filter_by(id=attached_trade.product_id, user_id=user_id).first()
+                if product:
+                    attached_symbol = market_client.clean_code(product.product_code)
+
+        journal = TradeJournal(
+            user_id=user_id,
+            account_name=account_name,
+            attached_trade_id=int(attached_trade_id) if attached_trade_id not in (None, '') else None,
+            attached_symbol=attached_symbol[:32] if attached_symbol else None,
+            thesis=thesis,
+            trigger=str(data.get('trigger') or '').strip() or None,
+            invalidation=str(data.get('invalidation') or '').strip() or None,
+            target_horizon=normalize_journal_horizon(data.get('targetHorizon') or data.get('target_horizon')),
+            tags_json=canonical_json(parse_string_list(data.get('tags'))),
+            confidence=normalize_confidence(data.get('confidence')),
+            screenshots_or_links_json=canonical_json(parse_string_list(data.get('screenshotsOrLinks') or data.get('screenshots_or_links'))),
+            entry_date=parse_trade_date(data.get('entry_date'))
+        )
+        db.session.add(journal)
+        db.session.commit()
+        return jsonify({'message': '거래 연결형 저널을 생성했습니다.', 'journal': build_trade_journal_response(journal)}), 201
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 400
+    except AccessDeniedError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 403
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/trade-journals/<int:journal_id>', methods=['PUT'])
+@jwt_required()
+def update_trade_journal(journal_id):
+    try:
+        user_id = current_user_id()
+        account_name = current_account_name()
+        data = request.get_json() or {}
+        journal = TradeJournal.query.filter_by(id=journal_id, user_id=user_id, account_name=account_name).first()
+        if not journal:
+            return jsonify({'error': '저널을 찾을 수 없습니다.'}), 404
+
+        if data.get('thesis') is not None:
+            thesis = str(data.get('thesis') or '').strip()
+            if not thesis:
+                return jsonify({'error': 'thesis는 비워둘 수 없습니다.'}), 400
+            journal.thesis = thesis
+        if data.get('trigger') is not None:
+            journal.trigger = str(data.get('trigger') or '').strip() or None
+        if data.get('invalidation') is not None:
+            journal.invalidation = str(data.get('invalidation') or '').strip() or None
+        if data.get('targetHorizon') is not None or data.get('target_horizon') is not None:
+            journal.target_horizon = normalize_journal_horizon(data.get('targetHorizon') or data.get('target_horizon'))
+        if data.get('tags') is not None:
+            journal.tags_json = canonical_json(parse_string_list(data.get('tags')))
+        if data.get('confidence') is not None:
+            journal.confidence = normalize_confidence(data.get('confidence'))
+        if data.get('screenshotsOrLinks') is not None or data.get('screenshots_or_links') is not None:
+            journal.screenshots_or_links_json = canonical_json(parse_string_list(data.get('screenshotsOrLinks') or data.get('screenshots_or_links')))
+        if data.get('entry_date'):
+            journal.entry_date = parse_trade_date(data.get('entry_date'))
+
+        if data.get('attachedTradeId') is not None or data.get('attached_trade_id') is not None:
+            attached_trade_id = data.get('attachedTradeId') if data.get('attachedTradeId') is not None else data.get('attached_trade_id')
+            if attached_trade_id in ('', None):
+                journal.attached_trade_id = None
+            else:
+                attached_trade = assertCanEditJournalEntry(user_id, int(attached_trade_id))
+                if normalize_account_name(attached_trade.account_name) != account_name:
+                    return jsonify({'error': '선택한 통장의 거래와만 연결할 수 있습니다.'}), 400
+                journal.attached_trade_id = int(attached_trade_id)
+        if data.get('attachedSymbol') is not None or data.get('attached_symbol') is not None:
+            journal.attached_symbol = str(data.get('attachedSymbol') or data.get('attached_symbol') or '').strip().upper()[:32] or None
+
+        db.session.commit()
+        return jsonify({'message': '저널을 수정했습니다.', 'journal': build_trade_journal_response(journal)}), 200
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 400
+    except AccessDeniedError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 403
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/trade-journals/<int:journal_id>', methods=['DELETE'])
+@jwt_required()
+def delete_trade_journal(journal_id):
+    try:
+        user_id = current_user_id()
+        account_name = current_account_name()
+        journal = TradeJournal.query.filter_by(id=journal_id, user_id=user_id, account_name=account_name).first()
+        if not journal:
+            return jsonify({'error': '저널을 찾을 수 없습니다.'}), 404
+        db.session.delete(journal)
+        db.session.commit()
+        return jsonify({'message': '저널을 삭제했습니다.'}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/calendar/events', methods=['GET'])
+@jwt_required()
+def get_calendar_events():
+    try:
+        user_id = current_user_id()
+        account_name = current_account_name()
+        start_date = parse_trade_date(request.args.get('start_date'), (date.today() - timedelta(days=30)).isoformat())
+        end_date = parse_trade_date(request.args.get('end_date'), (date.today() + timedelta(days=120)).isoformat())
+        event_type_filter = normalize_event_type(request.args.get('event_type')) if request.args.get('event_type') else ''
+        symbol_filter = str(request.args.get('symbol') or '').strip().upper()
+
+        db_rows = (
+            CalendarEvent.query
+            .filter_by(user_id=user_id, account_name=account_name)
+            .filter(CalendarEvent.event_date >= start_date, CalendarEvent.event_date <= end_date)
+            .order_by(CalendarEvent.event_date.asc(), CalendarEvent.id.asc())
+            .all()
+        )
+        user_events = [build_calendar_event_response(row) for row in db_rows]
+        system_events = collect_system_calendar_events(user_id, account_name, start_date, end_date)
+        events = dedupe_and_sort_events(user_events + system_events)
+
+        if event_type_filter:
+            events = [row for row in events if normalize_event_type(row.get('event_type')) == event_type_filter]
+        if symbol_filter:
+            events = [row for row in events if str(row.get('attachedSymbol') or '').strip().upper() == symbol_filter]
+
+        return jsonify({
+            'account_name': account_name,
+            'start_date': start_date.isoformat(),
+            'end_date': end_date.isoformat(),
+            'count': len(events),
+            'events': events
+        }), 200
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/calendar/events', methods=['POST'])
+@jwt_required()
+def create_calendar_event():
+    try:
+        user_id = current_user_id()
+        account_name = current_account_name()
+        data = request.get_json() or {}
+
+        title = str(data.get('title') or '').strip()
+        if not title:
+            return jsonify({'error': 'title은 필수입니다.'}), 400
+        event_date = parse_trade_date(data.get('event_date'))
+        event_type = normalize_event_type(data.get('event_type'))
+        attached_trade_id = data.get('attachedTradeId') if data.get('attachedTradeId') is not None else data.get('attached_trade_id')
+        if attached_trade_id not in (None, ''):
+            attached_trade = assertCanEditJournalEntry(user_id, int(attached_trade_id))
+            if normalize_account_name(attached_trade.account_name) != account_name:
+                return jsonify({'error': '선택한 통장의 거래와만 연결할 수 있습니다.'}), 400
+
+        attached_symbol = str(data.get('attachedSymbol') or data.get('attached_symbol') or '').strip().upper()
+        dedupe_key = str(data.get('dedupe_key') or '').strip() or make_event_dedupe_key(
+            event_type, event_date.isoformat(), attached_symbol, title
+        )
+
+        event = CalendarEvent(
+            user_id=user_id,
+            account_name=account_name,
+            event_type=event_type,
+            title=title[:255],
+            description=str(data.get('description') or '').strip() or None,
+            event_date=event_date,
+            attached_symbol=attached_symbol[:32] if attached_symbol else None,
+            attached_trade_id=int(attached_trade_id) if attached_trade_id not in (None, '') else None,
+            source='user',
+            dedupe_key=dedupe_key[:255],
+            metadata_json=canonical_json(data.get('metadata') or {})
+        )
+        db.session.add(event)
+        db.session.commit()
+        return jsonify({'message': '캘린더 이벤트를 추가했습니다.', 'event': build_calendar_event_response(event)}), 201
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 400
+    except AccessDeniedError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 403
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/calendar/events/<int:event_id>', methods=['PUT'])
+@jwt_required()
+def update_calendar_event(event_id):
+    try:
+        user_id = current_user_id()
+        account_name = current_account_name()
+        data = request.get_json() or {}
+        event = CalendarEvent.query.filter_by(id=event_id, user_id=user_id, account_name=account_name).first()
+        if not event:
+            return jsonify({'error': '캘린더 이벤트를 찾을 수 없습니다.'}), 404
+        if event.source != 'user':
+            return jsonify({'error': '시스템 이벤트는 수정할 수 없습니다.'}), 400
+
+        if data.get('title') is not None:
+            title = str(data.get('title') or '').strip()
+            if not title:
+                return jsonify({'error': 'title은 비워둘 수 없습니다.'}), 400
+            event.title = title[:255]
+        if data.get('description') is not None:
+            event.description = str(data.get('description') or '').strip() or None
+        if data.get('event_date'):
+            event.event_date = parse_trade_date(data.get('event_date'))
+        if data.get('event_type') is not None:
+            event.event_type = normalize_event_type(data.get('event_type'))
+        if data.get('attachedSymbol') is not None or data.get('attached_symbol') is not None:
+            event.attached_symbol = str(data.get('attachedSymbol') or data.get('attached_symbol') or '').strip().upper()[:32] or None
+        if data.get('attachedTradeId') is not None or data.get('attached_trade_id') is not None:
+            attached_trade_id = data.get('attachedTradeId') if data.get('attachedTradeId') is not None else data.get('attached_trade_id')
+            if attached_trade_id in ('', None):
+                event.attached_trade_id = None
+            else:
+                attached_trade = assertCanEditJournalEntry(user_id, int(attached_trade_id))
+                if normalize_account_name(attached_trade.account_name) != account_name:
+                    return jsonify({'error': '선택한 통장의 거래와만 연결할 수 있습니다.'}), 400
+                event.attached_trade_id = int(attached_trade_id)
+        if data.get('metadata') is not None:
+            event.metadata_json = canonical_json(data.get('metadata') or {})
+
+        event.dedupe_key = make_event_dedupe_key(
+            event.event_type,
+            event.event_date.isoformat() if event.event_date else '',
+            event.attached_symbol,
+            event.title
+        )[:255]
+
+        db.session.commit()
+        return jsonify({'message': '캘린더 이벤트를 수정했습니다.', 'event': build_calendar_event_response(event)}), 200
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 400
+    except AccessDeniedError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 403
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/calendar/events/<int:event_id>', methods=['DELETE'])
+@jwt_required()
+def delete_calendar_event(event_id):
+    try:
+        user_id = current_user_id()
+        account_name = current_account_name()
+        event = CalendarEvent.query.filter_by(id=event_id, user_id=user_id, account_name=account_name).first()
+        if not event:
+            return jsonify({'error': '캘린더 이벤트를 찾을 수 없습니다.'}), 404
+        if event.source != 'user':
+            return jsonify({'error': '시스템 이벤트는 삭제할 수 없습니다.'}), 400
+        db.session.delete(event)
+        db.session.commit()
+        return jsonify({'message': '캘린더 이벤트를 삭제했습니다.'}), 200
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
@@ -3090,9 +5671,148 @@ def build_trade_event_response(event):
     row['event_type_label'] = {
         'trade_created': '생성',
         'trade_updated': '수정',
-        'trade_deleted': '삭제'
+        'trade_deleted': '삭제',
+        'trade_restore_draft': '복원초안'
     }.get(row['event_type'], row['event_type'])
     return row
+
+
+def annotate_trade_event_chain(event_rows):
+    if not event_rows:
+        return [], 0
+
+    rows_in_order = sorted(event_rows, key=lambda row: int(row.get('id') or 0))
+    previous = None
+    chain_by_id = {}
+    broken_count = 0
+    for row in rows_in_order:
+        expected_prev_hash = previous.get('hash') if previous else None
+        actual_prev_hash = row.get('prev_hash')
+        if previous is None:
+            chain_valid = not actual_prev_hash
+            chain_issue = None if chain_valid else 'non_empty_prev_hash'
+        else:
+            chain_valid = (expected_prev_hash == actual_prev_hash)
+            chain_issue = None if chain_valid else 'prev_hash_mismatch'
+        if not chain_valid:
+            broken_count += 1
+        chain_by_id[int(row.get('id') or 0)] = {
+            'chain_valid': chain_valid,
+            'chain_issue': chain_issue,
+            'chain_expected_prev_hash': expected_prev_hash,
+            'chain_expected_prev_hash_short': expected_prev_hash[:12] if expected_prev_hash else None
+        }
+        previous = row
+
+    annotated = []
+    for row in event_rows:
+        chain = chain_by_id.get(int(row.get('id') or 0), {})
+        annotated.append({
+            **row,
+            **chain
+        })
+    return annotated, broken_count
+
+
+def extract_restore_draft_from_trade_event(event):
+    payload = parse_json_text(getattr(event, 'payload_json', None), {})
+    if not isinstance(payload, dict):
+        payload = {}
+
+    restore_mode = None
+    source = None
+    if isinstance(payload.get('deleted'), dict):
+        restore_mode = 'deleted'
+        source = payload.get('deleted')
+    elif isinstance(payload.get('before'), dict):
+        restore_mode = 'before'
+        source = payload.get('before')
+    elif isinstance(payload.get('trade_log'), dict):
+        restore_mode = 'trade_log'
+        source = payload.get('trade_log')
+    elif isinstance(payload.get('after'), dict):
+        restore_mode = 'after'
+        source = payload.get('after')
+
+    if not isinstance(source, dict):
+        raise ValueError('복원 가능한 스냅샷(before/deleted/trade_log/after)이 없습니다.')
+
+    draft = {
+        'trade_log_id': source.get('id') if source.get('id') not in ('', None) else event.trade_log_id,
+        'account_name': source.get('account_name') or event.account_name,
+        'product_id': source.get('product_id'),
+        'product_name': source.get('product_name'),
+        'product_code': source.get('product_code'),
+        'trade_type': source.get('trade_type'),
+        'quantity': coerce_float(source.get('quantity')),
+        'unit_type': normalize_unit_type(source.get('unit_type')),
+        'price': coerce_float(source.get('price')),
+        'total_amount': coerce_float(source.get('total_amount')),
+        'trade_date': source.get('trade_date'),
+        'asset_type': source.get('asset_type'),
+        'notes': source.get('notes') or '',
+    }
+    if draft['total_amount'] in (None, '') and draft['quantity'] and draft['price']:
+        draft['total_amount'] = trade_amount(draft['quantity'], draft['price'], draft['unit_type'])
+    if draft['unit_type'] not in ('share', 'unit'):
+        draft['unit_type'] = 'share'
+    return draft, restore_mode
+
+
+def normalize_restore_trade_draft(draft):
+    if not isinstance(draft, dict):
+        raise ValueError('복원 초안 형식이 올바르지 않습니다.')
+    trade_type = str(draft.get('trade_type') or '').strip().lower()
+    if trade_type not in ('buy', 'sell', 'deposit'):
+        raise ValueError('복원 초안의 거래 구분이 올바르지 않습니다.')
+
+    product_name = str(draft.get('product_name') or '').strip() or '복원 항목'
+    trade_date = parse_trade_date(draft.get('trade_date') or date.today().isoformat())
+    notes = str(draft.get('notes') or '').strip()
+    product_code = market_client.clean_code(draft.get('product_code') or '')
+    unit_type = normalize_unit_type(draft.get('unit_type'))
+    product_id = int(draft.get('product_id')) if str(draft.get('product_id') or '').isdigit() else None
+
+    if trade_type == 'deposit':
+        amount_raw = draft.get('total_amount')
+        if amount_raw in (None, ''):
+            amount_raw = draft.get('price')
+        amount = parse_positive_float(amount_raw, '입금액')
+        return {
+            'trade_type': 'deposit',
+            'product_name': product_name,
+            'product_code': product_code,
+            'trade_date': trade_date,
+            'quantity': 1.0,
+            'unit_type': 'share',
+            'price': amount,
+            'total_amount': amount,
+            'asset_type': 'cash',
+            'notes': notes,
+            'product_id': product_id
+        }
+
+    quantity = parse_positive_float(draft.get('quantity'), '수량/좌수')
+    price = parse_positive_float(draft.get('price'), '가격/기준가')
+    total_amount = draft.get('total_amount')
+    if total_amount in (None, ''):
+        total_amount = trade_amount(quantity, price, unit_type)
+    else:
+        total_amount = parse_positive_float(total_amount, '거래금액')
+    asset_type = normalize_import_asset_type(draft.get('asset_type'))
+    return {
+        'trade_type': trade_type,
+        'product_name': product_name,
+        'product_code': product_code,
+        'trade_date': trade_date,
+        'quantity': quantity,
+        'unit_type': unit_type,
+        'price': price,
+        'total_amount': total_amount,
+        'asset_type': asset_type,
+        'notes': notes,
+        'product_id': product_id
+    }
 
 
 def build_import_batch_response(batch):
@@ -3115,9 +5835,28 @@ def build_reconciliation_result_response(result):
 
 def build_screener_screen_response(screen):
     row = screen.to_dict()
-    row['filters'] = parse_json_text(row.pop('filters_json'), {})
+    row['filters'] = normalize_screener_filters(parse_json_text(row.pop('filters_json'), {}))
     row['result_codes'] = parse_json_text(row.pop('result_codes_json'), [])
     row['compare_codes'] = parse_json_text(row.pop('compare_codes_json'), [])
+    row['condition_expression'] = build_screener_condition_expression(row['filters'])
+    row['provenance'] = build_provenance(
+        source='manual',
+        latency_class='eod',
+        reconciled=False,
+        as_of=screen.updated_at
+    )
+    return row
+
+
+def build_screener_watch_item_response(item):
+    row = item.to_dict()
+    row['candidate_tags'] = parse_json_text(row.pop('candidate_tags_json'), [])
+    row['provenance'] = build_provenance(
+        source='manual',
+        latency_class='eod',
+        reconciled=False,
+        as_of=item.updated_at
+    )
     return row
 
 
@@ -3231,17 +5970,27 @@ def get_trade_log_audit():
         user_id = current_user_id()
         account_name = current_account_name()
         limit = max(10, min(int(request.args.get('limit') or 80), 300))
-        events = (
+        event_type = str(request.args.get('event_type') or '').strip().lower()
+        chain_status = str(request.args.get('chain_status') or '').strip().lower()
+        query = (
             TradeEvent.query
             .filter_by(user_id=user_id, account_name=account_name)
-            .order_by(TradeEvent.id.desc())
-            .limit(limit)
-            .all()
         )
+        if event_type and event_type != 'all':
+            query = query.filter_by(event_type=event_type)
+        events = query.order_by(TradeEvent.id.desc()).limit(limit).all()
+        event_rows = [build_trade_event_response(event) for event in events]
+        annotated_rows, broken_count = annotate_trade_event_chain(event_rows)
+        if chain_status == 'broken':
+            annotated_rows = [row for row in annotated_rows if row.get('chain_valid') is False]
+        elif chain_status == 'ok':
+            annotated_rows = [row for row in annotated_rows if row.get('chain_valid') is True]
+
         return jsonify({
             'account_name': account_name,
-            'event_count': len(events),
-            'events': [build_trade_event_response(event) for event in events]
+            'event_count': len(annotated_rows),
+            'chain_break_count': broken_count,
+            'events': annotated_rows
         }), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -3252,6 +6001,7 @@ def get_trade_log_audit():
 def get_trade_log_audit_for_log(log_id):
     try:
         user_id = current_user_id()
+        assertCanEditJournalEntry(user_id, log_id)
         events = (
             TradeEvent.query
             .filter_by(user_id=user_id, trade_log_id=log_id)
@@ -3263,7 +6013,291 @@ def get_trade_log_audit_for_log(log_id):
             'event_count': len(events),
             'events': [build_trade_event_response(event) for event in events]
         }), 200
+    except AccessDeniedError as e:
+        return jsonify({'error': str(e)}), 403
     except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/trade-logs/audit/<int:event_id>/restore-draft', methods=['POST'])
+@jwt_required()
+def create_trade_log_restore_draft(event_id):
+    try:
+        user_id = current_user_id()
+        account_name = current_account_name()
+        event = (
+            TradeEvent.query
+            .filter_by(id=event_id, user_id=user_id, account_name=account_name)
+            .first()
+        )
+        if not event:
+            return jsonify({'error': '감사 이벤트를 찾지 못했습니다.'}), 404
+
+        draft, restore_mode = extract_restore_draft_from_trade_event(event)
+        trade_log_id = draft.get('trade_log_id')
+        target_log = None
+        if str(trade_log_id or '').isdigit():
+            target_log = (
+                TradeLog.query
+                .filter_by(id=int(trade_log_id), user_id=user_id, account_name=account_name)
+                .first()
+            )
+
+        draft_event = append_trade_event(
+            user_id=user_id,
+            account_name=account_name,
+            event_type='trade_restore_draft',
+            trade_log_id=target_log.id if target_log else None,
+            product_id=target_log.product_id if target_log else draft.get('product_id'),
+            source_type='ui',
+            source_id=f'audit_event:{event.id}',
+            payload={
+                'source_event_id': event.id,
+                'source_event_type': event.event_type,
+                'restore_mode': restore_mode,
+                'draft': draft,
+                'can_apply_to_existing': bool(target_log)
+            }
+        )
+        db.session.commit()
+        return jsonify({
+            'message': '복원 초안을 생성했습니다. 내용을 확인한 뒤 수동으로 반영하세요.',
+            'source_event_id': event.id,
+            'source_event_type': event.event_type,
+            'restore_mode': restore_mode,
+            'draft': draft,
+            'can_apply_to_existing': bool(target_log),
+            'target_trade_log_id': target_log.id if target_log else None,
+            'appended_event': build_trade_event_response(draft_event)
+        }), 200
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@api.route('/trade-logs/audit/<int:event_id>/restore-apply', methods=['POST'])
+@jwt_required()
+def apply_trade_log_restore_draft(event_id):
+    try:
+        user_id = current_user_id()
+        account_name = current_account_name()
+        source_event = (
+            TradeEvent.query
+            .filter_by(id=event_id, user_id=user_id, account_name=account_name)
+            .first()
+        )
+        if not source_event:
+            return jsonify({'error': '복원 적용 대상 이벤트를 찾지 못했습니다.'}), 404
+
+        source_payload = parse_json_text(source_event.payload_json, {})
+        if source_event.event_type == 'trade_restore_draft' and isinstance(source_payload.get('draft'), dict):
+            draft = source_payload.get('draft')
+            restore_mode = str(source_payload.get('restore_mode') or 'draft')
+            source_reference_event_id = int(source_payload.get('source_event_id') or source_event.id)
+        else:
+            draft, restore_mode = extract_restore_draft_from_trade_event(source_event)
+            source_reference_event_id = source_event.id
+
+        normalized = normalize_restore_trade_draft(draft)
+
+        batch = create_import_batch(
+            user_id,
+            account_name,
+            batch_type='manual_trade_restore_apply',
+            source_name='ui',
+            row_count=1,
+            notes={
+                'reason': 'restore_apply',
+                'source_event_id': source_reference_event_id,
+                'source_event_type': source_event.event_type,
+                'restore_mode': restore_mode
+            }
+        )
+
+        target_log = None
+        if str(draft.get('trade_log_id') or '').isdigit():
+            target_log = (
+                TradeLog.query
+                .filter_by(id=int(draft.get('trade_log_id')), user_id=user_id, account_name=account_name)
+                .first()
+            )
+
+        if target_log:
+            before_log = serialize_trade_log(target_log)
+            target_log.product_name = normalized['product_name']
+            target_log.trade_type = normalized['trade_type']
+            target_log.trade_date = normalized['trade_date']
+            target_log.notes = normalized['notes']
+            target_log.quantity = normalized['quantity']
+            target_log.unit_type = normalize_unit_type(normalized['unit_type'])
+            target_log.price = normalized['price']
+            target_log.total_amount = normalized['total_amount']
+            target_log.asset_type = normalized['asset_type']
+
+            product = None
+            if target_log.trade_type in ('buy', 'sell'):
+                product = sync_product_from_trade_log(target_log)
+
+            db.session.flush()
+            applied_event = append_trade_event(
+                user_id=user_id,
+                account_name=account_name,
+                event_type='trade_updated',
+                trade_log_id=target_log.id,
+                product_id=target_log.product_id,
+                import_batch_id=batch.id,
+                source_type='ui',
+                source_id=f'restore_apply:{source_reference_event_id}',
+                payload={
+                    'before': before_log,
+                    'after': serialize_trade_log(target_log),
+                    'product': serialize_product(product),
+                    'reason': 'restore_apply',
+                    'restore_mode': restore_mode,
+                    'source_event_id': source_reference_event_id
+                }
+            )
+            capture_trade_snapshot(
+                user_id,
+                account_name,
+                import_batch_id=batch.id,
+                trade_event_id=applied_event.id,
+                product=product,
+                snapshot_payload=serialize_trade_log(target_log) if not product else None,
+                snapshot_kind='trade_restore_apply'
+            )
+            restored_log = target_log
+            action = 'updated'
+        else:
+            restored_log = None
+            product = None
+            if normalized['trade_type'] in ('buy', 'sell'):
+                if normalized.get('product_id'):
+                    product = Product.query.filter_by(
+                        id=int(normalized['product_id']),
+                        user_id=user_id,
+                        account_name=account_name
+                    ).first()
+                if not product:
+                    product = find_import_target_product(user_id, account_name, normalized)
+
+                if normalized['trade_type'] == 'sell' and not product:
+                    raise ValueError('매도 복원을 적용할 보유 상품을 찾지 못했습니다.')
+
+                if normalized['trade_type'] == 'buy' and not product:
+                    product = Product(
+                        user_id=user_id,
+                        account_name=account_name,
+                        product_name=normalized['product_name'],
+                        product_code=normalized['product_code'] or '',
+                        purchase_price=float(normalized['price']),
+                        quantity=float(normalized['quantity']),
+                        unit_type=normalize_unit_type(normalized['unit_type']),
+                        purchase_date=normalized['trade_date'],
+                        asset_type=normalized['asset_type'],
+                        current_price=float(normalized['price']),
+                        status='holding'
+                    )
+                    db.session.add(product)
+                    db.session.flush()
+
+                if product:
+                    product.product_name = normalized['product_name'] or product.product_name
+                    if normalized['product_code']:
+                        product.product_code = normalized['product_code']
+                    product.asset_type = normalized['asset_type'] or product.asset_type
+                    if not product.unit_type:
+                        product.unit_type = normalize_unit_type(normalized['unit_type'])
+
+            restored_log = TradeLog(
+                user_id=user_id,
+                account_name=account_name,
+                product_id=product.id if product else None,
+                product_name=normalized['product_name'],
+                trade_type=normalized['trade_type'],
+                quantity=float(normalized['quantity']),
+                unit_type=normalize_unit_type(normalized['unit_type']),
+                price=float(normalized['price']),
+                total_amount=float(normalized['total_amount']),
+                trade_date=normalized['trade_date'],
+                asset_type=normalized['asset_type'],
+                notes=normalized['notes']
+            )
+            db.session.add(restored_log)
+            db.session.flush()
+
+            if product:
+                sync_product_from_trade_log(restored_log)
+                if normalized['trade_type'] == 'sell':
+                    latest_product = Product.query.filter_by(id=product.id).first()
+                    if latest_product and latest_product.status != 'sold':
+                        latest_product.status = 'sold'
+                        latest_product.sale_date = normalized['trade_date']
+                        latest_product.sale_price = float(normalized['price'])
+
+            applied_event = append_trade_event(
+                user_id=user_id,
+                account_name=account_name,
+                event_type='trade_created',
+                trade_log_id=restored_log.id,
+                product_id=restored_log.product_id,
+                import_batch_id=batch.id,
+                source_type='ui',
+                source_id=f'restore_apply:{source_reference_event_id}',
+                payload={
+                    'trade_log': serialize_trade_log(restored_log),
+                    'product': serialize_product(Product.query.filter_by(id=restored_log.product_id).first() if restored_log.product_id else None),
+                    'reason': 'restore_apply',
+                    'restore_mode': restore_mode,
+                    'source_event_id': source_reference_event_id
+                }
+            )
+            capture_trade_snapshot(
+                user_id,
+                account_name,
+                import_batch_id=batch.id,
+                trade_event_id=applied_event.id,
+                product=Product.query.filter_by(id=restored_log.product_id).first() if restored_log.product_id else None,
+                snapshot_payload=serialize_trade_log(restored_log),
+                snapshot_kind='trade_restore_apply'
+            )
+            action = 'created'
+
+        reconciliation_result, reconciliation_summary = store_reconciliation_result(
+            user_id,
+            account_name,
+            import_batch_id=batch.id,
+            trade_event_id=applied_event.id
+        )
+        finalize_import_batch(
+            batch,
+            imported_count=1,
+            notes={
+                'reason': 'restore_apply',
+                'action': action,
+                'source_event_id': source_reference_event_id,
+                'applied_trade_event_id': applied_event.id,
+                'restored_trade_log_id': restored_log.id if restored_log else None,
+                'reconciliation_status': reconciliation_result.status,
+                'mismatch_count': reconciliation_summary['mismatch_count']
+            }
+        )
+        db.session.commit()
+        return jsonify({
+            'message': '복원 초안을 적용했습니다.',
+            'action': action,
+            'restored_log': restored_log.to_dict() if restored_log else None,
+            'applied_event': build_trade_event_response(applied_event),
+            'reconciliation': build_reconciliation_result_response(reconciliation_result)
+        }), 200
+    except ValueError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
 
@@ -3342,15 +6376,31 @@ def export_trade_log_audit():
         return jsonify({'error': str(e)}), 500
 
 
+@api.route('/security/audit-logs', methods=['GET'])
+@jwt_required()
+def list_security_audit_logs():
+    try:
+        user_id = current_user_id()
+        limit = max(20, min(int(request.args.get('limit') or 120), 500))
+        rows = (
+            SecurityAuditLog.query
+            .filter_by(user_id=user_id)
+            .order_by(SecurityAuditLog.id.desc())
+            .limit(limit)
+            .all()
+        )
+        return jsonify({'logs': [row.to_dict() for row in rows]}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @api.route('/trade-logs/<int:log_id>', methods=['PUT'])
 @jwt_required()
 def update_trade_log(log_id):
     try:
         data = request.get_json() or {}
         user_id = current_user_id()
-        log = TradeLog.query.filter_by(id=log_id, user_id=user_id).first()
-        if not log:
-            return jsonify({'error': '매매일지 기록을 찾을 수 없습니다.'}), 404
+        log = assertCanEditJournalEntry(user_id, log_id)
         batch = create_import_batch(
             user_id,
             log.account_name,
@@ -3438,6 +6488,9 @@ def update_trade_log(log_id):
     except ValueError as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 400
+    except AccessDeniedError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 403
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
@@ -3448,9 +6501,7 @@ def update_trade_log(log_id):
 def delete_trade_log(log_id):
     try:
         user_id = current_user_id()
-        log = TradeLog.query.filter_by(id=log_id, user_id=user_id).first()
-        if not log:
-            return jsonify({'error': '매매일지 기록을 찾을 수 없습니다.'}), 404
+        log = assertCanEditJournalEntry(user_id, log_id)
         batch = create_import_batch(
             user_id,
             log.account_name,
@@ -3485,6 +6536,14 @@ def delete_trade_log(log_id):
             snapshot_payload=deleted_snapshot,
             snapshot_kind='trade_deleted'
         )
+        TradeJournal.query.filter_by(user_id=user_id, attached_trade_id=log.id).update(
+            {'attached_trade_id': None},
+            synchronize_session=False
+        )
+        CalendarEvent.query.filter_by(user_id=user_id, attached_trade_id=log.id).update(
+            {'attached_trade_id': None},
+            synchronize_session=False
+        )
         db.session.delete(log)
         if product:
             rebuild_product_from_trade_logs(product)
@@ -3511,6 +6570,9 @@ def delete_trade_log(log_id):
     except ValueError as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 400
+    except AccessDeniedError as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 403
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500

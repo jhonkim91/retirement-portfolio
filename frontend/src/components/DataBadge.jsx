@@ -2,7 +2,7 @@ import React from 'react';
 import { buildDataBadgeDescriptor } from '../lib/sourceRegistry';
 import '../styles/DataBadge.css';
 
-function DataBadge({ descriptor, source, asOf, freshnessClass, delayPolicy, citationText, note, code, compact = false }) {
+function DataBadge({ descriptor, source, asOf, freshnessClass, delayPolicy, citationText, note, code, provenance, compact = false }) {
   const badge = descriptor || buildDataBadgeDescriptor({
     source,
     asOf,
@@ -10,7 +10,8 @@ function DataBadge({ descriptor, source, asOf, freshnessClass, delayPolicy, cita
     delayPolicy,
     citationText,
     note,
-    code
+    code,
+    provenance
   });
 
   return (

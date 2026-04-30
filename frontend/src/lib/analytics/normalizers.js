@@ -110,7 +110,8 @@ export const normalizeCashFlows = (cashFlows = []) => (
       date: toDateKey(cashFlow.trade_date || cashFlow.date),
       amount: toNumber(cashFlow.amount ?? cashFlow.total_amount ?? cashFlow.totalAmount),
       label: String(cashFlow.label || cashFlow.product_name || cashFlow.productName || 'Cash flow'),
-      direction: cashFlow.direction || null
+      direction: cashFlow.direction || null,
+      category: String(cashFlow.category || cashFlow.flow_type || '').toLowerCase()
     }))
   ).filter((cashFlow) => cashFlow.date)
 );

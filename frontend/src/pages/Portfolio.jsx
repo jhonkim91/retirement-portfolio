@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import AccountSelector from '../components/AccountSelector';
+import DataBadge from '../components/DataBadge';
 import {
   ACCOUNT_CATEGORY_LABELS,
   evaluateProductEligibility,
@@ -35,6 +36,7 @@ const PERIOD_UNIT_OPTIONS = [
   { value: 'month', label: '개월' },
   { value: 'day', label: '일' }
 ];
+const portfolioPrefillStorageKey = 'portfolio_prefill_product_v1';
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 const toPositiveInteger = (value, fallback = 1) => {
@@ -61,6 +63,47 @@ const getLocalToday = () => {
 };
 
 const getLocalTodayKey = () => formatDateKey(getLocalToday());
+
+const readPortfolioPrefillDraft = () => {
+  try {
+    return JSON.parse(localStorage.getItem(portfolioPrefillStorageKey) || 'null');
+  } catch (error) {
+    return null;
+  }
+};
+
+const inferDraftUnitType = (draft = {}) => {
+  const explicit = String(draft.unit_type || '').toLowerCase();
+  if (explicit === 'unit') return 'unit';
+  if (explicit === 'share') return 'share';
+  const normalizedCode = String(draft.product_code || '').trim().toUpperCase();
+  if (normalizedCode.startsWith('K') && normalizedCode.length >= 10) return 'unit';
+  return 'share';
+};
+
+const buildPortfolioPrefillForm = ({ draft, accountType, fallbackDate }) => {
+  const draftUnitType = inferDraftUnitType(draft);
+  const parsedQty = Number(draft.quantity);
+  const safeQty = Number.isFinite(parsedQty) && parsedQty > 0 ? parsedQty : 1;
+  const qtyByAccount = accountType === 'brokerage'
+    ? String(Math.max(1, Math.round(safeQty)))
+    : String(safeQty);
+  const unitByAccount = accountType === 'brokerage' ? 'share' : draftUnitType;
+  const assetByAccount = accountType === 'brokerage'
+    ? 'risk'
+    : String(draft.asset_type || 'risk');
+
+  return {
+    product_name: String(draft.product_name || ''),
+    product_code: String(draft.product_code || ''),
+    purchase_price: draft.purchase_price === null || draft.purchase_price === undefined ? '' : String(draft.purchase_price),
+    quantity: qtyByAccount,
+    unit_type: unitByAccount,
+    purchase_date: String(draft.purchase_date || fallbackDate),
+    asset_type: assetByAccount,
+    notes: String(draft.notes || '')
+  };
+};
 
 const addDateUnits = (date, amount, unit) => {
   if (unit === 'year') {
@@ -166,6 +209,8 @@ function Portfolio() {
   const [trendRangeAmount, setTrendRangeAmount] = useState('1');
   const [trendRangeUnit, setTrendRangeUnit] = useState('month');
   const [trendIntervalAmount, setTrendIntervalAmount] = useState('1');
+  const [incomingPrefillDraft, setIncomingPrefillDraft] = useState(null);
+  const prefillAppliedRef = useRef(false);
 
   const loadData = useCallback(async () => {
     const [productData, trendData, accountsResponse] = await Promise.all([
@@ -183,6 +228,28 @@ function Portfolio() {
   useEffect(() => {
     loadData().catch((err) => setMessage(err.message));
   }, [loadData]);
+
+  useEffect(() => {
+    const draft = readPortfolioPrefillDraft();
+    if (!draft || draft.source !== 'stock_screener') return;
+    setIncomingPrefillDraft(draft);
+  }, []);
+
+  useEffect(() => {
+    if (!incomingPrefillDraft || prefillAppliedRef.current) return;
+    const nextForm = buildPortfolioPrefillForm({
+      draft: incomingPrefillDraft,
+      accountType,
+      fallbackDate: getLocalTodayKey()
+    });
+    setFormData(nextForm);
+    setSelectedProductName(nextForm.product_name);
+    setShowProductSearch(false);
+    const accountLabel = accountType === 'brokerage' ? '증권 통장' : '퇴직 계좌';
+    setMessage(`스크리너 후보를 ${accountLabel} 기준 초안으로 불러왔습니다.`);
+    prefillAppliedRef.current = true;
+    localStorage.removeItem(portfolioPrefillStorageKey);
+  }, [accountType, incomingPrefillDraft]);
 
   useEffect(() => {
     const productIds = products.map((product) => String(product.id));
@@ -346,6 +413,26 @@ function Portfolio() {
   const selectedTrendProducts = useMemo(() => (
     products.filter((product) => selectedTrendProductSet.has(String(product.id)))
   ), [products, selectedTrendProductSet]);
+  const trendDataBadges = useMemo(() => {
+    const badges = [
+      buildDataBadgeDescriptor({
+        source: 'portfolio_ledger',
+        freshnessClass: 'internal_ledger',
+        note: '보유 대장/매입 기준'
+      })
+    ];
+
+    selectedTrendProducts.forEach((product) => {
+      badges.push(buildDataBadgeDescriptor({
+        source: product.unit_type === 'unit' ? 'funetf' : 'naver',
+        freshnessClass: product.unit_type === 'unit' ? 'end_of_day' : 'delayed_20m',
+        code: product.product_code,
+        note: product.product_name
+      }));
+    });
+
+    return badges;
+  }, [selectedTrendProducts]);
   const trendFreshnessWarning = useMemo(() => buildFreshnessMixWarning(
     selectedTrendProducts.map((product) => (
       buildDataBadgeDescriptor({
@@ -599,7 +686,7 @@ function Portfolio() {
             <p className="subtitle">
               매입가, {accountType === 'brokerage' ? '주 수량' : '수량/좌수'}, 매입일을 입력하면 현황과 매매일지에 반영합니다.
             </p>
-            {message && <div className="message">{message}</div>}
+            {message && <div className="message" role="status" aria-live="polite">{message}</div>}
             {retirementEligibility && (
               <div className="retirement-rule-panel">
                 <div className="retirement-rule-header">
@@ -634,7 +721,7 @@ function Portfolio() {
                 />
                 {showProductSearch && (productSearchLoading || productSearchResults.length > 0) && (
                   <div className="product-search-list">
-                    {productSearchLoading && <div className="product-search-status">검색 중...</div>}
+                    {productSearchLoading && <div className="product-search-status" role="status" aria-live="polite">?? ?...</div>}
                     {productSearchResults.map((product) => (
                       <button
                         key={product.code}
@@ -884,6 +971,11 @@ function Portfolio() {
 
         <div className="trend-panel">
           <h2>{accountName} 추이</h2>
+          <div className="trend-badges" aria-label="추이 데이터 출처">
+            {trendDataBadges.map((badge) => (
+              <DataBadge key={`${badge.id}-${badge.note || ''}`} descriptor={badge} compact />
+            ))}
+          </div>
           <div className="trend-view">
             <div className="trend-controls">
               <label className="trend-control-group">
@@ -920,13 +1012,13 @@ function Portfolio() {
               </label>
             </div>
             {trendFreshnessWarning && (
-              <div className="trend-freshness-warning">{trendFreshnessWarning}</div>
+              <div className="trend-freshness-warning" role="note">{trendFreshnessWarning}</div>
             )}
             <div className="trend-chart">
               {selectedTrendProductIds.length === 0 ? (
-                <p className="no-data">추이를 볼 상품을 체크하세요.</p>
+                <p className="no-data" role="status" aria-live="polite">??? ? ??? ?????.</p>
               ) : !chartHasValues ? (
-                <p className="no-data">선택한 기간에 표시할 추이 데이터가 없습니다.</p>
+                <p className="no-data" role="status" aria-live="polite">??? ??? ??? ?? ???? ????.</p>
               ) : (
                 <ResponsiveContainer width="100%" height={320}>
                   <LineChart data={chartData} margin={{ top: 12, right: 16, left: 18, bottom: 18 }}>
@@ -976,7 +1068,7 @@ function Portfolio() {
               </div>
             )}
             <h3>상품 추이 상세</h3>
-            {selectedTrendProductIds.length > 0 && trendRows.length === 0 && <p className="no-data">선택한 기간의 추이 데이터가 없습니다.</p>}
+            {selectedTrendProductIds.length > 0 && trendRows.length === 0 && <p className="no-data" role="status" aria-live="polite">??? ??? ?? ???? ????.</p>}
             {selectedTrendProductIds.length > 0 && trendRows.length > 0 && (
               <>
                 <div className="trend-mobile-list">

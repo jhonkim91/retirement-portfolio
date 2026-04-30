@@ -19,6 +19,12 @@ class StockAPIClient:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
         self.dart_api_key = os.getenv('OPENDART_API_KEY') or os.getenv('DART_API_KEY') or ''
+        try:
+            configured_timeout = int(str(os.getenv('DART_TIMEOUT_SECONDS', '6')).strip() or '6')
+        except (TypeError, ValueError):
+            configured_timeout = 6
+        self.dart_timeout_seconds = max(3, min(configured_timeout, 20))
+        self._dart_corp_retry_after = 0
         self._naver_market_cache = {
             'loaded_at': 0,
             'pages': {}
@@ -48,6 +54,8 @@ class StockAPIClient:
     def get_dart_corp_code_map(self):
         if not self.has_dart_api_key():
             return {}
+        if time.time() < self._dart_corp_retry_after:
+            return {}
 
         cached = self.get_cached_value('dart_corp_codes', 'all', 60 * 60 * 24)
         if cached is not None:
@@ -57,7 +65,7 @@ class StockAPIClient:
             response = requests.get(
                 'https://opendart.fss.or.kr/api/corpCode.xml',
                 params={'crtfc_key': self.dart_api_key},
-                timeout=20
+                timeout=self.dart_timeout_seconds
             )
             response.raise_for_status()
             zipped = zipfile.ZipFile(BytesIO(response.content))
@@ -82,6 +90,7 @@ class StockAPIClient:
             return mapping
         except Exception as e:
             print(f'dart corp code error: {e}')
+            self._dart_corp_retry_after = time.time() + (60 * 10)
             return {}
 
     def get_dart_corp_entry(self, code):
@@ -105,7 +114,7 @@ class StockAPIClient:
                     'crtfc_key': self.dart_api_key,
                     'corp_code': entry['corp_code']
                 },
-                timeout=20
+                timeout=self.dart_timeout_seconds
             )
             data = response.json()
             if response.status_code != 200 or data.get('status') != '000':
@@ -191,7 +200,7 @@ class StockAPIClient:
                             'reprt_code': '11011',
                             'fs_div': fs_div
                         },
-                        timeout=20
+                        timeout=self.dart_timeout_seconds
                     )
                     data = response.json()
                     if response.status_code != 200 or data.get('status') != '000':
@@ -236,7 +245,7 @@ class StockAPIClient:
                     'end_de': end_date.strftime('%Y%m%d'),
                     'page_count': max(1, min(int(page_count or 10), 20))
                 },
-                timeout=20
+                timeout=self.dart_timeout_seconds
             )
             data = response.json()
             if response.status_code != 200 or data.get('status') != '000':

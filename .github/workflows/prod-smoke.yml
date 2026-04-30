@@ -1,0 +1,76 @@
+name: Prod Smoke
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 22 * * 0-4'
+
+jobs:
+  precheck:
+    runs-on: ubuntu-latest
+    outputs:
+      can_run: ${{ steps.check.outputs.can_run }}
+    steps:
+      - name: Check required secrets
+        id: check
+        env:
+          E2E_PROD_USERNAME: ${{ secrets.E2E_PROD_USERNAME }}
+          E2E_PROD_PASSWORD: ${{ secrets.E2E_PROD_PASSWORD }}
+        run: |
+          if [ -n "$E2E_PROD_USERNAME" ] && [ -n "$E2E_PROD_PASSWORD" ]; then
+            echo "can_run=true" >> "$GITHUB_OUTPUT"
+            echo "Prod smoke precheck passed."
+          else
+            echo "can_run=false" >> "$GITHUB_OUTPUT"
+            echo "Prod smoke skipped: set E2E_PROD_USERNAME and E2E_PROD_PASSWORD secrets."
+          fi
+
+  smoke:
+    needs: precheck
+    if: needs.precheck.outputs.can_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      E2E_PROD_BASE_URL: ${{ secrets.E2E_PROD_BASE_URL }}
+      E2E_PROD_USERNAME: ${{ secrets.E2E_PROD_USERNAME }}
+      E2E_PROD_PASSWORD: ${{ secrets.E2E_PROD_PASSWORD }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          npm ci --ignore-scripts
+          npm --prefix frontend ci
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Run production smoke
+        run: npm run test:e2e:prod
+
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prod-smoke-artifacts
+          path: |
+            test-results/prod-smoke
+            test-results/playwright-prod-report
+
+  skipped:
+    needs: precheck
+    if: needs.precheck.outputs.can_run != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mark skipped
+        run: echo "Prod smoke skipped because secrets are missing."

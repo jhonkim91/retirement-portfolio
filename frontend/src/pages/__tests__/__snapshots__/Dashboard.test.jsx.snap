@@ -1,0 +1,529 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`Dashboard cockpit matches empty/onboarding snapshot 1`] = `
+<DocumentFragment>
+  <main
+    class="dashboard dashboard-cockpit"
+  >
+    <div
+      data-testid="account-selector"
+    >
+      account-selector
+    </div>
+    <header
+      class="ops-header"
+    >
+      <div>
+        <h1>
+          운영 대시보드
+        </h1>
+        <p>
+          오늘 확인할 핵심 지표와 이상 징후를 먼저 보고, 필요한 곳으로 바로 내려가세요.
+        </p>
+      </div>
+      <div
+        class="ops-header-actions"
+      >
+        <button
+          aria-label="가격 동기화"
+          type="button"
+        >
+          가격 동기화
+        </button>
+        <button
+          aria-label="대시보드 새로고침"
+          type="button"
+        >
+          새로고침
+        </button>
+      </div>
+    </header>
+    <div
+      aria-label="stale data warning"
+      class="ops-stale-banner"
+      role="alert"
+    >
+      <strong>
+        주의:
+      </strong>
+       일부 데이터 기준 시각이 오래되었습니다. 시세/원장을 다시 동기화해 주세요.
+      <span
+        class="stale-badge"
+      >
+        STALE
+      </span>
+    </div>
+    <section
+      aria-label="핵심 운영 카드"
+      class="ops-cards"
+    >
+      <article
+        aria-label="총자산 카드"
+        class="ops-card"
+        role="button"
+        tabindex="0"
+      >
+        <div
+          class="ops-card-head"
+        >
+          <h2>
+            총자산
+          </h2>
+          <span
+            data-testid="data-badge"
+          >
+            badge
+          </span>
+        </div>
+        <p
+          class="ops-card-value "
+        >
+          ₩0
+        </p>
+        <p
+          class="ops-card-desc"
+        >
+          원금 ₩0
+        </p>
+      </article>
+      <article
+        aria-label="오늘 변동 카드"
+        class="ops-card"
+        role="button"
+        tabindex="0"
+      >
+        <div
+          class="ops-card-head"
+        >
+          <h2>
+            오늘 변동
+          </h2>
+          <span
+            data-testid="data-badge"
+          >
+            badge
+          </span>
+        </div>
+        <p
+          class="ops-card-value positive"
+        >
+          ₩0
+        </p>
+        <p
+          class="ops-card-desc"
+        >
+          오늘 매매/입금 기준 변동
+        </p>
+      </article>
+      <article
+        aria-label="목표 대비 편차 카드"
+        class="ops-card"
+        role="button"
+        tabindex="0"
+      >
+        <div
+          class="ops-card-head"
+        >
+          <h2>
+            목표 대비 편차
+          </h2>
+          <span
+            data-testid="data-badge"
+          >
+            badge
+          </span>
+        </div>
+        <p
+          class="ops-card-value negative"
+        >
+          -8.00%
+        </p>
+        <p
+          class="ops-card-desc"
+        >
+          목표 수익률 8%
+        </p>
+      </article>
+      <article
+        aria-label="데이터 이상 징후 카드"
+        class="ops-card"
+        role="button"
+        tabindex="0"
+      >
+        <div
+          class="ops-card-head"
+        >
+          <h2>
+            데이터 이상 징후
+          </h2>
+          <span
+            data-testid="data-badge"
+          >
+            badge
+          </span>
+        </div>
+        <p
+          class="ops-card-value "
+        >
+          2건
+        </p>
+        <p
+          class="ops-card-desc"
+        >
+          데이터 기준 시각이 오래되었습니다.
+        </p>
+      </article>
+      <article
+        aria-label="최근 일지 카드"
+        class="ops-card"
+        role="button"
+        tabindex="0"
+      >
+        <div
+          class="ops-card-head"
+        >
+          <h2>
+            최근 일지
+          </h2>
+          <span
+            data-testid="data-badge"
+          >
+            badge
+          </span>
+        </div>
+        <p
+          class="ops-card-value "
+        >
+          0건
+        </p>
+        <p
+          class="ops-card-desc"
+        >
+          기록이 없습니다.
+        </p>
+      </article>
+      <article
+        aria-label="오늘의 이벤트 카드"
+        class="ops-card"
+        role="button"
+        tabindex="0"
+      >
+        <div
+          class="ops-card-head"
+        >
+          <h2>
+            오늘의 이벤트
+          </h2>
+          <span
+            data-testid="data-badge"
+          >
+            badge
+          </span>
+        </div>
+        <p
+          class="ops-card-value "
+        >
+          0건
+        </p>
+        <p
+          class="ops-card-desc"
+        >
+          다음 리밸런싱 2026. 5. 1.
+        </p>
+      </article>
+      <article
+        aria-label="관심 종목 상태 카드"
+        class="ops-card"
+        role="button"
+        tabindex="0"
+      >
+        <div
+          class="ops-card-head"
+        >
+          <h2>
+            관심 종목 상태
+          </h2>
+          <span
+            data-testid="data-badge"
+          >
+            badge
+          </span>
+        </div>
+        <p
+          class="ops-card-value "
+        >
+          0종목
+        </p>
+        <p
+          class="ops-card-desc"
+        >
+          보유 종목이 없습니다.
+        </p>
+      </article>
+    </section>
+    <section
+      aria-label="오늘 볼 것"
+      class="ops-today"
+    >
+      <h2>
+        오늘 볼 것
+      </h2>
+      <span
+        data-testid="data-badge"
+      >
+        badge
+      </span>
+      <ul>
+        <li>
+          먼저 가격 동기화를 눌러 최신 시세로 맞춰주세요.
+        </li>
+        <li>
+          이상 징후 2건을 확인해 주세요.
+        </li>
+        <li>
+          다음 리밸런싱 예정: 2026. 5. 1.
+        </li>
+      </ul>
+    </section>
+    <section
+      aria-label="초기 설정 안내"
+      class="ops-onboarding"
+    >
+      <h2>
+        아직 보유 상품이 없습니다
+      </h2>
+      <p>
+        매매일지에서 첫 매수 기록을 입력하면 운영 대시보드가 자동으로 채워집니다.
+      </p>
+      <div
+        class="ops-onboarding-actions"
+      >
+        <button
+          type="button"
+        >
+          매매일지로 이동
+        </button>
+        <button
+          type="button"
+        >
+          상품 추이 보기
+        </button>
+      </div>
+    </section>
+    <section
+      aria-label="데이터 이상 징후 상세"
+      class="ops-panel"
+      id="ops-drill-anomalies"
+    >
+      <div
+        class="ops-panel-head"
+      >
+        <h2>
+          데이터 이상 징후
+        </h2>
+        <span
+          data-testid="data-badge"
+        >
+          badge
+        </span>
+      </div>
+      <ul
+        class="ops-list"
+      >
+        <li>
+          데이터 기준 시각이 오래되었습니다.
+        </li>
+        <li>
+          최근 매매일지 기록이 없습니다.
+        </li>
+      </ul>
+    </section>
+    <section
+      aria-label="최근 일지"
+      class="ops-panel"
+      id="ops-drill-journal"
+    >
+      <div
+        class="ops-panel-head"
+      >
+        <h2>
+          최근 일지 3개
+        </h2>
+        <span
+          data-testid="data-badge"
+        >
+          badge
+        </span>
+      </div>
+      <p
+        class="ops-empty"
+      >
+        최근 기록이 없습니다.
+      </p>
+    </section>
+    <section
+      aria-label="오늘의 이벤트"
+      class="ops-panel"
+      id="ops-drill-events"
+    >
+      <div
+        class="ops-panel-head"
+      >
+        <h2>
+          오늘의 이벤트
+        </h2>
+        <span
+          data-testid="data-badge"
+        >
+          badge
+        </span>
+      </div>
+      <p
+        class="ops-next-rebalance"
+      >
+        다음 리밸런싱: 2026. 5. 1.
+      </p>
+      <p
+        class="ops-empty"
+      >
+        오늘 기록된 이벤트가 없습니다.
+      </p>
+    </section>
+    <section
+      aria-label="관심 종목 상태"
+      class="ops-panel"
+      id="ops-drill-holdings"
+    >
+      <div
+        class="ops-panel-head"
+      >
+        <h2>
+          관심 종목 상태
+        </h2>
+        <span
+          data-testid="data-badge"
+        >
+          badge
+        </span>
+      </div>
+      <p
+        class="ops-empty"
+      >
+        보유 종목이 없습니다.
+      </p>
+    </section>
+    <section
+      aria-label="심층 분석"
+      class="ops-insights"
+    >
+      <div
+        class="ops-panel-head"
+      >
+        <h2>
+          심층 분석
+        </h2>
+        <button
+          aria-label="심층 차트 토글"
+          class="ops-link-button"
+          type="button"
+        >
+          차트 열기
+        </button>
+      </div>
+      <p
+        class="ops-empty"
+      >
+        첫 화면 성능을 위해 심층 차트는 필요할 때만 불러옵니다.
+      </p>
+    </section>
+  </main>
+</DocumentFragment>
+`;
+
+exports[`Dashboard cockpit matches error snapshot 1`] = `
+<DocumentFragment>
+  <main
+    class="dashboard dashboard-cockpit"
+  >
+    <div
+      data-testid="account-selector"
+    >
+      account-selector
+    </div>
+    <section
+      aria-live="assertive"
+      class="ops-error"
+      role="alert"
+    >
+      <h1>
+        운영 대시보드
+      </h1>
+      <p>
+        네트워크 오류
+      </p>
+      <button
+        aria-label="현황 다시 불러오기"
+        type="button"
+      >
+        다시 시도
+      </button>
+    </section>
+  </main>
+</DocumentFragment>
+`;
+
+exports[`Dashboard cockpit matches loading snapshot 1`] = `
+<DocumentFragment>
+  <main
+    class="dashboard dashboard-cockpit"
+  >
+    <div
+      data-testid="account-selector"
+    >
+      account-selector
+    </div>
+    <section
+      aria-label="운영 대시보드 로딩"
+      aria-live="polite"
+      class="ops-loading"
+      role="status"
+    >
+      <h1>
+        운영 대시보드
+      </h1>
+      <div
+        class="ops-skeleton-grid"
+      >
+        <article
+          aria-hidden="true"
+          class="ops-skeleton-card"
+        />
+        <article
+          aria-hidden="true"
+          class="ops-skeleton-card"
+        />
+        <article
+          aria-hidden="true"
+          class="ops-skeleton-card"
+        />
+        <article
+          aria-hidden="true"
+          class="ops-skeleton-card"
+        />
+        <article
+          aria-hidden="true"
+          class="ops-skeleton-card"
+        />
+        <article
+          aria-hidden="true"
+          class="ops-skeleton-card"
+        />
+        <article
+          aria-hidden="true"
+          class="ops-skeleton-card"
+        />
+      </div>
+    </section>
+  </main>
+</DocumentFragment>
+`;

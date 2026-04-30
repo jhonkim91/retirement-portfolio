@@ -44,6 +44,34 @@ const FRESHNESS_POLICIES = {
 };
 
 const SOURCE_REGISTRY = {
+  kis: {
+    id: 'kis',
+    name: 'KIS',
+    category: 'market',
+    freshnessClass: 'realtime',
+    citationText: 'KIS 실시간 시세'
+  },
+  kiwoom: {
+    id: 'kiwoom',
+    name: 'Kiwoom',
+    category: 'market',
+    freshnessClass: 'realtime',
+    citationText: '키움 시세'
+  },
+  krx: {
+    id: 'krx',
+    name: 'KRX',
+    category: 'market',
+    freshnessClass: 'delayed_20m',
+    citationText: '거래소 기준 시세'
+  },
+  manual: {
+    id: 'manual',
+    name: '수기 입력',
+    category: 'ledger',
+    freshnessClass: 'end_of_day',
+    citationText: '수동 입력 기준'
+  },
   naver: {
     id: 'naver',
     name: 'Naver 금융',
@@ -102,6 +130,13 @@ const SOURCE_REGISTRY = {
   }
 };
 
+const LATENCY_TO_FRESHNESS = {
+  realtime: 'realtime',
+  delayed: 'delayed_20m',
+  eod: 'end_of_day',
+  filing: 'filing_event'
+};
+
 const normalizeSourceKey = (value) => (
   String(value || '')
     .trim()
@@ -138,13 +173,25 @@ export const formatAsOfLabel = (value) => {
   return raw.includes('T') ? raw.replace('T', ' ').replace(/:\d{2}\.\d+$/, '') : raw;
 };
 
-export const buildDataBadgeDescriptor = ({ source, asOf, freshnessClass, delayPolicy, citationText, note, code } = {}) => {
-  const resolved = resolveSourceDescriptor(source, {
-    asOf,
-    freshnessClass,
+export const buildDataBadgeDescriptor = ({
+  source,
+  asOf,
+  freshnessClass,
+  delayPolicy,
+  citationText,
+  note,
+  code,
+  provenance
+} = {}) => {
+  const mappedFreshnessFromProvenance = provenance
+    ? LATENCY_TO_FRESHNESS[provenance.latencyClass]
+    : '';
+  const resolved = resolveSourceDescriptor(source || provenance?.source, {
+    asOf: asOf || (provenance?.asOf || ''),
+    freshnessClass: freshnessClass || mappedFreshnessFromProvenance,
     delayPolicy,
     citationText,
-    note,
+    note: note || (provenance?.reconciled ? '정합성 검증 완료' : ''),
     code
   });
   return {
@@ -152,6 +199,20 @@ export const buildDataBadgeDescriptor = ({ source, asOf, freshnessClass, delayPo
     freshness: FRESHNESS_POLICIES[resolved.freshnessClass] || FRESHNESS_POLICIES.end_of_day,
     asOfLabel: formatAsOfLabel(resolved.asOf)
   };
+};
+
+export const buildDataBadgeDescriptorFromProvenance = (provenance, extras = {}) => {
+  if (!provenance || typeof provenance !== 'object') {
+    return buildDataBadgeDescriptor(extras);
+  }
+  const mappedFreshness = LATENCY_TO_FRESHNESS[provenance.latencyClass] || extras.freshnessClass;
+  return buildDataBadgeDescriptor({
+    source: provenance.source || extras.source,
+    asOf: provenance.asOf || extras.asOf,
+    freshnessClass: mappedFreshness,
+    note: provenance.reconciled ? '정합성 검증 완료' : extras.note,
+    ...extras
+  });
 };
 
 export const buildFreshnessMixWarning = (items = []) => {

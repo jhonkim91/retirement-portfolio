@@ -1,3 +1,18 @@
+:root {
+  --ui-radius-sm: 6px;
+  --ui-radius-md: 8px;
+  --ui-radius-lg: 10px;
+  --ui-shadow-panel: 0 4px 14px rgba(15, 23, 42, 0.05);
+  --ui-touch-min: 42px;
+  --ui-gap-sm: 8px;
+  --ui-gap-md: 12px;
+  --ui-gap-lg: 16px;
+  --ui-page-padding: 24px 20px 48px;
+  --ui-page-padding-mobile: 14px 10px 30px;
+  --ui-title-size: 1.7rem;
+  --ui-title-size-mobile: 1.45rem;
+}
+
 * { box-sizing: border-box; }
 body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f3f5f7; color: #1f2933; }
 button, input, select, textarea { font: inherit; }
@@ -8,22 +23,22 @@ button { cursor: pointer; }
 .account-switcher-wrap { display: grid; justify-items: end; gap: 8px; margin-bottom: 14px; }
 .account-switcher { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .account-switcher label { color: #52606d; font-size: 13px; font-weight: 800; }
-.account-switcher select, .account-create-form input, .account-create-form select { min-width: 150px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; padding: 9px 10px; font-weight: 800; color: #17324d; }
-.account-switcher select { min-height: 42px; }
-.account-settings-button, .account-add-button, .account-rename-button, .account-delete-button, .account-create-form button, .account-rename-form button { min-height: 42px; border-radius: 6px; padding: 9px 12px; font-weight: 800; }
+.account-switcher select, .account-create-form input, .account-create-form select { min-width: 150px; border: 1px solid #cbd5e1; border-radius: var(--ui-radius-sm); background: #fff; padding: 9px 10px; font-weight: 800; color: #17324d; }
+.account-switcher select { min-height: var(--ui-touch-min); }
+.account-settings-button, .account-add-button, .account-rename-button, .account-delete-button, .account-create-form button, .account-rename-form button { min-height: var(--ui-touch-min); border-radius: var(--ui-radius-sm); padding: 9px 12px; font-weight: 800; }
 .account-settings-button { border: 1px solid #cbd5e1; background: #fff; color: #17324d; }
 .account-add-button { border: 1px solid #cbd5e1; background: #fff; color: #17324d; }
 .account-rename-button { border: 1px solid #cbd5e1; background: #fff; color: #17324d; }
 .account-rename-button:disabled { opacity: .55; cursor: not-allowed; color: #7b8794; }
 .account-delete-button { border: 1px solid #d9e2ec; background: #fff; color: #9f1d18; }
 .account-delete-button:disabled { opacity: .55; cursor: not-allowed; color: #7b8794; }
-.account-settings-panel { width: min(100%, 520px); display: grid; gap: 10px; padding: 12px; border: 1px solid #d9e2ec; border-radius: 8px; background: #fff; box-shadow: 0 4px 14px rgba(15, 23, 42, .05); }
+.account-settings-panel { width: min(100%, 520px); display: grid; gap: 10px; padding: 12px; border: 1px solid #d9e2ec; border-radius: var(--ui-radius-md); background: #fff; box-shadow: var(--ui-shadow-panel); }
 .account-settings-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .account-create-form { display: grid; grid-template-columns: minmax(220px, 280px) 140px minmax(140px, 180px) auto; gap: 8px; }
 .account-create-form button, .account-rename-form button { border: 0; background: #17324d; color: #fff; }
 .account-create-form button:disabled, .account-rename-form button:disabled { opacity: .65; cursor: not-allowed; }
 .account-rename-form { display: grid; grid-template-columns: minmax(220px, 280px) auto; gap: 8px; }
-.account-rename-form input { min-width: 150px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; padding: 9px 10px; font-weight: 800; color: #17324d; }
+.account-rename-form input { min-width: 150px; border: 1px solid #cbd5e1; border-radius: var(--ui-radius-sm); background: #fff; padding: 9px 10px; font-weight: 800; color: #17324d; }
 .account-switcher-meta { margin: 0; color: #52606d; font-size: 12px; }
 .account-switcher-message { margin: 0; color: #697586; font-size: 12px; }
 @media (max-width: 640px) {

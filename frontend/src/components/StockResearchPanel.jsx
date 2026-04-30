@@ -6,6 +6,7 @@ import {
 } from '../lib/pensionEligibility';
 import {
   buildDataBadgeDescriptor,
+  buildDataBadgeDescriptorFromProvenance,
   buildFreshnessMixWarning
 } from '../lib/sourceRegistry';
 import { portfolioAPI } from '../utils/api';
@@ -200,13 +201,20 @@ function StockResearchPanel({
   }, [accountCategory, accountType, holding, products, selectedProduct]);
 
   const quoteBadge = useMemo(() => (
-    quote ? buildDataBadgeDescriptor({
-      source: quote.source,
-      asOf: quote.price_date,
-      freshnessClass: quote.freshness_class,
-      delayPolicy: quote.delay_policy,
-      code: selectedProduct?.code
-    }) : null
+    quote ? (
+      quote.provenance
+        ? buildDataBadgeDescriptorFromProvenance(quote.provenance, {
+            code: selectedProduct?.code,
+            delayPolicy: quote.delay_policy
+          })
+        : buildDataBadgeDescriptor({
+            source: quote.source,
+            asOf: quote.price_date,
+            freshnessClass: quote.freshness_class,
+            delayPolicy: quote.delay_policy,
+            code: selectedProduct?.code
+          })
+    ) : null
   ), [quote, selectedProduct?.code]);
 
   const mixedFreshnessWarning = useMemo(() => {

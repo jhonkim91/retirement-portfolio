@@ -1,6 +1,31 @@
 {
   "private": true,
+  "devDependencies": {
+    "@playwright/test": "^1.54.2",
+    "@types/node": "^24.3.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4",
+    "zod": "^3.24.1"
+  },
   "scripts": {
+    "codex:sync": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/codex-sync.ps1 -Mode sync",
+    "codex:save": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/codex-sync.ps1 -Mode save",
+    "codex:resume": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/codex-sync.ps1 -Mode resume",
+    "codex:install-sync": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/codex-sync.ps1 -Mode install-task",
+    "codex:uninstall-sync": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/codex-sync.ps1 -Mode uninstall-task",
+    "codex:install-startup": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/codex-sync.ps1 -Mode install-startup",
+    "codex:uninstall-startup": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/codex-sync.ps1 -Mode uninstall-startup",
+    "lint": "npm --prefix frontend run lint",
+    "typecheck": "tsc --noEmit -p tests/tsconfig.json",
+    "test:unit": "vitest run tests/unit --config tests/vitest.config.ts",
+    "test:integration": "vitest run tests/integration --config tests/vitest.config.ts",
+    "test:e2e": "playwright test tests/e2e/dashboard.spec.ts --config tests/playwright.config.ts",
+    "test:e2e:prod": "playwright test tests/e2e/prod-smoke.spec.ts --config tests/playwright.prod.config.ts",
+    "test:backend": "node tests/utils/runBackendTests.mjs",
+    "test:frontend": "npm --prefix frontend run test -- --watchAll=false",
+    "test": "npm run test:backend && npm run test:unit && npm run test:integration && npm run test:e2e && npm run test:frontend",
+    "build:frontend": "npm --prefix frontend run build",
+    "quality-gate": "npm run lint && npm run typecheck && npm run test && npm run build:frontend",
     "build": "cd frontend && npm install && npm run build",
     "postinstall": "cd frontend && npm install && npm run build"
   }

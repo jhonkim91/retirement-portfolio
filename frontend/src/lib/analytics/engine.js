@@ -14,19 +14,19 @@ import {
   mean,
   rollingStandardDeviation,
   safeDivide,
-  standardDeviation,
-  xirr
+  standardDeviation
 } from './math';
+import {
+  calculateMWR,
+  calculateTWR,
+  compoundReturns
+} from './performance';
 
 const RISK_FREE_RATE = 0.02;
 const TRADING_DAYS = 252;
 const CASH_ASSET_ID = '__cash__';
 
 const getMonthKey = (dateKey) => String(dateKey || '').slice(0, 7);
-
-const compoundReturns = (returns = []) => (
-  returns.reduce((total, value) => total * (1 + toNumber(value)), 1) - 1
-);
 
 const inferCashMultiplier = (rows = []) => {
   const sample = rows.find((row) => row.quantity > 0 && row.price > 0 && row.evaluationValue > 0);
@@ -36,7 +36,7 @@ const inferCashMultiplier = (rows = []) => {
 
 const buildExternalCashFlows = ({ cashFlows, transactions, accountType }) => {
   if (cashFlows.length > 0) {
-    return cashFlows.map((row) => ({ ...row, amount: Math.abs(toNumber(row.amount)) }));
+    return cashFlows.map((row) => ({ ...row, amount: toNumber(row.amount) }));
   }
 
   const depositFlows = transactions
@@ -586,7 +586,7 @@ export const computePortfolioAnalytics = (inputs = {}, options = {}) => {
   const alignedBenchmarkPairs = alignPairs(timeline, benchmarkTimeline);
 
   const dailyReturns = timeline.slice(1).map((row) => row.dailyReturn);
-  const twr = compoundReturns(dailyReturns);
+  const twr = calculateTWR(dailyReturns);
   const cumulativeReturn = safeDivide(timeline[timeline.length - 1].indexValue, 100, 1) - 1;
   const cagr = annualizeReturn(cumulativeReturn, Math.max(timeline.length - 1, 1));
   const drawdown = maxDrawdown(timeline.map((row) => row.indexValue));
@@ -636,35 +636,66 @@ export const computePortfolioAnalytics = (inputs = {}, options = {}) => {
     date: timeline[timeline.length - 1].date,
     amount: timeline[timeline.length - 1].totalValue
   });
-  const mwr = xirr(cashFlowStream);
+  const mwr = calculateMWR(cashFlowStream);
 
   const netExternalFlows = externalCashFlows.reduce((total, flow) => total + flow.amount, 0);
-  const flowVsMarket = [
-    {
-      key: 'starting-value',
-      label: '기초 평가액',
-      amount: round(timeline[0]?.totalValue || 0, 2),
-      kind: 'neutral'
-    },
-    {
-      key: 'cash-flow',
-      label: '현금흐름 효과',
-      amount: round(netExternalFlows, 2),
-      kind: netExternalFlows >= 0 ? 'positive' : 'negative'
-    },
-    {
-      key: 'market-return',
-      label: '시장 수익 효과',
-      amount: round((timeline[timeline.length - 1]?.totalValue || 0) - (timeline[0]?.totalValue || 0) - netExternalFlows, 2),
-      kind: (((timeline[timeline.length - 1]?.totalValue || 0) - (timeline[0]?.totalValue || 0) - netExternalFlows) >= 0) ? 'positive' : 'negative'
-    },
-    {
-      key: 'ending-value',
-      label: '기말 평가액',
-      amount: round(timeline[timeline.length - 1]?.totalValue || 0, 2),
-      kind: 'neutral'
-    }
-  ];
+  const dividendFlow = externalCashFlows
+    .filter((flow) => String(flow.category || '').toLowerCase() === 'dividend')
+    .reduce((total, flow) => total + toNumber(flow.amount), 0);
+  const feeFlow = externalCashFlows
+    .filter((flow) => String(flow.category || '').toLowerCase() === 'fee')
+    .reduce((total, flow) => total + toNumber(flow.amount), 0);
+  const taxFlow = externalCashFlows
+    .filter((flow) => String(flow.category || '').toLowerCase() === 'tax')
+    .reduce((total, flow) => total + toNumber(flow.amount), 0);
+  const flowVsMarket = [{
+    key: 'starting-value',
+    label: '기초 평가액',
+    amount: round(timeline[0]?.totalValue || 0, 2),
+    kind: 'neutral'
+  }, {
+    key: 'cash-flow',
+    label: '현금흐름 효과',
+    amount: round(netExternalFlows, 2),
+    kind: netExternalFlows >= 0 ? 'positive' : 'negative'
+  }];
+
+  if (Math.abs(dividendFlow) > 1e-9) {
+    flowVsMarket.push({
+      key: 'dividend-flow',
+      label: '배당 반영',
+      amount: round(dividendFlow, 2),
+      kind: dividendFlow >= 0 ? 'positive' : 'negative'
+    });
+  }
+  if (Math.abs(feeFlow) > 1e-9) {
+    flowVsMarket.push({
+      key: 'fee-flow',
+      label: '수수료 반영',
+      amount: round(feeFlow, 2),
+      kind: feeFlow >= 0 ? 'positive' : 'negative'
+    });
+  }
+  if (Math.abs(taxFlow) > 1e-9) {
+    flowVsMarket.push({
+      key: 'tax-flow',
+      label: '세금 반영',
+      amount: round(taxFlow, 2),
+      kind: taxFlow >= 0 ? 'positive' : 'negative'
+    });
+  }
+
+  flowVsMarket.push({
+    key: 'market-return',
+    label: '시장 수익 효과',
+    amount: round((timeline[timeline.length - 1]?.totalValue || 0) - (timeline[0]?.totalValue || 0) - netExternalFlows, 2),
+    kind: (((timeline[timeline.length - 1]?.totalValue || 0) - (timeline[0]?.totalValue || 0) - netExternalFlows) >= 0) ? 'positive' : 'negative'
+  }, {
+    key: 'ending-value',
+    label: '기말 평가액',
+    amount: round(timeline[timeline.length - 1]?.totalValue || 0, 2),
+    kind: 'neutral'
+  });
 
   const rebalancing = buildRebalancedComparison({
     timeline,

@@ -13,13 +13,16 @@
     "react-router-dom": "^7.14.2",
     "react-scripts": "5.0.1",
     "recharts": "^3.8.1",
-    "web-vitals": "^2.1.4"
+    "web-vitals": "^2.1.4",
+    "zod": "^3.24.1"
   },
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "lint": "eslint \"src/**/*.{js,jsx,ts,tsx}\" --max-warnings=0 --rule \"testing-library/prefer-find-by: off\" --rule \"jest/valid-title: off\"",
+    "eject": "react-scripts eject",
+    "analyze": "source-map-explorer \"build/static/js/*.js\""
   },
   "eslintConfig": {
     "extends": [
@@ -38,5 +41,8 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
+  },
+  "devDependencies": {
+    "source-map-explorer": "^2.5.3"
   }
 }

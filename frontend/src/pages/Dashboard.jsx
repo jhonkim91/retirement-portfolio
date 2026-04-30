@@ -1,58 +1,29 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  LabelList,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis
-} from 'recharts';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import AccountSelector from '../components/AccountSelector';
-import AnalyticsDashboard from '../components/analytics/AnalyticsDashboard';
-import { buildAnalyticsInputs, DEFAULT_BENCHMARKS } from '../lib/analytics/adapters';
-import { computePortfolioAnalytics } from '../lib/analytics/engine';
+import DataBadge from '../components/DataBadge';
 import {
-  buildAnalyticsReportFilename,
-  buildAnalyticsReportHtml,
-  downloadAnalyticsReport
-} from '../lib/analytics/exporters';
+  buildAnalyticsInputs,
+  buildAnalyticsInputsFromDomain,
+  DEFAULT_BENCHMARKS
+} from '../lib/analytics/adapters';
+import { computePortfolioAnalytics } from '../lib/analytics/engine';
 import {
   getBenchmarkPresetOptions,
   readStoredBenchmarkSelection,
   writeStoredBenchmarkSelection
 } from '../lib/analytics/preferences';
-import { summarizeRetirementEligibility } from '../lib/pensionEligibility';
-import { buildDataBadgeDescriptor, buildFreshnessMixWarning, inferSourceKeyFromCode } from '../lib/sourceRegistry';
+import { buildDataBadgeDescriptor, inferSourceKeyFromCode } from '../lib/sourceRegistry';
 import {
   DEFAULT_ACCOUNT_NAME,
   portfolioAPI,
-  tradeLogAPI,
   readStoredAccountName,
+  tradeLogAPI,
   writeStoredAccountName
 } from '../utils/api';
 import '../styles/Dashboard.css';
 
-const COLORS = { risk: '#d94841', safe: '#256f68' };
-const PRODUCT_COLOR_PALETTE = [
-  '#33658a',
-  '#8d6cab',
-  '#2f7f79',
-  '#c57b57',
-  '#5271a5',
-  '#7b8f45',
-  '#b2647d',
-  '#4f86c6',
-  '#9a6f3f',
-  '#4e7d57',
-  '#7a5ea6',
-  '#5c8099'
-];
-const CASH_COLOR = '#7b8794';
+const LazyAnalyticsDashboard = lazy(() => import('../components/analytics/AnalyticsDashboard'));
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 const getInitialAccountName = () => readStoredAccountName() || DEFAULT_ACCOUNT_NAME;
 
@@ -62,100 +33,67 @@ const formatCurrency = (value) => new Intl.NumberFormat('ko-KR', {
   maximumFractionDigits: 0
 }).format(Number(value || 0));
 
-const formatCompactCurrency = (value) => new Intl.NumberFormat('ko-KR', {
-  style: 'currency',
-  currency: 'KRW',
-  notation: 'compact',
-  maximumFractionDigits: 0
-}).format(Number(value || 0));
-
 const formatPercent = (value) => `${Number(value || 0).toFixed(2)}%`;
 
-const assetTypeLabel = (value) => {
-  if (value === 'risk') return '위험자산';
-  if (value === 'safe') return '안전자산';
-  return value || '-';
+const formatDate = (value) => {
+  if (!value) return '-';
+  const asDate = new Date(value);
+  if (Number.isNaN(asDate.getTime())) return String(value);
+  return asDate.toLocaleString('ko-KR', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
 };
 
-const assetTypeShortLabel = (value) => {
-  if (value === 'risk') return '위험';
-  if (value === 'safe') return '안전';
-  return '-';
+const parseDateMs = (value) => {
+  if (!value) return 0;
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
 };
 
-const getProductColor = (index) => {
-  if (index < PRODUCT_COLOR_PALETTE.length) return PRODUCT_COLOR_PALETTE[index];
-  const hue = Math.round((index * 137.508) % 360);
-  return `hsl(${hue} 42% 48%)`;
+const isStaleAsOf = (asOf, freshnessClass = 'internal_ledger') => {
+  const timestamp = parseDateMs(asOf);
+  if (!timestamp) return true;
+  const ageMs = Date.now() - timestamp;
+  if (freshnessClass === 'realtime') return ageMs > (15 * 60 * 1000);
+  if (freshnessClass === 'delayed_20m') return ageMs > (45 * 60 * 1000);
+  if (freshnessClass === 'internal_ledger') return ageMs > (2 * ONE_DAY_MS);
+  return ageMs > (2 * ONE_DAY_MS);
 };
 
-const wrapChartLabel = (value, maxChars = 12) => {
-  const text = String(value || '').trim();
-  if (!text) return [''];
-
-  const words = text.split(/\s+/).filter(Boolean);
-  if (words.length > 1) {
-    const lines = [];
-    let current = '';
-
-    words.forEach((word) => {
-      const next = current ? `${current} ${word}` : word;
-      if (next.length <= maxChars || !current) {
-        current = next;
-      } else {
-        lines.push(current);
-        current = word;
-      }
-    });
-
-    if (current) lines.push(current);
-    return lines.slice(0, 2);
+const nextRebalanceDate = () => {
+  const now = new Date();
+  const next = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  while (next.getDay() === 0 || next.getDay() === 6) {
+    next.setDate(next.getDate() + 1);
   }
-
-  const lines = [];
-  for (let index = 0; index < text.length; index += maxChars) {
-    lines.push(text.slice(index, index + maxChars));
-  }
-  return lines.slice(0, 2);
+  return next;
 };
 
-function ProfitYAxisTick({ x, y, payload }) {
-  const lines = wrapChartLabel(payload?.value, 12);
-  const lineHeight = 14;
-  const baseY = -((lines.length - 1) * lineHeight) / 2;
-
-  return (
-    <g transform={`translate(${x},${y})`}>
-      <text
-        x={0}
-        y={baseY + 4}
-        textAnchor="end"
-        fill="#102a43"
-        fontSize={12}
-        fontWeight={600}
-      >
-        {lines.map((line, index) => (
-          <tspan key={`${payload?.value}-${index}`} x={0} dy={index === 0 ? 0 : lineHeight}>
-            {line}
-          </tspan>
-        ))}
-      </text>
-    </g>
-  );
-}
+const isToday = (value) => {
+  if (!value) return false;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  const now = new Date();
+  return date.getFullYear() === now.getFullYear()
+    && date.getMonth() === now.getMonth()
+    && date.getDate() === now.getDate();
+};
 
 function Dashboard() {
   const [accountName, setAccountName] = useState(getInitialAccountName);
   const [summary, setSummary] = useState(null);
   const [products, setProducts] = useState([]);
+  const [recentLogs, setRecentLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [syncing, setSyncing] = useState(false);
-  const [cashEditing, setCashEditing] = useState(false);
-  const [cashAmount, setCashAmount] = useState('');
-  const [cashLoading, setCashLoading] = useState(false);
-  const [analyticsLoading, setAnalyticsLoading] = useState(true);
+  const [showInsights, setShowInsights] = useState(false);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsError, setAnalyticsError] = useState('');
   const [analyticsRaw, setAnalyticsRaw] = useState({
     allProducts: [],
@@ -163,30 +101,34 @@ function Dashboard() {
     trends: [],
     benchmark: { name: DEFAULT_BENCHMARKS.retirement.name, series: [] }
   });
+  const analyticsScope = 'account';
+  const [domainModel, setDomainModel] = useState(null);
+  const [selectedAnalyticsAccountId, setSelectedAnalyticsAccountId] = useState('');
   const [benchmarkSelection, setBenchmarkSelection] = useState(null);
   const [benchmarkQuery, setBenchmarkQuery] = useState('');
   const [benchmarkSearchResults, setBenchmarkSearchResults] = useState([]);
   const [benchmarkSearchLoading, setBenchmarkSearchLoading] = useState(false);
-  const [exportingReport, setExportingReport] = useState(false);
 
   const fetchCoreDashboardData = useCallback(async ({ silent = false } = {}) => {
     try {
       if (!silent) setLoading(true);
       setError('');
-      const [summaryResponse, productsResponse] = await Promise.all([
+      const [summaryResponse, productsResponse, logsResponse] = await Promise.all([
         portfolioAPI.getSummary(accountName),
-        portfolioAPI.getProducts(accountName)
+        portfolioAPI.getProducts(accountName),
+        tradeLogAPI.getLogs({ accountName })
       ]);
       setSummary(summaryResponse);
-      setProducts(productsResponse);
+      setProducts(Array.isArray(productsResponse) ? productsResponse : []);
+      setRecentLogs(Array.isArray(logsResponse) ? logsResponse : []);
       setAnalyticsRaw((prev) => ({
         ...prev,
         benchmark: prev.benchmark?.code
           ? prev.benchmark
           : { name: DEFAULT_BENCHMARKS[summaryResponse?.account_type]?.name || DEFAULT_BENCHMARKS.retirement.name, series: [] }
       }));
-    } catch (err) {
-      setError(err.message || '현황을 불러오지 못했습니다.');
+    } catch (fetchError) {
+      setError(fetchError.message || '현황을 불러오지 못했습니다.');
     } finally {
       setLoading(false);
     }
@@ -194,60 +136,49 @@ function Dashboard() {
 
   const fetchAnalyticsData = useCallback(async () => {
     try {
-      setAnalyticsError('');
       setAnalyticsLoading(true);
-      const [allProductsResponse, trendsResponse, tradeLogsResponse] = await Promise.all([
+      setAnalyticsError('');
+      const [allProductsResponse, trendsResponse, tradeLogsResponse, domainResponse] = await Promise.all([
         portfolioAPI.getAllProducts(accountName),
         portfolioAPI.getTrends(accountName, { includeSold: true }),
-        tradeLogAPI.getLogs({ accountName })
+        tradeLogAPI.getLogs({ accountName }),
+        portfolioAPI.getDomainModel(accountName, analyticsScope)
       ]);
       setAnalyticsRaw((prev) => ({
         ...prev,
-        allProducts: allProductsResponse,
-        transactions: tradeLogsResponse,
-        trends: trendsResponse
+        allProducts: Array.isArray(allProductsResponse) ? allProductsResponse : [],
+        transactions: Array.isArray(tradeLogsResponse) ? tradeLogsResponse : [],
+        trends: Array.isArray(trendsResponse) ? trendsResponse : []
       }));
-    } catch (err) {
-      setAnalyticsError(err.message || '분석 데이터를 불러오지 못했습니다.');
+      setDomainModel(domainResponse || null);
+    } catch (fetchError) {
+      setAnalyticsError(fetchError.message || '심층 분석 데이터를 불러오지 못했습니다.');
+      setDomainModel(null);
     } finally {
       setAnalyticsLoading(false);
     }
-  }, [accountName]);
+  }, [accountName, analyticsScope]);
 
   useEffect(() => {
     fetchCoreDashboardData();
-    const analyticsTimer = setTimeout(() => {
-      fetchAnalyticsData();
-    }, 80);
-    const interval = setInterval(() => {
-      fetchCoreDashboardData({ silent: true });
-    }, 60000);
-    return () => {
-      clearTimeout(analyticsTimer);
-      clearInterval(interval);
-    };
-  }, [fetchAnalyticsData, fetchCoreDashboardData]);
+    const interval = setInterval(() => fetchCoreDashboardData({ silent: true }), 60000);
+    return () => clearInterval(interval);
+  }, [fetchCoreDashboardData]);
 
   useEffect(() => {
-    setCashAmount(String(summary?.total_cash ?? 0));
-  }, [summary?.total_cash, accountName]);
+    if (showInsights) fetchAnalyticsData();
+  }, [fetchAnalyticsData, showInsights]);
 
   useEffect(() => {
     if (!summary?.account_type) return;
     const storedSelection = readStoredBenchmarkSelection(accountName, summary.account_type);
-    setBenchmarkSelection({
-      ...storedSelection,
-      accountName
-    });
+    setBenchmarkSelection({ ...storedSelection, accountName });
   }, [accountName, summary?.account_type]);
 
   useEffect(() => {
-    if (!summary?.account_type || !benchmarkSelection?.code) return;
-
+    if (!showInsights || !summary?.account_type || !benchmarkSelection?.code) return;
     let active = true;
-    const loadBenchmarkSeries = async () => {
-      setAnalyticsLoading(true);
-      setAnalyticsError('');
+    (async () => {
       try {
         const response = await portfolioAPI.getBenchmarkChart(benchmarkSelection.code, 520);
         if (!active) return;
@@ -259,7 +190,7 @@ function Dashboard() {
             series: response?.series || []
           }
         }));
-      } catch (benchmarkFetchError) {
+      } catch (fetchError) {
         if (!active) return;
         setAnalyticsRaw((prev) => ({
           ...prev,
@@ -269,48 +200,48 @@ function Dashboard() {
             series: []
           }
         }));
-        setAnalyticsError('선택한 benchmark 시계열을 불러오지 못했습니다.');
-      } finally {
-        if (active) setAnalyticsLoading(false);
       }
-    };
-
-    loadBenchmarkSeries();
+    })();
     return () => {
       active = false;
     };
-  }, [summary?.account_type, benchmarkSelection]);
+  }, [benchmarkSelection, showInsights, summary?.account_type]);
 
   useEffect(() => {
+    if (!showInsights) return undefined;
     const query = benchmarkQuery.trim();
     if (query.length < 2) {
       setBenchmarkSearchResults([]);
       setBenchmarkSearchLoading(false);
       return undefined;
     }
-
     let active = true;
     const timer = setTimeout(async () => {
       setBenchmarkSearchLoading(true);
       try {
         const results = await portfolioAPI.searchProducts(query);
-        if (active) {
-          setBenchmarkSearchResults(results.slice(0, 8));
-        }
-      } catch (searchError) {
-        if (active) {
-          setBenchmarkSearchResults([]);
-        }
+        if (active) setBenchmarkSearchResults((results || []).slice(0, 8));
+      } catch (fetchError) {
+        if (active) setBenchmarkSearchResults([]);
       } finally {
         if (active) setBenchmarkSearchLoading(false);
       }
     }, 250);
-
     return () => {
       active = false;
       clearTimeout(timer);
     };
-  }, [benchmarkQuery]);
+  }, [benchmarkQuery, showInsights]);
+
+  useEffect(() => {
+    const wrappers = Array.isArray(domainModel?.account_wrappers) ? domainModel.account_wrappers : [];
+    if (wrappers.length === 0 || analyticsScope === 'all') {
+      setSelectedAnalyticsAccountId('');
+      return;
+    }
+    const matched = wrappers.find((wrapper) => wrapper.account_name === accountName) || wrappers[0];
+    setSelectedAnalyticsAccountId(matched?.id || '');
+  }, [accountName, analyticsScope, domainModel]);
 
   const benchmarkPresetOptions = useMemo(
     () => getBenchmarkPresetOptions(summary?.account_type || 'retirement'),
@@ -341,91 +272,11 @@ function Dashboard() {
     setBenchmarkSelection(nextSelection);
     setBenchmarkQuery('');
     setBenchmarkSearchResults([]);
-    setNotice(`${nextSelection.name} benchmark를 계좌 분석 기준으로 적용했습니다.`);
+    setNotice(`${nextSelection.name} 벤치마크를 적용했습니다.`);
   }, [accountName]);
 
-  const analyticsResult = useMemo(() => {
-    if (!summary) {
-      return { report: null, runtimeError: '' };
-    }
-
-    try {
-      return {
-        report: computePortfolioAnalytics(buildAnalyticsInputs({
-          accountType: summary?.account_type || 'retirement',
-          holdings: analyticsRaw.allProducts,
-          products: analyticsRaw.allProducts,
-          summary,
-          transactions: analyticsRaw.transactions,
-          trends: analyticsRaw.trends,
-          benchmarkSeries: analyticsRaw.benchmark
-        })),
-        runtimeError: ''
-      };
-    } catch (analyticsEngineError) {
-      return {
-        report: null,
-        runtimeError: analyticsEngineError.message || '분석 엔진 계산 중 오류가 발생했습니다.'
-      };
-    }
-  }, [analyticsRaw, summary]);
-
-  const analyticsReport = analyticsResult.report;
-  const analyticsRuntimeError = analyticsResult.runtimeError;
-  const retirementEligibility = useMemo(() => summarizeRetirementEligibility({
-    products,
-    accountType: summary?.account_type,
-    accountCategory: summary?.account_category,
-    cashAmount: summary?.total_cash || 0
-  }), [products, summary?.account_category, summary?.account_type, summary?.total_cash]);
-  const benchmarkBadge = useMemo(() => (
-    benchmarkSelection?.code ? buildDataBadgeDescriptor({
-      source: inferSourceKeyFromCode(benchmarkSelection.code),
-      asOf: analyticsReport?.meta?.endDate,
-      code: benchmarkSelection.code,
-      note: benchmarkSelection.name
-    }) : null
-  ), [analyticsReport?.meta?.endDate, benchmarkSelection]);
-  const analyticsDataBadges = useMemo(() => {
-    const badges = [
-      buildDataBadgeDescriptor({
-        source: 'PortfolioLedger',
-        freshnessClass: 'internal_ledger',
-        asOf: analyticsReport?.meta?.endDate,
-        note: '보유 대장/매매일지'
-      })
-    ];
-    if (benchmarkBadge) badges.push(benchmarkBadge);
-    return badges;
-  }, [analyticsReport?.meta?.endDate, benchmarkBadge]);
-  const analyticsFreshnessWarning = useMemo(() => buildFreshnessMixWarning(analyticsDataBadges), [analyticsDataBadges]);
-
-  const exportAccountAnalyticsReport = useCallback(() => {
-    if (!analyticsReport) return;
-    const exportedAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
-    setExportingReport(true);
-    try {
-      const html = buildAnalyticsReportHtml({
-        report: analyticsReport,
-        accountName,
-        benchmarkSelection,
-        exportedAt
-      });
-      const filename = buildAnalyticsReportFilename({ accountName, exportedAt });
-      downloadAnalyticsReport({ filename, html });
-      setNotice('계좌별 분석 리포트를 export했습니다.');
-    } catch (exportError) {
-      setAnalyticsError(exportError.message || '분석 리포트 export 중 오류가 발생했습니다.');
-    } finally {
-      setExportingReport(false);
-    }
-  }, [accountName, analyticsReport, benchmarkSelection]);
-
   const moveBenchmarkFromSearchResult = useCallback((item) => {
-    applyBenchmarkSelection({
-      code: item.code,
-      name: item.name
-    }, 'custom');
+    applyBenchmarkSelection({ code: item.code, name: item.name }, 'custom');
   }, [applyBenchmarkSelection]);
 
   const chooseBenchmarkPreset = useCallback((code) => {
@@ -434,142 +285,131 @@ function Dashboard() {
     applyBenchmarkSelection(selected, selected.source || 'preset');
   }, [applyBenchmarkSelection, benchmarkOptions]);
 
-  const changeAccountName = (value) => {
-    writeStoredAccountName(value);
-    setAccountName(value);
-    setSummary(null);
-    setProducts([]);
-    setAnalyticsRaw({
-      allProducts: [],
-      transactions: [],
-      trends: [],
-      benchmark: { name: DEFAULT_BENCHMARKS.retirement.name, series: [] }
-    });
-    setBenchmarkSelection(null);
-    setBenchmarkQuery('');
-    setBenchmarkSearchResults([]);
-    setNotice('');
-    setError('');
-    setLoading(true);
-    setAnalyticsLoading(true);
-    setAnalyticsError('');
-  };
-
-  const allocation = useMemo(() => ([
-    {
-      name: '위험자산',
-      value: Number(summary?.asset_allocation?.risk?.percentage || 0),
-      amount: Number(summary?.asset_allocation?.risk?.value || 0),
-      key: 'risk'
-    },
-    {
-      name: '안전자산',
-      value: Number(summary?.asset_allocation?.safe?.percentage || 0),
-      amount: Number(summary?.asset_allocation?.safe?.value || 0),
-      key: 'safe'
+  const analyticsResult = useMemo(() => {
+    if (!showInsights || !summary) return { report: null, runtimeError: '' };
+    try {
+      const hasDomainModel = Array.isArray(domainModel?.account_wrappers) && domainModel.account_wrappers.length > 0;
+      const analyticsInputs = hasDomainModel
+        ? buildAnalyticsInputsFromDomain(domainModel, {
+          mode: analyticsScope,
+          accountWrapperId: selectedAnalyticsAccountId
+        })
+        : buildAnalyticsInputs({
+          accountType: summary?.account_type || 'retirement',
+          holdings: analyticsRaw.allProducts,
+          products: analyticsRaw.allProducts,
+          summary,
+          transactions: analyticsRaw.transactions,
+          trends: analyticsRaw.trends,
+          benchmarkSeries: analyticsRaw.benchmark
+        });
+      return {
+        report: computePortfolioAnalytics(analyticsInputs),
+        runtimeError: ''
+      };
+    } catch (engineError) {
+      return {
+        report: null,
+        runtimeError: engineError.message || '분석 계산 중 오류가 발생했습니다.'
+      };
     }
-  ]), [summary]);
+  }, [analyticsRaw, analyticsScope, domainModel, selectedAnalyticsAccountId, showInsights, summary]);
 
-  const productColorMap = useMemo(() => {
-    const map = new Map();
-    products.forEach((product, index) => {
-      map.set(String(product.id), getProductColor(index));
-    });
-    return map;
-  }, [products]);
+  const analyticsReport = analyticsResult.report;
+  const analyticsRuntimeError = analyticsResult.runtimeError;
 
-  const displayProducts = useMemo(() => {
-    const rows = [...products];
-    const cash = Number(summary?.total_cash || 0);
+  const dashboardAsOf = useMemo(() => (
+    domainModel?.provenance?.asOf
+    || analyticsReport?.meta?.endDate
+    || recentLogs[0]?.created_at
+    || ''
+  ), [analyticsReport?.meta?.endDate, domainModel?.provenance?.asOf, recentLogs]);
 
-    if (cash > 0 && summary?.account_type !== 'brokerage') {
-      rows.push({
-        id: 'cash',
-        product_name: '보유 현금',
-        product_code: '현금',
-        asset_type: 'safe',
-        purchase_date: '-',
-        current_value: cash,
-        total_purchase_value: null,
-        profit_loss: null,
-        profit_rate: null,
-        is_cash: true
-      });
-    }
+  const staleLedger = isStaleAsOf(dashboardAsOf, 'internal_ledger');
+  const firstMarketCode = products.find((item) => item?.product_code)?.product_code || '';
+  const marketBadge = useMemo(() => buildDataBadgeDescriptor({
+    source: inferSourceKeyFromCode(firstMarketCode),
+    freshnessClass: 'delayed_20m',
+    asOf: dashboardAsOf,
+    code: firstMarketCode,
+    note: '시세 기준'
+  }), [dashboardAsOf, firstMarketCode]);
 
-    return rows;
-  }, [products, summary]);
+  const ledgerBadge = useMemo(() => buildDataBadgeDescriptor({
+    source: 'portfolio_ledger',
+    freshnessClass: 'internal_ledger',
+    asOf: dashboardAsOf,
+    note: '계좌 원장'
+  }), [dashboardAsOf]);
 
-  const holdingAllocation = useMemo(() => {
-    const positiveRows = displayProducts
-      .map((product) => ({
-        ...product,
-        amount: Number(product.current_value || 0)
-      }))
-      .filter((product) => product.amount > 0);
+  const staleMarket = isStaleAsOf(marketBadge.asOf, marketBadge.freshnessClass);
+  const isStale = staleLedger || staleMarket;
 
-    const totalAmount = positiveRows.reduce((sum, product) => sum + product.amount, 0);
-    if (!totalAmount) return [];
-
-    return positiveRows
-      .map((product) => ({
-        key: product.id,
-        name: product.product_name,
-        amount: product.amount,
-        percent: (product.amount / totalAmount) * 100,
-        assetType: product.asset_type,
-        fill: product.is_cash ? CASH_COLOR : (productColorMap.get(String(product.id)) || getProductColor(0)),
-        isCash: Boolean(product.is_cash)
-      }))
-      .sort((left, right) => right.amount - left.amount);
-  }, [displayProducts, productColorMap]);
-
-  const holdingTotalAmount = useMemo(
-    () => holdingAllocation.reduce((sum, item) => sum + item.amount, 0),
-    [holdingAllocation]
+  const todaysLogs = useMemo(
+    () => recentLogs.filter((row) => isToday(row.trade_date || row.created_at)),
+    [recentLogs]
   );
 
-  const sortedDisplayProducts = useMemo(() => {
-    const rows = [...displayProducts];
-    return rows.sort((left, right) => {
-      if (left.is_cash && right.is_cash) return 0;
-      if (left.is_cash) return 1;
-      if (right.is_cash) return -1;
+  const todayChange = useMemo(() => {
+    return todaysLogs.reduce((sum, row) => {
+      const amount = Number(row.total_amount || 0);
+      if (row.trade_type === 'sell') return sum + amount;
+      if (row.trade_type === 'buy') return sum - amount;
+      if (row.trade_type === 'deposit') return sum + amount;
+      return sum;
+    }, 0);
+  }, [todaysLogs]);
 
-      const profitGap = Number(right.profit_rate || 0) - Number(left.profit_rate || 0);
-      if (profitGap !== 0) return profitGap;
+  const targetRate = summary?.account_type === 'brokerage' ? 12 : 8;
+  const targetDeviation = Number(summary?.total_profit_rate || 0) - targetRate;
+  const riskShare = Number(summary?.asset_allocation?.risk?.percentage || 0);
 
-      return Number(right.current_value || 0) - Number(left.current_value || 0);
-    });
-  }, [displayProducts]);
+  const anomalies = useMemo(() => {
+    const issues = [];
+    if (isStale) issues.push('데이터 기준 시각이 오래되었습니다.');
+    if (products.some((item) => !item.product_code || Number(item.current_price || 0) <= 0)) {
+      issues.push('현재가 또는 종목코드가 비어있는 보유상품이 있습니다.');
+    }
+    if (recentLogs.length === 0) {
+      issues.push('최근 매매일지 기록이 없습니다.');
+    } else {
+      const latestLogAt = parseDateMs(recentLogs[0]?.created_at || recentLogs[0]?.trade_date);
+      if (latestLogAt && (Date.now() - latestLogAt) > (14 * ONE_DAY_MS)) {
+        issues.push('최근 14일간 매매일지 업데이트가 없습니다.');
+      }
+    }
+    if (summary?.account_type !== 'brokerage' && riskShare > 70) {
+      issues.push('퇴직연금 위험자산 비중이 70%를 초과했습니다.');
+    }
+    return issues;
+  }, [isStale, products, recentLogs, riskShare, summary?.account_type]);
 
-  const profitData = useMemo(() => (
-    products
-      .map((product) => ({
-        key: product.id,
-        name: product.product_name,
-        profitRate: Number(product.profit_rate || 0),
-        fill: productColorMap.get(String(product.id)) || getProductColor(0)
-      }))
-      .sort((left, right) => right.profitRate - left.profitRate)
-  ), [productColorMap, products]);
+  const watchlistStatus = useMemo(() => (
+    [...products]
+      .sort((left, right) => Number(right.profit_rate || 0) - Number(left.profit_rate || 0))
+      .slice(0, 4)
+  ), [products]);
 
-  const profitDomain = useMemo(() => {
-    if (profitData.length === 0) return [-10, 10];
+  const topLoss = useMemo(() => (
+    [...products]
+      .sort((left, right) => Number(left.profit_rate || 0) - Number(right.profit_rate || 0))[0]
+  ), [products]);
 
-    const rates = profitData.map((entry) => Number(entry.profitRate || 0));
-    const rawMin = Math.min(...rates, 0);
-    const rawMax = Math.max(...rates, 0);
-    const span = Math.max(rawMax - rawMin, 10);
-    const padding = Math.max(span * 0.08, 4);
-    const min = Math.floor((rawMin - padding) / 5) * 5;
-    const max = Math.ceil((rawMax + padding) / 5) * 5;
+  const todayFocusItems = useMemo(() => {
+    const focus = [];
+    if (isStale) focus.push('먼저 가격 동기화를 눌러 최신 시세로 맞춰주세요.');
+    if (anomalies.length > 0) focus.push(`이상 징후 ${anomalies.length}건을 확인해 주세요.`);
+    if (topLoss) focus.push(`수익률 하위 종목: ${topLoss.product_name} (${formatPercent(topLoss.profit_rate)})`);
+    focus.push(`다음 리밸런싱 예정: ${nextRebalanceDate().toLocaleDateString('ko-KR')}`);
+    return focus;
+  }, [anomalies.length, isStale, topLoss]);
 
-    if (min === max) return [min - 5, max + 5];
-    return [min, max];
-  }, [profitData]);
+  const emptyState = !loading && !error && products.length === 0;
 
-  const profitChartHeight = Math.max(280, profitData.length * 60);
+  const goSection = (sectionId) => {
+    const element = document.getElementById(sectionId);
+    if (element) element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   const syncPrices = async () => {
     try {
@@ -578,431 +418,319 @@ function Dashboard() {
       setNotice('');
       const result = await portfolioAPI.syncPrices(accountName);
       await fetchCoreDashboardData({ silent: true });
-      fetchAnalyticsData();
-      const failedItems = result.items.filter((item) => !item.success);
-      if (failedItems.length > 0) {
-        setNotice(
-          failedItems
-            .map((item) => `${item.product_code}: ${item.reason || '자동 시세를 확인하지 못했습니다.'}`)
-            .join(' / ')
-        );
-      } else {
-        setNotice(result.message || '가격 동기화를 마쳤습니다.');
-      }
-    } catch (err) {
-      setError(err.message || '가격 동기화에 실패했습니다.');
+      setNotice(result?.message || '가격 동기화를 완료했습니다.');
+    } catch (syncError) {
+      setError(syncError.message || '가격 동기화에 실패했습니다.');
     } finally {
       setSyncing(false);
     }
   };
 
-  const openCashEditor = () => {
-    setCashAmount(String(summary?.total_cash ?? 0));
-    setCashEditing(true);
+  const changeAccountName = (value) => {
+    writeStoredAccountName(value);
+    setAccountName(value);
+    setSummary(null);
+    setProducts([]);
+    setRecentLogs([]);
     setNotice('');
     setError('');
+    setLoading(true);
+    setShowInsights(false);
+    setAnalyticsLoading(false);
+    setAnalyticsError('');
   };
 
-  const cancelCashEditor = () => {
-    setCashAmount(String(summary?.total_cash ?? 0));
-    setCashEditing(false);
-  };
-
-  const saveCash = async () => {
-    try {
-      setCashLoading(true);
-      setError('');
-      setNotice('');
-      await portfolioAPI.updateCash(cashAmount, accountName);
-      await fetchCoreDashboardData({ silent: true });
-      fetchAnalyticsData();
-      setCashEditing(false);
-      setNotice('보유 현금을 업데이트했습니다.');
-    } catch (err) {
-      setError(err.message || '보유 현금 업데이트에 실패했습니다.');
-    } finally {
-      setCashLoading(false);
+  const summaryCards = [
+    {
+      key: 'total',
+      title: '총자산',
+      value: formatCurrency(summary?.total_current_value),
+      description: `원금 ${formatCurrency(summary?.total_investment)}`,
+      onClick: () => goSection('ops-drill-holdings'),
+      badge: ledgerBadge
+    },
+    {
+      key: 'today',
+      title: '오늘 변동',
+      value: formatCurrency(todayChange),
+      description: '오늘 매매/입금 기준 변동',
+      trend: todayChange >= 0 ? 'positive' : 'negative',
+      onClick: () => goSection('ops-drill-events'),
+      badge: ledgerBadge
+    },
+    {
+      key: 'goal',
+      title: '목표 대비 편차',
+      value: formatPercent(targetDeviation),
+      description: `목표 수익률 ${targetRate}%`,
+      trend: targetDeviation >= 0 ? 'positive' : 'negative',
+      onClick: () => goSection('ops-drill-holdings'),
+      badge: ledgerBadge
+    },
+    {
+      key: 'anomaly',
+      title: '데이터 이상 징후',
+      value: `${anomalies.length}건`,
+      description: anomalies[0] || '현재 이상 징후가 없습니다.',
+      onClick: () => goSection('ops-drill-anomalies'),
+      badge: marketBadge
+    },
+    {
+      key: 'journal',
+      title: '최근 일지',
+      value: `${Math.min(recentLogs.length, 3)}건`,
+      description: recentLogs[0]
+        ? `${recentLogs[0].product_name} (${recentLogs[0].trade_type})`
+        : '기록이 없습니다.',
+      onClick: () => goSection('ops-drill-journal'),
+      badge: ledgerBadge
+    },
+    {
+      key: 'event',
+      title: '오늘의 이벤트',
+      value: `${todaysLogs.length}건`,
+      description: `다음 리밸런싱 ${nextRebalanceDate().toLocaleDateString('ko-KR')}`,
+      onClick: () => goSection('ops-drill-events'),
+      badge: ledgerBadge
+    },
+    {
+      key: 'watch',
+      title: '관심 종목 상태',
+      value: `${watchlistStatus.length}종목`,
+      description: watchlistStatus[0]
+        ? `${watchlistStatus[0].product_name} ${formatPercent(watchlistStatus[0].profit_rate)}`
+        : '보유 종목이 없습니다.',
+      onClick: () => goSection('ops-drill-holdings'),
+      badge: marketBadge
     }
-  };
+  ];
 
-  if (loading) return <div className="loading">현황을 불러오는 중...</div>;
+  if (loading) {
+    return (
+      <main className="dashboard dashboard-cockpit">
+        <AccountSelector value={accountName} onChange={changeAccountName} />
+        <section className="ops-loading" aria-label="운영 대시보드 로딩" role="status" aria-live="polite">
+          <h1>운영 대시보드</h1>
+          <div className="ops-skeleton-grid">
+            {Array.from({ length: 7 }).map((_, index) => (
+              <article key={`sk-${index}`} className="ops-skeleton-card" aria-hidden="true" />
+            ))}
+          </div>
+        </section>
+      </main>
+    );
+  }
+
+  if (error && !summary) {
+    return (
+      <main className="dashboard dashboard-cockpit">
+        <AccountSelector value={accountName} onChange={changeAccountName} />
+        <section className="ops-error" role="alert" aria-live="assertive">
+          <h1>운영 대시보드</h1>
+          <p>{error}</p>
+          <button type="button" onClick={() => fetchCoreDashboardData()} aria-label="현황 다시 불러오기">
+            다시 시도
+          </button>
+        </section>
+      </main>
+    );
+  }
 
   return (
-    <main className="dashboard">
+    <main className="dashboard dashboard-cockpit">
       <AccountSelector value={accountName} onChange={changeAccountName} />
 
-      <section className="summary-section">
-        <div className="header">
-          <div>
-            <h1>{accountName} 현황</h1>
-            <p>원금, 보유 상품, 현금을 한 번에 보면서 계좌 상태를 빠르게 확인합니다.</p>
-          </div>
-          <div className="header-actions">
-            <button type="button" onClick={syncPrices} className="refresh-btn" disabled={syncing}>
-              {syncing ? '동기화 중...' : '가격 동기화'}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                fetchCoreDashboardData({ silent: true });
-                fetchAnalyticsData();
-              }}
-              className="refresh-btn"
-            >
-              새로고침
-            </button>
-          </div>
+      <header className="ops-header">
+        <div>
+          <h1>운영 대시보드</h1>
+          <p>오늘 확인할 핵심 지표와 이상 징후를 먼저 보고, 필요한 곳으로 바로 내려가세요.</p>
         </div>
+        <div className="ops-header-actions">
+          <button type="button" onClick={syncPrices} disabled={syncing} aria-label="가격 동기화">
+            {syncing ? '동기화 중...' : '가격 동기화'}
+          </button>
+          <button type="button" onClick={() => fetchCoreDashboardData({ silent: true })} aria-label="대시보드 새로고침">
+            새로고침
+          </button>
+        </div>
+      </header>
 
-        {error && <div className="error-container">{error}</div>}
-        {notice && <div className="notice-container">{notice}</div>}
+      {notice && <div className="ops-notice" role="status">{notice}</div>}
+      {error && <div className="ops-error-inline" role="alert">{error}</div>}
+      {isStale && (
+        <div className="ops-stale-banner" role="alert" aria-label="stale data warning">
+          <strong>주의:</strong> 일부 데이터 기준 시각이 오래되었습니다. 시세/원장을 다시 동기화해 주세요.
+          <span className="stale-badge">STALE</span>
+        </div>
+      )}
 
-        <div className="summary-cards">
-          <div className="card">
-            <h3>현재 원금 합계</h3>
-            <p className="amount">{formatCurrency(summary?.total_investment)}</p>
-          </div>
-
-          <div
-            className={`card cash-card ${cashEditing ? 'editing' : ''}`}
+      <section className="ops-cards" aria-label="핵심 운영 카드">
+        {summaryCards.map((card) => (
+          <article
+            key={card.key}
+            className="ops-card"
             role="button"
-            tabIndex={cashEditing ? -1 : 0}
-            onClick={() => { if (!cashEditing) openCashEditor(); }}
+            tabIndex={0}
+            aria-label={`${card.title} 카드`}
+            onClick={card.onClick}
             onKeyDown={(event) => {
-              if (!cashEditing && (event.key === 'Enter' || event.key === ' ')) {
+              if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault();
-                openCashEditor();
+                card.onClick();
               }
             }}
           >
-            <h3>보유 현금</h3>
-            {cashEditing ? (
-              <div className="cash-card-editor" onClick={(event) => event.stopPropagation()}>
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={cashAmount}
-                  onChange={(event) => setCashAmount(event.target.value)}
-                  aria-label="보유 현금"
-                />
-                <div className="cash-card-actions">
-                  <button type="button" className="cash-card-save" onClick={saveCash} disabled={cashLoading}>
-                    {cashLoading ? '저장 중...' : '저장'}
-                  </button>
-                  <button type="button" className="cash-card-cancel" onClick={cancelCashEditor} disabled={cashLoading}>
-                    취소
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <>
-                <p className="amount">{formatCurrency(summary?.total_cash)}</p>
-                <span className="cash-card-hint">카드를 눌러 수정</span>
-              </>
-            )}
-          </div>
-
-          <div className="card">
-            <h3>현재 보유 평가액</h3>
-            <p className="amount">{formatCurrency(summary?.total_current_value)}</p>
-          </div>
-
-          <div className="card">
-            <h3>원금 대비 수익금</h3>
-            <p className={`amount ${(summary?.total_profit_loss || 0) >= 0 ? 'profit' : 'loss'}`}>
-              {formatCurrency(summary?.total_profit_loss)}
-            </p>
-          </div>
-
-          <div className="card">
-            <h3>원금 대비 수익률</h3>
-            <p className={`amount ${(summary?.total_profit_rate || 0) >= 0 ? 'profit' : 'loss'}`}>
-              {formatPercent(summary?.total_profit_rate)}
-            </p>
-          </div>
-        </div>
+            <div className="ops-card-head">
+              <h2>{card.title}</h2>
+              <DataBadge descriptor={card.badge} compact />
+            </div>
+            <p className={`ops-card-value ${card.trend || ''}`}>{card.value}</p>
+            <p className="ops-card-desc">{card.description}</p>
+          </article>
+        ))}
       </section>
 
-      {retirementEligibility && (
-        <section className="eligibility-dashboard-panel">
-          <div className="eligibility-dashboard-header">
-            <div>
-              <h2>퇴직연금 적격성 점검</h2>
-              <p>{retirementEligibility.accountCategoryLabel} 기준으로 현재 보유 상품을 다시 분류합니다.</p>
-            </div>
-            <strong>위험자산 {retirementEligibility.riskShare.toFixed(1)}%</strong>
-          </div>
-          <div className="eligibility-dashboard-grid">
-            {retirementEligibility.rules.map((rule) => (
-              <article key={rule.label} className={`eligibility-dashboard-card ${rule.passed ? 'pass' : 'fail'}`}>
-                <span>{rule.label}</span>
-                <strong>{rule.passed ? '적합' : '주의'}</strong>
-                <p>{rule.detail}</p>
-              </article>
-            ))}
+      <section className="ops-today" aria-label="오늘 볼 것">
+        <h2>오늘 볼 것</h2>
+        <DataBadge descriptor={ledgerBadge} compact />
+        <ul>
+          {todayFocusItems.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+      </section>
+
+      {emptyState && (
+        <section className="ops-onboarding" aria-label="초기 설정 안내">
+          <h2>아직 보유 상품이 없습니다</h2>
+          <p>매매일지에서 첫 매수 기록을 입력하면 운영 대시보드가 자동으로 채워집니다.</p>
+          <div className="ops-onboarding-actions">
+            <button type="button" onClick={() => (window.location.href = '/trade-logs')}>매매일지로 이동</button>
+            <button type="button" onClick={() => (window.location.href = '/portfolio')}>상품 추이 보기</button>
           </div>
         </section>
       )}
 
-      <section className="charts-section">
-        {summary?.account_type !== 'brokerage' && (
-          <div className="chart-container chart-wide allocation-wide">
-            <h2>자산구분 비중</h2>
-            <div className="allocation-summary">
-              {allocation.map((entry) => (
-                <div className="allocation-legend-item" key={entry.key}>
-                  <div className="allocation-box" style={{ borderColor: `${COLORS[entry.key]}33` }}>
-                    <div className="allocation-box-top">
-                      <span className="allocation-label">
-                        <span className="dot" style={{ backgroundColor: COLORS[entry.key] }} />
-                        <span className="holding-name">{entry.name}</span>
-                      </span>
-                      <strong>{entry.value.toFixed(1)}%</strong>
-                    </div>
-                    <div className="allocation-bar-track">
-                      <div
-                        className="allocation-bar-fill"
-                        style={{ width: `${Math.min(entry.value, 100)}%`, backgroundColor: COLORS[entry.key] }}
-                      />
-                    </div>
-                    <span className="allocation-amount">{formatCurrency(entry.amount)}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <div className="chart-container chart-wide">
-          <h2>보유종목 비중</h2>
-          {holdingAllocation.length === 0 ? (
-            <p className="no-data">등록된 보유 상품이 없습니다.</p>
-          ) : (
-            <>
-              <div className="holding-ring-layout">
-                <div className="holding-ring-chart">
-                  <ResponsiveContainer width="100%" height={320}>
-                    <PieChart>
-                      <Pie
-                        data={holdingAllocation}
-                        dataKey="amount"
-                        nameKey="name"
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={82}
-                        outerRadius={128}
-                        paddingAngle={2}
-                        stroke="#ffffff"
-                        strokeWidth={2}
-                      >
-                        {holdingAllocation.map((entry) => (
-                          <Cell key={entry.key} fill={entry.fill} />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        formatter={(value, _name, item) => {
-                          const payload = item?.payload || {};
-                          return [
-                            `${formatCurrency(value)} / ${Number(payload.percent || 0).toFixed(1)}%`,
-                            payload.name || '보유 종목'
-                          ];
-                        }}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                  <div className="holding-ring-center">
-                    <span>총 평가액</span>
-                    <strong>{formatCompactCurrency(holdingTotalAmount)}</strong>
-                  </div>
-                </div>
-
-                <div className="holding-allocation-list">
-                  {holdingAllocation.map((item) => (
-                    <div className="holding-allocation-item" key={item.key}>
-                      <span className="dot" style={{ backgroundColor: item.fill }} />
-                      <span className="holding-name">{item.name}</span>
-                      <span>{assetTypeShortLabel(item.assetType)}</span>
-                      <strong>{item.percent.toFixed(1)}%</strong>
-                      <small>{formatCurrency(item.amount)}</small>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
+      <section id="ops-drill-anomalies" className="ops-panel" aria-label="데이터 이상 징후 상세">
+        <div className="ops-panel-head">
+          <h2>데이터 이상 징후</h2>
+          <DataBadge descriptor={marketBadge} compact />
         </div>
-
-        <div className="chart-container chart-wide">
-          <h2>상품별 수익률</h2>
-          {profitData.length === 0 ? (
-            <p className="no-data">등록된 보유 상품이 없습니다.</p>
-          ) : (
-            <>
-              <div className="profit-chart-mobile">
-                {profitData.map((entry) => {
-                  const barWidth = Math.min(Math.abs(entry.profitRate), 100);
-                  return (
-                    <div className="profit-mobile-item" key={entry.key}>
-                      <div className="profit-mobile-head">
-                        <strong>{entry.name}</strong>
-                        <span className={entry.profitRate >= 0 ? 'profit' : 'loss'}>{formatPercent(entry.profitRate)}</span>
-                      </div>
-                      <div className="profit-mobile-track">
-                        <div className="profit-mobile-bar" style={{ width: `${barWidth}%`, backgroundColor: entry.fill }} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="profit-chart-desktop">
-                <div className="profit-chart-scroll">
-                  <div className="profit-chart-inner">
-                    <ResponsiveContainer width="100%" height={profitChartHeight}>
-                      <BarChart
-                        data={profitData}
-                        layout="vertical"
-                        margin={{ top: 8, right: 44, left: 12, bottom: 8 }}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis
-                          type="number"
-                          domain={profitDomain}
-                          tickFormatter={(value) => `${Number(value).toFixed(0)}%`}
-                        />
-                        <YAxis
-                          type="category"
-                          dataKey="name"
-                          width={220}
-                          tickLine={false}
-                          axisLine={false}
-                          tick={<ProfitYAxisTick />}
-                        />
-                        <Tooltip formatter={(value) => `${Number(value).toFixed(2)}%`} />
-                        <Bar dataKey="profitRate" radius={[0, 6, 6, 0]}>
-                          {profitData.map((entry) => (
-                            <Cell key={entry.key} fill={entry.fill} />
-                          ))}
-                          <LabelList
-                            dataKey="profitRate"
-                            position="right"
-                            formatter={(value) => `${Number(value).toFixed(1)}%`}
-                            className="profit-bar-label"
-                          />
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-      </section>
-
-      <section className="products-table">
-        <h2>보유 상품</h2>
-        {sortedDisplayProducts.length === 0 ? (
-          <p className="no-data">등록된 보유 상품이 없습니다.</p>
+        {anomalies.length === 0 ? (
+          <p className="ops-empty">현재 확인된 이상 징후가 없습니다.</p>
         ) : (
-          <>
-            <div className="table-wrapper desktop-products-table">
-              <table>
-                <thead>
-                  <tr>
-                    <th>상품명</th>
-                    <th>자산 구분</th>
-                    <th>매입일</th>
-                    <th>구매금액</th>
-                    <th>현재가치</th>
-                    <th>수익금</th>
-                    <th>수익률</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedDisplayProducts.map((product) => (
-                    <tr key={product.id}>
-                      <td>{product.product_name}<span className="code">{product.product_code}</span></td>
-                      <td>{assetTypeLabel(product.asset_type)}</td>
-                      <td>{product.purchase_date}</td>
-                      <td>{product.is_cash ? '-' : formatCurrency(product.total_purchase_value)}</td>
-                      <td>{formatCurrency(product.current_value)}</td>
-                      <td className={product.is_cash ? '' : ((product.profit_loss || 0) >= 0 ? 'profit' : 'loss')}>
-                        {product.is_cash ? '-' : formatCurrency(product.profit_loss)}
-                      </td>
-                      <td className={product.is_cash ? '' : ((product.profit_rate || 0) >= 0 ? 'profit' : 'loss')}>
-                        {product.is_cash ? '-' : formatPercent(product.profit_rate)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="mobile-product-cards">
-              {sortedDisplayProducts.map((product) => (
-                <article className="mobile-product-card" key={product.id}>
-                  <div className="mobile-product-header">
-                    <div>
-                      <strong>{product.product_name}</strong>
-                      <span className="code">{product.product_code}</span>
-                    </div>
-                    <span className="mobile-asset-badge">{assetTypeLabel(product.asset_type)}</span>
-                  </div>
-                  <div className="mobile-product-grid">
-                    <div>
-                      <span>매입일</span>
-                      <strong>{product.purchase_date}</strong>
-                    </div>
-                    <div>
-                      <span>구매금액</span>
-                      <strong>{product.is_cash ? '-' : formatCurrency(product.total_purchase_value)}</strong>
-                    </div>
-                    <div>
-                      <span>현재가치</span>
-                      <strong>{formatCurrency(product.current_value)}</strong>
-                    </div>
-                    <div>
-                      <span>수익금</span>
-                      <strong className={product.is_cash ? '' : ((product.profit_loss || 0) >= 0 ? 'profit' : 'loss')}>
-                        {product.is_cash ? '-' : formatCurrency(product.profit_loss)}
-                      </strong>
-                    </div>
-                    <div>
-                      <span>수익률</span>
-                      <strong className={product.is_cash ? '' : ((product.profit_rate || 0) >= 0 ? 'profit' : 'loss')}>
-                        {product.is_cash ? '-' : formatPercent(product.profit_rate)}
-                      </strong>
-                    </div>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </>
+          <ul className="ops-list">
+            {anomalies.map((issue) => <li key={issue}>{issue}</li>)}
+          </ul>
         )}
       </section>
 
-      <AnalyticsDashboard
-        report={analyticsReport}
-        loading={analyticsLoading}
-        error={analyticsError || analyticsRuntimeError || (!analyticsLoading && !analyticsReport ? '분석 엔진 계산 중 오류가 발생했습니다.' : '')}
-        benchmarkSelection={benchmarkSelection}
-        benchmarkOptions={benchmarkOptions}
-        benchmarkQuery={benchmarkQuery}
-        benchmarkSearchResults={benchmarkSearchResults}
-        benchmarkSearchLoading={benchmarkSearchLoading}
-        onChangeBenchmarkQuery={setBenchmarkQuery}
-        onSelectBenchmark={moveBenchmarkFromSearchResult}
-        onChangeBenchmarkPreset={chooseBenchmarkPreset}
-        onExportReport={exportAccountAnalyticsReport}
-        exportingReport={exportingReport}
-        linkedCandidate={benchmarkSelection?.source === 'screener' ? benchmarkSelection : null}
-        dataBadges={analyticsDataBadges}
-        freshnessWarning={analyticsFreshnessWarning}
-      />
+      <section id="ops-drill-journal" className="ops-panel" aria-label="최근 일지">
+        <div className="ops-panel-head">
+          <h2>최근 일지 3개</h2>
+          <DataBadge descriptor={ledgerBadge} compact />
+        </div>
+        {recentLogs.length === 0 ? (
+          <p className="ops-empty">최근 기록이 없습니다.</p>
+        ) : (
+          <ul className="ops-log-list">
+            {recentLogs.slice(0, 3).map((log) => (
+              <li key={log.id}>
+                <strong>{log.product_name}</strong>
+                <span>{log.trade_type}</span>
+                <span>{formatCurrency(log.total_amount)}</span>
+                <time>{formatDate(log.trade_date)}</time>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section id="ops-drill-events" className="ops-panel" aria-label="오늘의 이벤트">
+        <div className="ops-panel-head">
+          <h2>오늘의 이벤트</h2>
+          <DataBadge descriptor={ledgerBadge} compact />
+        </div>
+        <p className="ops-next-rebalance">다음 리밸런싱: {nextRebalanceDate().toLocaleDateString('ko-KR')}</p>
+        {todaysLogs.length === 0 ? (
+          <p className="ops-empty">오늘 기록된 이벤트가 없습니다.</p>
+        ) : (
+          <ul className="ops-list">
+            {todaysLogs.slice(0, 5).map((log) => (
+              <li key={log.id}>{log.product_name} {log.trade_type} {formatCurrency(log.total_amount)}</li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section id="ops-drill-holdings" className="ops-panel" aria-label="관심 종목 상태">
+        <div className="ops-panel-head">
+          <h2>관심 종목 상태</h2>
+          <DataBadge descriptor={marketBadge} compact />
+        </div>
+        {watchlistStatus.length === 0 ? (
+          <p className="ops-empty">보유 종목이 없습니다.</p>
+        ) : (
+          <ul className="ops-holding-list">
+            {watchlistStatus.map((item) => (
+              <li key={item.id}>
+                <div>
+                  <strong>{item.product_name}</strong>
+                  <p>{item.product_code}</p>
+                </div>
+                <div>
+                  <strong className={Number(item.profit_rate || 0) >= 0 ? 'positive' : 'negative'}>
+                    {formatPercent(item.profit_rate)}
+                  </strong>
+                  <p>{formatCurrency(item.current_value)}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="ops-insights" aria-label="심층 분석">
+        <div className="ops-panel-head">
+          <h2>심층 분석</h2>
+          <button
+            type="button"
+            className="ops-link-button"
+            onClick={() => setShowInsights((prev) => !prev)}
+            aria-label="심층 차트 토글"
+          >
+            {showInsights ? '접기' : '차트 열기'}
+          </button>
+        </div>
+        {!showInsights && (
+          <p className="ops-empty">첫 화면 성능을 위해 심층 차트는 필요할 때만 불러옵니다.</p>
+        )}
+        {showInsights && (
+          <Suspense fallback={<div className="ops-skeleton-card">심층 차트를 불러오는 중...</div>}>
+            <LazyAnalyticsDashboard
+              report={analyticsReport}
+              loading={analyticsLoading}
+              error={analyticsError || analyticsRuntimeError || ''}
+              benchmarkSelection={benchmarkSelection}
+              benchmarkOptions={benchmarkOptions}
+              benchmarkQuery={benchmarkQuery}
+              benchmarkSearchResults={benchmarkSearchResults}
+              benchmarkSearchLoading={benchmarkSearchLoading}
+              onChangeBenchmarkQuery={setBenchmarkQuery}
+              onSelectBenchmark={moveBenchmarkFromSearchResult}
+              onChangeBenchmarkPreset={chooseBenchmarkPreset}
+              onExportReport={() => {}}
+              exportingReport={false}
+              linkedCandidate={benchmarkSelection?.source === 'screener' ? benchmarkSelection : null}
+              dataBadges={[ledgerBadge, marketBadge]}
+              freshnessWarning={isStale ? '데이터 최신성을 먼저 확인하세요.' : ''}
+            />
+          </Suspense>
+        )}
+      </section>
     </main>
   );
 }
 
+export const __dashboardTestables = { isStaleAsOf };
 export default Dashboard;
