@@ -1,6 +1,6 @@
 # Codex Shared Memory
 
-Last updated: 2026-04-30 17:50 KST
+Last updated: 2026-04-30 18:17 KST
 
 ## Current State
 
@@ -8,6 +8,8 @@ Last updated: 2026-04-30 17:50 KST
 - The current PC has Startup-folder auto sync enabled because Windows Task Scheduler registration was denied.
 - Background auto sync runs `scripts/codex-sync.ps1` periodically.
 - The latest shared work has been pushed to GitHub on `origin/codex-handoff`.
+- Report-tracker status was refreshed against current code: Import Center user flow is now marked complete, mobile polish is marked first-pass complete, and remaining work is split into visual QA/accessibility/error-state/BFF observability/deployment validation.
+- Backend Python dependencies were installed from `backend/requirements.txt` on this PC so backend tests can run locally.
 
 ## Resume Checklist
 
@@ -40,11 +42,44 @@ npm.cmd run codex:save
 - Use `codex-handoff` as the active WIP branch.
 - Keep generated and sensitive files out of Git.
 - Keep cross-PC context in repository files instead of relying on local chat memory.
+- Treat production smoke as code-ready but ops-blocked until GitHub Actions secrets are configured.
+- Treat Railway backend deployment parity as an open operational item because docs record production `/api/screener/watch-items` returning 404 while local latest code has the route.
+
+## Recent Changes
+
+- Updated `docs/deep-research-report-3-tracker.md`:
+  - marked Import Center P0 flow complete
+  - split mobile polish into completed first pass plus visual QA/keyboard follow-up
+  - added deployment parity as a tracked status item
+- Updated `docs/report-checklist.md`:
+  - repaired garbled source-mixing row
+  - added operating smoke/deployment parity rows
+  - recorded the 2026-04-30 report-status refresh
+- Updated `docs/bff-cache-recovery-policy.md`:
+  - added endpoint-group retry/backoff matrix
+  - added observability checklist for caches, imports, smoke failures, and deployment parity
+
+## Verification
+
+- `npm.cmd run test:backend` passed: 14 tests.
+- `npm.cmd run test:unit` passed: 5 tests.
+- `npm.cmd run test:e2e:prod` completed with 1 skipped test because production credentials are not set in env.
+- `npm.cmd run typecheck` passed.
 
 ## Next Actions
 
 - On any new PC, clone the repo, checkout `codex-handoff`, run `npm.cmd install`, then run `npm.cmd run codex:install-sync`.
 - When starting a new Codex conversation, ask it to read `AGENTS.md` and `docs/codex-memory.md`.
+- Configure GitHub Actions secrets for production smoke:
+  - `E2E_PROD_BASE_URL`
+  - `E2E_PROD_USERNAME`
+  - `E2E_PROD_PASSWORD`
+- Redeploy Railway backend from latest `codex-handoff`, then verify `/api/version` and `/api/screener/watch-items`.
+- Continue remaining partial report items in this order:
+  1. accessibility keyboard/ARIA audit
+  2. error/empty-state message consistency
+  3. BFF observability metrics implementation
+  4. mobile/desktop visual QA screenshots
 - Keep this file updated whenever a major feature, bug, decision, or blocker appears.
 
 ## Windows PowerShell Note
