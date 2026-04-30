@@ -1,6 +1,6 @@
 # Codex Shared Memory
 
-Last updated: 2026-04-30 22:07 KST
+Last updated: 2026-04-30 22:44 KST
 
 ## Current State
 
@@ -14,6 +14,7 @@ Last updated: 2026-04-30 22:07 KST
 - UI improvement Step 1 is implemented: pages now wait for resolved account metadata before first account-scoped fetch, empty accounts are labeled clearly, and broken account names are blocked on create/rename while legacy broken names are surfaced as warnings.
 - Playwright Chromium was installed on this PC so browser-based local verification can run without extra setup.
 - UI improvement Step 2 is implemented: the dashboard first screen now separates primary KPIs, the immediate action/status rail, and secondary summary cards so the user sees current state, warnings, and next actions before the detailed panels.
+- UI improvement Step 3 is implemented: the portfolio trend workspace now auto-selects the top holdings, remembers the latest per-account trend mix, separates left-side entry/management from right-side chart work, and keeps holdings visible even while trend data is still loading.
 
 ## Resume Checklist
 
@@ -88,6 +89,11 @@ npm.cmd run codex:save
   - `frontend/src/styles/Dashboard.css`: rebuilt the dashboard layout and card hierarchy for a denser operational scan pattern across desktop/mobile
   - `frontend/src/pages/__tests__/Dashboard.test.jsx` snapshots updated for the new hierarchy
 
+- Completed UI improvement Step 3 portfolio trend workspace re-layout:
+  - `frontend/src/pages/Portfolio.jsx`: added per-account trend selection memory, default top-3 holding selection, right-side trend summary/actions, explicit empty-state recovery actions, and split product-vs-trend loading so holdings appear before trend sync completes
+  - `frontend/src/styles/Portfolio.css`: added the trend summary strip, action-row styling, and responsive chart-empty-state layout
+  - `frontend/src/pages/__tests__/Portfolio.test.jsx`: added coverage for default top-3 selection and saved-selection restore
+
 ## Verification
 
 - `npm.cmd run test:backend` passed: 14 tests.
@@ -107,6 +113,10 @@ npm.cmd run codex:save
 - `npm.cmd run test:frontend` passed again: 13 suites / 33 tests.
 - `npm.cmd run build:frontend` passed again after Step 2 dashboard changes.
 - Local verification with frontend `http://127.0.0.1:3001` and backend `http://127.0.0.1:5000` confirmed the authenticated dashboard renders the resolved populated brokerage account instead of the empty default account; screenshots saved under `test-results/dashboard-step2-debug-products.png` and `test-results/dashboard-step2-verified.png`.
+- `npm.cmd run test:frontend -- --runTestsByPath src/pages/__tests__/Portfolio.test.jsx --watch=false` passed after Step 3 portfolio changes.
+- `npm.cmd run test:frontend` passed: 14 suites / 35 tests after adding Portfolio trend workspace coverage.
+- `npm.cmd run build:frontend` passed after Step 3 portfolio workspace changes.
+- Browser verification against the local dev server with mocked `/api` responses confirmed the Portfolio route loads with visible content, no console errors or overlay, default top-3 trend chips render, and the clear/restore actions work; screenshot saved to `test-results/portfolio-step3-verified.png`.
 
 ## Next Actions
 
@@ -121,10 +131,9 @@ npm.cmd run codex:save
   - `RAILWAY_TOKEN` or `RAILWAY_API_TOKEN`
 - Redeploy Railway backend from latest `codex-handoff`, then verify `/api/version` and `/api/screener/watch-items`.
 - Continue the UI improvement plan from `docs/ui-improvement-step-plan.md` in this order:
-  1. Step 3 portfolio trend workspace re-layout
-  2. Step 4 trade log vs audit trail separation polish
-  3. Step 5 analytics trust-guard rules
-  4. Step 6 account-type template branching
+  1. Step 4 trade log vs audit trail separation polish
+  2. Step 5 analytics trust-guard rules
+  3. Step 6 account-type template branching
 - After the UI plan resumes, continue remaining cross-cutting report items:
   1. accessibility keyboard/ARIA audit
   2. error/empty-state message consistency

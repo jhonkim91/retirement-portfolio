@@ -93,6 +93,9 @@
 - 상품이 있는 계좌에서는 차트가 기본적으로 의미 있는 상태로 열린다.
 - 사용자가 무엇을 체크해야 하는지 고민하지 않아도 된다.
 
+진행 상태:
+- 완료 (2026-04-30)
+
 ## Step 4. 매매일지와 감사 이력 분리 강화
 
 목표:
@@ -182,3 +185,11 @@ Step 3에서 먼저 처리할 우선 항목:
 - 상품 추이 차트 빈 상태 대신 추천 선택 또는 최근 선택 조합 제공
 - 입력 패널과 차트/상세 패널 역할 분리
 - 선택 상품 요약을 차트 가까이에 고정
+Update note (2026-04-30):
+- Step 3 is complete.
+- Next implementation round starts with Step 4 trade log vs audit trail separation.
+- First Step 4 focus:
+  - separate trade-record vs audit-history intent on the first screen
+  - make the zero-audit state read as empty, not unfinished
+  - strengthen audit filters, badges, and chain-warning readability
+  - rebalance export button visual priority
