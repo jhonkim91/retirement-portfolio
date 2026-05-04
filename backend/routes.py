@@ -2814,7 +2814,10 @@ def build_quote_snapshot(code):
     )
     freshness_class = 'end_of_day'
     delay_policy = '기준가 또는 일별 종가 기준'
-    if source_name == 'Naver':
+    if source_name == 'NaverRealtime':
+        freshness_class = 'realtime'
+        delay_policy = '거래소 체결가 기반 실시간 시세(네트워크/제공사 사정으로 수 초 내외 지연 가능)'
+    elif source_name == 'Naver':
         freshness_class = 'delayed_20m'
         delay_policy = '거래소 시세 기준, 장중 최대 20분 지연 가능'
     elif source_name == 'Yahoo':

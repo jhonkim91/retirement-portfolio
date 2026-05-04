@@ -509,7 +509,36 @@ class StockAPIClient:
     def get_current_price(self, code):
         if self.is_fund_code(code):
             return self.get_price_from_funetf(code)
-        return self.get_price_from_yfinance(code) or self.get_price_from_naver(code)
+        return self.get_price_from_naver_realtime(code) or self.get_price_from_yfinance(code) or self.get_price_from_naver(code)
+
+    def get_price_from_naver_realtime(self, stock_code):
+        try:
+            stock_code = self.clean_code(stock_code)
+            if stock_code.isdigit() and len(stock_code) < 6:
+                stock_code = stock_code.zfill(6)
+            if not self.is_krx_code(stock_code):
+                return None
+
+            url = f'https://polling.finance.naver.com/api/realtime/domestic/stock/{stock_code}'
+            response = requests.get(url, headers=self.naver_headers, timeout=6)
+            if response.status_code != 200:
+                return None
+            data = response.json() or {}
+            datas = data.get('datas') or []
+            if not datas:
+                return None
+            row = datas[0] or {}
+            close_price = row.get('closePrice') or row.get('nv')
+            if close_price is None:
+                return None
+            return {
+                'price': float(str(close_price).replace(',', '')),
+                'date': date.today(),
+                'source': 'NaverRealtime'
+            }
+        except Exception as e:
+            print(f'naver realtime price error ({stock_code}): {e}')
+            return None
 
     def search_products(self, query, limit=12):
         query = self.clean_code(query)
