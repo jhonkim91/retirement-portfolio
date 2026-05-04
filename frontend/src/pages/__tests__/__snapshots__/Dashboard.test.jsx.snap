@@ -227,7 +227,7 @@ exports[`Dashboard cockpit matches empty/onboarding snapshot 1`] = `
             이상 징후 2건을 확인해 주세요.
           </li>
           <li>
-            다음 리밸런싱 예정: 2026. 5. 1.
+            다음 리밸런싱 예정: 2026. 6. 1.
           </li>
         </ul>
         <div
@@ -439,7 +439,7 @@ exports[`Dashboard cockpit matches empty/onboarding snapshot 1`] = `
         <p
           class="ops-next-rebalance"
         >
-          다음 리밸런싱: 2026. 5. 1.
+          다음 리밸런싱: 2026. 6. 1.
         </p>
         <p
           class="ops-empty"

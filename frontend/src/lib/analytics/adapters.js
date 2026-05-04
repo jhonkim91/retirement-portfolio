@@ -70,6 +70,85 @@ const normalizeWrapperTypeToAccountType = (wrapperType) => (
   wrapperType === 'brokerage' ? 'brokerage' : 'retirement'
 );
 
+const normalizeFlowType = (flowType) => String(flowType || '').trim().toLowerCase();
+
+const asPositiveAmount = (value) => Math.abs(toNumber(value));
+
+const isWithdrawalFlow = (flowType) => (
+  flowType === 'withdrawal' || flowType === 'withdraw' || flowType === 'distribution'
+);
+
+const buildPerformanceCashFlows = (cashFlows = [], accountType = 'retirement') => (
+  (cashFlows || [])
+    .map((flow, index) => {
+      const flowType = normalizeFlowType(flow.flow_type || flow.category);
+      const amount = toNumber(flow.amount);
+
+      if (flowType === 'deposit' || flowType === 'contribution' || flowType === 'transfer_in') {
+        return {
+          id: flow.id || `flow-${index}`,
+          date: flow.flow_date || flow.date,
+          amount: asPositiveAmount(amount),
+          label: flow.symbol || flow.notes || flowType,
+          category: flowType
+        };
+      }
+
+      if (isWithdrawalFlow(flowType) || flowType === 'transfer_out') {
+        return {
+          id: flow.id || `flow-${index}`,
+          date: flow.flow_date || flow.date,
+          amount: -asPositiveAmount(amount),
+          label: flow.symbol || flow.notes || flowType,
+          category: flowType
+        };
+      }
+
+      if (flowType === 'dividend') {
+        return {
+          id: flow.id || `flow-${index}`,
+          date: flow.flow_date || flow.date,
+          amount: asPositiveAmount(amount),
+          label: flow.symbol || flow.notes || flowType,
+          category: flowType
+        };
+      }
+
+      if (flowType === 'fee' || flowType === 'tax') {
+        return {
+          id: flow.id || `flow-${index}`,
+          date: flow.flow_date || flow.date,
+          amount: -asPositiveAmount(amount),
+          label: flow.symbol || flow.notes || flowType,
+          category: flowType
+        };
+      }
+
+      if (accountType === 'brokerage' && flowType === 'buy') {
+        return {
+          id: flow.id || `flow-${index}`,
+          date: flow.flow_date || flow.date,
+          amount: asPositiveAmount(amount),
+          label: flow.symbol || flow.notes || flowType,
+          category: flowType
+        };
+      }
+
+      if (accountType === 'brokerage' && flowType === 'sell') {
+        return {
+          id: flow.id || `flow-${index}`,
+          date: flow.flow_date || flow.date,
+          amount: -asPositiveAmount(amount),
+          label: flow.symbol || flow.notes || flowType,
+          category: flowType
+        };
+      }
+
+      return null;
+    })
+    .filter((flow) => flow && flow.date && flow.amount)
+);
+
 const buildSyntheticPriceSeriesFromSnapshots = (snapshots = [], selectedWrapperIds = new Set()) => {
   const rows = [];
   snapshots.forEach((snapshot) => {
@@ -126,7 +205,7 @@ const buildTransactionsFromCashFlows = (cashFlows = []) => (
     product_id: null,
     quantity: 0,
     price: 0,
-    total_amount: Number(flow.amount || 0),
+    total_amount: asPositiveAmount(flow.amount),
     asset_type: 'cash',
     notes: flow.notes || ''
   }))
@@ -160,6 +239,16 @@ export const buildAnalyticsInputsFromDomain = (domainPayload = {}, options = {})
     return wrapperId === selectedAccountId;
   });
 
+  const selectedWrapper = wrappers.find((wrapper) => wrapper.id === selectedAccountId);
+  let accountType = 'retirement';
+  if (selectedMode === 'account' && selectedWrapper) {
+    accountType = normalizeWrapperTypeToAccountType(selectedWrapper.type);
+  } else {
+    const hasBrokerage = wrappers.some((wrapper) => wrapper.type === 'brokerage');
+    const hasRetirement = wrappers.some((wrapper) => wrapper.type !== 'brokerage');
+    accountType = hasBrokerage && hasRetirement ? 'multi' : (hasBrokerage ? 'brokerage' : 'retirement');
+  }
+
   const holdings = groupLotsToHoldings(lots);
   const latestByHoldingId = new Map();
   filteredPriceSeries.forEach((row) => {
@@ -187,16 +276,6 @@ export const buildAnalyticsInputsFromDomain = (domainPayload = {}, options = {})
     .sort((left, right) => String(right.snapshot_date || '').localeCompare(String(left.snapshot_date || '')))[0];
   const totalCash = Number(latestSnapshot?.cash_balance || 0);
 
-  const selectedWrapper = wrappers.find((wrapper) => wrapper.id === selectedAccountId);
-  let accountType = 'retirement';
-  if (selectedMode === 'account' && selectedWrapper) {
-    accountType = normalizeWrapperTypeToAccountType(selectedWrapper.type);
-  } else {
-    const hasBrokerage = wrappers.some((wrapper) => wrapper.type === 'brokerage');
-    const hasRetirement = wrappers.some((wrapper) => wrapper.type !== 'brokerage');
-    accountType = hasBrokerage && hasRetirement ? 'multi' : (hasBrokerage ? 'brokerage' : 'retirement');
-  }
-
   const transactions = buildTransactionsFromCashFlows(cashFlows);
   const benchmarkRows = Array.isArray(domainPayload.benchmarks) ? domainPayload.benchmarks : [];
   const selectedBenchmark = selectedMode === 'account' && selectedAccountId
@@ -208,13 +287,7 @@ export const buildAnalyticsInputsFromDomain = (domainPayload = {}, options = {})
     accountType,
     holdings,
     transactions,
-    cashFlows: cashFlows.map((flow) => ({
-      id: flow.id,
-      date: flow.flow_date,
-      amount: Number(flow.amount || 0),
-      label: flow.symbol || flow.flow_type || 'cash_flow',
-      category: flow.flow_type || 'other'
-    })),
+    cashFlows: buildPerformanceCashFlows(cashFlows, accountType),
     benchmarkName: selectedBenchmark?.name || 'Benchmark',
     benchmarkSeries: selectedBenchmark?.series || [],
     priceSeries: filteredPriceSeries,

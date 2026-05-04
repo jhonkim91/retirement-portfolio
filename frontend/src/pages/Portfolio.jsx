@@ -206,9 +206,37 @@ const findLatestRowOnOrBefore = (rows, targetDate) => {
   return latest;
 };
 
-const getEarlierDate = (first, second) => (
-  first.getTime() <= second.getTime() ? first : second
+const getLaterDate = (first, second) => (
+  first.getTime() >= second.getTime() ? first : second
 );
+
+const getSelectedPurchaseDates = (products, selectedTrendProductSet) => (
+  products
+    .filter((product) => selectedTrendProductSet.has(String(product.id)))
+    .map((product) => parseRecordDate(product.purchase_date))
+    .filter(Boolean)
+);
+
+const buildTrendDateWindow = ({
+  products,
+  selectedTrendProductSet,
+  rangeAmount,
+  rangeUnit,
+  todayDate = getLocalToday()
+}) => {
+  const purchaseDates = getSelectedPurchaseDates(products, selectedTrendProductSet);
+  const earliestPurchaseDate = purchaseDates.length > 0
+    ? purchaseDates.reduce((earliest, date) => (date < earliest ? date : earliest), purchaseDates[0])
+    : todayDate;
+  const endDate = todayDate < earliestPurchaseDate ? earliestPurchaseDate : todayDate;
+  const requestedStartDate = addDateUnits(endDate, -rangeAmount, rangeUnit);
+  const startDate = getLaterDate(earliestPurchaseDate, requestedStartDate);
+
+  return {
+    startDate: startDate > endDate ? endDate : startDate,
+    endDate
+  };
+};
 
 const getMonthsBetween = (startDate, endDate) => {
   const start = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
@@ -461,16 +489,12 @@ function Portfolio() {
   const safeTrendRangeAmount = useMemo(() => toPositiveInteger(trendRangeAmount), [trendRangeAmount]);
   const safeTrendIntervalAmount = useMemo(() => toPositiveInteger(trendIntervalAmount, 1), [trendIntervalAmount]);
   const trendDateWindow = useMemo(() => {
-    const purchaseDates = products
-      .filter((product) => selectedTrendProductSet.has(String(product.id)))
-      .map((product) => parseRecordDate(product.purchase_date))
-      .filter(Boolean);
-    const todayDate = getLocalToday();
-    const startDate = purchaseDates.length > 0
-      ? purchaseDates.reduce((earliest, date) => (date < earliest ? date : earliest), purchaseDates[0])
-      : todayDate;
-    const endDate = getEarlierDate(addDateUnits(startDate, safeTrendRangeAmount, trendRangeUnit), todayDate);
-    return { startDate, endDate };
+    return buildTrendDateWindow({
+      products,
+      selectedTrendProductSet,
+      rangeAmount: safeTrendRangeAmount,
+      rangeUnit: trendRangeUnit
+    });
   }, [products, selectedTrendProductSet, safeTrendRangeAmount, trendRangeUnit]);
   const windowedTrends = useMemo(() => (
     filteredTrends.filter((row) => {
@@ -1429,5 +1453,12 @@ function Portfolio() {
     </main>
   );
 }
+
+export const __portfolioTestables = {
+  buildTrendDateWindow,
+  formatDateKey,
+  getSuggestedTrendRange,
+  parseRecordDate
+};
 
 export default Portfolio;
