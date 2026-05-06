@@ -86,12 +86,14 @@ function AccountAnalyticsPanel({
       setAnalyticsLoading(true);
       setAnalyticsError('');
 
-      const [summaryResponse, allProductsResponse, trendsResponse, tradeLogsResponse, domainResponse] = await Promise.all([
+      const [summaryResponse, allProductsResponse, trendsResponse, tradeLogsResponse, domainResult] = await Promise.all([
         portfolioAPI.getSummary(accountName),
         portfolioAPI.getAllProducts(accountName),
         portfolioAPI.getTrends(accountName, { includeSold: true }),
         tradeLogAPI.getLogs({ accountName }),
         portfolioAPI.getDomainModel(accountName, analyticsScope)
+          .then((data) => ({ data, error: null }))
+          .catch((error) => ({ data: null, error }))
       ]);
 
       setSummary(summaryResponse || null);
@@ -107,7 +109,15 @@ function AccountAnalyticsPanel({
               series: []
             }
       }));
-      setDomainModel(domainResponse || null);
+      setDomainModel(domainResult.data || null);
+
+      if (domainResult.error) {
+        setNotice(
+          domainResult.error.status === 404
+            ? '심층 분석 전용 데이터 모델이 아직 배포되지 않아 기본 분석 경로로 계산했습니다.'
+            : '심층 분석 보조 데이터를 불러오지 못해 기본 분석 경로로 계산했습니다.'
+        );
+      }
     } catch (fetchError) {
       setAnalyticsError(fetchError.message || '계좌 분석 데이터를 불러오지 못했습니다.');
       setDomainModel(null);

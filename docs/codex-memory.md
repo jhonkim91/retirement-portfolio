@@ -1,6 +1,6 @@
 # Codex Shared Memory
 
-Last updated: 2026-05-06 14:43 KST
+Last updated: 2026-05-06 14:56 KST
 
 ## Current State
 
@@ -20,6 +20,7 @@ Last updated: 2026-05-06 14:43 KST
 - Dashboard cash editing is restored on the summary card, and saving cash now refreshes both the dashboard totals and account-profile metadata so the selector stays in sync.
 - The shared account selector summary card was removed from the app surface, leaving only the dropdown and settings controls so the dashboard area starts more cleanly.
 - The public Vercel deployment at `https://retirement-portfolio-omega.vercel.app` has been redeployed from the latest `codex-handoff` code and now serves the frontend build without the removed account summary box strings.
+- The `계좌 심층 분석` panel now falls back to the legacy analytics inputs when the production Railway backend is missing `/api/portfolio/domain-model`, so the panel can still open on production while backend parity is still pending.
 
 ## Resume Checklist
 
@@ -121,6 +122,10 @@ npm.cmd run codex:save
   - `vercel.cmd link --yes --project retirement-portfolio --scope jhonkims-projects` linked the repo locally and added `.vercel` to `.gitignore`
   - `vercel.cmd deploy --prod --yes --scope jhonkims-projects` created production deployment `dpl_8vZoZtkVBosRr8GYiAFYC2skYEQz`
   - the production alias `https://retirement-portfolio-omega.vercel.app` now points at `https://retirement-portfolio-dnn04kcy0-jhonkims-projects.vercel.app`
+- Fixed production analytics-panel resilience for missing domain-model support:
+  - `frontend/src/components/AccountAnalyticsPanel.jsx`: changed analytics data loading so `/portfolio/domain-model` failure no longer aborts the whole panel; it now falls back to the existing summary/products/trends/trade-log path and shows a fallback notice
+  - `frontend/src/components/__tests__/AccountAnalyticsPanel.test.jsx`: added coverage for the production-style `404` domain-model fallback path
+  - redeployed Vercel production with `vercel.cmd deploy --prod --yes --scope jhonkims-projects`, creating deployment `dpl_5zrtBhySekuhQ3xPiMT2dFDTLnZF`
 
 ## Verification
 
@@ -161,6 +166,11 @@ npm.cmd run codex:save
 - Public deployment verification against `https://retirement-portfolio-omega.vercel.app/login` returned `200`, but deployed `asset-manifest.json` and chunk/source-map inspection showed the production site is still serving older frontend assets containing the removed account summary box.
 - `vercel.cmd deploy --prod --yes --scope jhonkims-projects` completed successfully and aliased production to deployment `dpl_8vZoZtkVBosRr8GYiAFYC2skYEQz`.
 - Post-deploy verification against `https://retirement-portfolio-omega.vercel.app` returned `200`, `asset-manifest.json` switched to `main.70a496c4.js`, `100.67d24fac.chunk.js`, and `188.c27f5513.chunk.js`, and those deployed assets no longer contain `account-switcher-summary`, `현재 알고리즘`, or `선택된 계좌 상태`.
+- Production backend verification showed `https://backend-production-2516.up.railway.app/api/portfolio/domain-model` still returns `404`, while adjacent analytics endpoints such as `/api/portfolio/all-products` and `/api/screener/chart` respond with `401` unauthenticated, confirming backend route parity is still missing.
+- `npm.cmd --prefix frontend run test -- --runTestsByPath src/components/__tests__/AccountAnalyticsPanel.test.jsx --watchAll=false` passed after adding the domain-model fallback case.
+- `npm.cmd run lint` passed after the analytics-panel fallback update.
+- `npm.cmd run build:frontend` passed after the analytics-panel fallback update.
+- `vercel.cmd deploy --prod --yes --scope jhonkims-projects` completed successfully and aliased production to deployment `dpl_5zrtBhySekuhQ3xPiMT2dFDTLnZF`, now serving `main.161fd7e8.js`.
 
 ## Next Actions
 
@@ -174,6 +184,7 @@ npm.cmd run codex:save
   - `GH_TOKEN`
   - `RAILWAY_TOKEN` or `RAILWAY_API_TOKEN`
 - Redeploy Railway backend from latest `codex-handoff`, then verify `/api/version` and `/api/screener/watch-items`.
+- Redeploy Railway backend from latest `codex-handoff`, then verify `/api/version`, `/api/screener/watch-items`, and `/api/portfolio/domain-model`.
 - Continue the UI improvement plan from `docs/ui-improvement-step-plan.md` in this order:
   1. Step 4 trade log vs audit trail separation polish
   2. Step 5 analytics trust-guard rules
