@@ -134,6 +134,72 @@
   overflow-wrap: anywhere;
 }
 
+.overview-stat-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.overview-stat-card-cash.editing {
+  align-content: start;
+}
+
+.cash-card-edit-button,
+.cash-card-save,
+.cash-card-cancel {
+  min-height: 36px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  padding: 0 12px;
+  font-weight: 800;
+}
+
+.cash-card-edit-button,
+.cash-card-cancel {
+  background: #fff;
+  color: #17324d;
+}
+
+.cash-card-save {
+  background: #17324d;
+  border-color: #17324d;
+  color: #fff;
+}
+
+.cash-card-editor {
+  display: grid;
+  gap: 10px;
+}
+
+.cash-card-label,
+.cash-card-hint {
+  color: #697586;
+  font-size: 0.85rem;
+}
+
+.cash-card-editor input {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 0 12px;
+  color: #102a43;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.cash-card-editor input:focus {
+  outline: 2px solid rgba(37, 111, 104, 0.2);
+  border-color: #256f68;
+}
+
+.cash-card-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .overview-panels {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -420,6 +486,11 @@
   .overview-stat-card {
     min-height: 110px;
     padding: 14px;
+  }
+
+  .cash-card-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
   }
 
   .overview-stat-card strong,

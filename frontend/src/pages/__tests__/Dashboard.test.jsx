@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import Dashboard from '../Dashboard';
 import { __mocks } from '../../utils/api';
 
@@ -20,9 +20,11 @@ jest.mock('../../hooks/useResolvedAccount', () => ({
 
 jest.mock('../../utils/api', () => {
   const portfolioAPI = {
+    getAccounts: jest.fn(),
     getSummary: jest.fn(),
     getProducts: jest.fn(),
-    syncPrices: jest.fn()
+    syncPrices: jest.fn(),
+    updateCash: jest.fn()
   };
 
   return {
@@ -37,6 +39,15 @@ const mockPortfolioAPI = __mocks.portfolioAPI;
 describe('Dashboard overview', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockPortfolioAPI.getAccounts.mockResolvedValue({
+      account_profiles: [
+        {
+          account_name: '퇴직연금',
+          account_type_label: '퇴직연금',
+          account_category_label: 'IRP'
+        }
+      ]
+    });
     mockUseResolvedAccount.mockReturnValue({
       accountName: '퇴직연금',
       accountReady: true,
@@ -140,5 +151,37 @@ describe('Dashboard overview', () => {
     expect(screen.getByText('현재 보유 종목')).toBeInTheDocument();
     expect(screen.getByText('종목 분석으로 이어서 보기')).toBeInTheDocument();
     expect(screen.getAllByTestId('data-badge').length).toBeGreaterThanOrEqual(5);
+  });
+
+  it('allows editing the cash balance from the summary card', async () => {
+    mockPortfolioAPI.getSummary.mockResolvedValue({
+      account_type: 'retirement',
+      account_type_label: '퇴직연금',
+      account_category_label: 'IRP',
+      total_current_value: 1320000,
+      total_investment: 1000000,
+      total_cash: 120000,
+      total_profit_loss: 320000,
+      total_profit_rate: 32,
+      asset_allocation: {
+        risk: { percentage: 58, value: 696000 },
+        safe: { percentage: 42, value: 504000 }
+      }
+    });
+    mockPortfolioAPI.getProducts.mockResolvedValue([]);
+    mockPortfolioAPI.updateCash.mockResolvedValue({
+      message: '현금이 저장되었습니다.'
+    });
+
+    render(<Dashboard />);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: '수정' })).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: '수정' }));
+    fireEvent.change(screen.getByLabelText('보유 현금'), { target: { value: '150000' } });
+    fireEvent.click(screen.getByRole('button', { name: '저장' }));
+
+    await waitFor(() => expect(mockPortfolioAPI.updateCash).toHaveBeenCalledWith(150000, '퇴직연금'));
+    expect(mockPortfolioAPI.getAccounts).toHaveBeenCalled();
   });
 });

@@ -81,6 +81,9 @@ function Dashboard() {
   const [notice, setNotice] = useState('');
   const [syncing, setSyncing] = useState(false);
   const [lastLoadedAt, setLastLoadedAt] = useState('');
+  const [cashEditing, setCashEditing] = useState(false);
+  const [cashAmount, setCashAmount] = useState('');
+  const [cashLoading, setCashLoading] = useState(false);
 
   const fetchDashboardData = useCallback(async ({ silent = false } = {}) => {
     if (!accountReady) return;
@@ -112,6 +115,11 @@ function Dashboard() {
     return () => clearInterval(interval);
   }, [accountReady, fetchDashboardData]);
 
+  useEffect(() => {
+    if (cashEditing) return;
+    setCashAmount(String(summary?.total_cash ?? 0));
+  }, [cashEditing, summary?.total_cash, accountName]);
+
   const changeAccountName = (value) => {
     persistAccountName(value);
     setSummary(null);
@@ -120,6 +128,8 @@ function Dashboard() {
     setError('');
     setLoading(true);
     setLastLoadedAt('');
+    setCashEditing(false);
+    setCashAmount('');
   };
 
   const syncPrices = async () => {
@@ -134,6 +144,46 @@ function Dashboard() {
       setError(syncError.message || '가격 동기화에 실패했습니다.');
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const openCashEditor = () => {
+    setCashAmount(String(summary?.total_cash ?? 0));
+    setCashEditing(true);
+    setNotice('');
+    setError('');
+  };
+
+  const cancelCashEditor = () => {
+    setCashAmount(String(summary?.total_cash ?? 0));
+    setCashEditing(false);
+  };
+
+  const saveCash = async () => {
+    const normalizedAmount = Number(cashAmount);
+
+    if (!Number.isFinite(normalizedAmount) || normalizedAmount < 0) {
+      setError('보유 현금은 0원 이상 숫자로 입력해주세요.');
+      return;
+    }
+
+    try {
+      setCashLoading(true);
+      setError('');
+      setNotice('');
+
+      await portfolioAPI.updateCash(normalizedAmount, accountName);
+
+      const accountsResponse = await portfolioAPI.getAccounts();
+      syncAccountProfiles(accountsResponse?.account_profiles, accountName);
+
+      await fetchDashboardData({ silent: true });
+      setCashEditing(false);
+      setNotice('보유 현금을 업데이트했습니다.');
+    } catch (cashError) {
+      setError(cashError.message || '보유 현금 업데이트에 실패했습니다.');
+    } finally {
+      setCashLoading(false);
     }
   };
 
@@ -319,10 +369,66 @@ function Dashboard() {
 
       <section className="overview-summary-grid" aria-label="현황 요약">
         {summaryCards.map((card) => (
-          <article key={card.key} className="overview-stat-card">
-            <h2>{card.title}</h2>
-            <strong className={card.tone}>{card.value}</strong>
-          </article>
+          card.key === 'cash' ? (
+            <article
+              key={card.key}
+              className={`overview-stat-card overview-stat-card-cash ${cashEditing ? 'editing' : ''}`}
+            >
+              <div className="overview-stat-card-head">
+                <h2>{card.title}</h2>
+                {!cashEditing && (
+                  <button
+                    type="button"
+                    className="cash-card-edit-button"
+                    onClick={openCashEditor}
+                  >
+                    수정
+                  </button>
+                )}
+              </div>
+              {cashEditing ? (
+                <form
+                  className="cash-card-editor"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    saveCash();
+                  }}
+                >
+                  <label className="cash-card-label" htmlFor="dashboard-cash-input">
+                    보유 현금
+                  </label>
+                  <input
+                    id="dashboard-cash-input"
+                    type="number"
+                    min="0"
+                    step="1"
+                    inputMode="numeric"
+                    value={cashAmount}
+                    onChange={(event) => setCashAmount(event.target.value)}
+                    disabled={cashLoading}
+                  />
+                  <div className="cash-card-actions">
+                    <button type="submit" className="cash-card-save" disabled={cashLoading}>
+                      {cashLoading ? '저장 중...' : '저장'}
+                    </button>
+                    <button type="button" className="cash-card-cancel" onClick={cancelCashEditor} disabled={cashLoading}>
+                      취소
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <>
+                  <strong className={card.tone}>{card.value}</strong>
+                  <span className="cash-card-hint">요약 카드에서 바로 수정할 수 있습니다.</span>
+                </>
+              )}
+            </article>
+          ) : (
+            <article key={card.key} className="overview-stat-card">
+              <h2>{card.title}</h2>
+              <strong className={card.tone}>{card.value}</strong>
+            </article>
+          )
         ))}
       </section>
 
