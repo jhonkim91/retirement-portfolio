@@ -1,6 +1,6 @@
 # Codex Shared Memory
 
-Last updated: 2026-05-06 14:56 KST
+Last updated: 2026-05-06 15:01 KST
 
 ## Current State
 
@@ -21,6 +21,7 @@ Last updated: 2026-05-06 14:56 KST
 - The shared account selector summary card was removed from the app surface, leaving only the dropdown and settings controls so the dashboard area starts more cleanly.
 - The public Vercel deployment at `https://retirement-portfolio-omega.vercel.app` has been redeployed from the latest `codex-handoff` code and now serves the frontend build without the removed account summary box strings.
 - The `계좌 심층 분석` panel now falls back to the legacy analytics inputs when the production Railway backend is missing `/api/portfolio/domain-model`, so the panel can still open on production while backend parity is still pending.
+- Vercel production was redeployed again from clean `codex-handoff` HEAD `7525a24`, and `retirement-portfolio-omega.vercel.app` now points at deployment `dpl_G3MRPiAAmJwCrJy86LaxzYZRg1Pe`.
 
 ## Resume Checklist
 
@@ -126,6 +127,7 @@ npm.cmd run codex:save
   - `frontend/src/components/AccountAnalyticsPanel.jsx`: changed analytics data loading so `/portfolio/domain-model` failure no longer aborts the whole panel; it now falls back to the existing summary/products/trends/trade-log path and shows a fallback notice
   - `frontend/src/components/__tests__/AccountAnalyticsPanel.test.jsx`: added coverage for the production-style `404` domain-model fallback path
   - redeployed Vercel production with `vercel.cmd deploy --prod --yes --scope jhonkims-projects`, creating deployment `dpl_5zrtBhySekuhQ3xPiMT2dFDTLnZF`
+- Re-ran Vercel production deploy from the saved branch head with `vercel.cmd deploy --prod --yes --scope jhonkims-projects`, creating deployment `dpl_G3MRPiAAmJwCrJy86LaxzYZRg1Pe`.
 
 ## Verification
 
@@ -171,6 +173,7 @@ npm.cmd run codex:save
 - `npm.cmd run lint` passed after the analytics-panel fallback update.
 - `npm.cmd run build:frontend` passed after the analytics-panel fallback update.
 - `vercel.cmd deploy --prod --yes --scope jhonkims-projects` completed successfully and aliased production to deployment `dpl_5zrtBhySekuhQ3xPiMT2dFDTLnZF`, now serving `main.161fd7e8.js`.
+- `vercel.cmd deploy --prod --yes --scope jhonkims-projects` completed successfully again from clean HEAD `7525a24`, and `vercel.cmd inspect retirement-portfolio-omega.vercel.app --scope jhonkims-projects` confirmed aliasing to `dpl_G3MRPiAAmJwCrJy86LaxzYZRg1Pe`.
 
 ## Next Actions
 
