@@ -1,6 +1,6 @@
 # Codex Shared Memory
 
-Last updated: 2026-05-06 14:28 KST
+Last updated: 2026-05-06 14:43 KST
 
 ## Current State
 
@@ -19,7 +19,7 @@ Last updated: 2026-05-06 14:28 KST
 - Logged-in navigation was simplified again by removing the `소개`, `도움말`, `개인정보`, `삭제요청`, and `문의처` tabs from the top menu while leaving the underlying routes intact.
 - Dashboard cash editing is restored on the summary card, and saving cash now refreshes both the dashboard totals and account-profile metadata so the selector stays in sync.
 - The shared account selector summary card was removed from the app surface, leaving only the dropdown and settings controls so the dashboard area starts more cleanly.
-- The public Vercel deployment at `https://retirement-portfolio-omega.vercel.app` is still serving older frontend chunks that contain the removed account summary box, so production is behind local `codex-handoff`.
+- The public Vercel deployment at `https://retirement-portfolio-omega.vercel.app` has been redeployed from the latest `codex-handoff` code and now serves the frontend build without the removed account summary box strings.
 
 ## Resume Checklist
 
@@ -117,6 +117,10 @@ npm.cmd run codex:save
 - Investigated the public Vercel deployment mismatch:
   - confirmed deployed `asset-manifest.json` still points to older hashes such as `main.1ae316bd.js`, `100.807d724d.chunk.js`, and `188.548b5376.chunk.js`
   - confirmed deployed source maps still include `account-switcher-summary` and `현재 알고리즘`, while local build hashes are `main.1b17c18d.js`, `100.67d24fac.chunk.js`, and `188.c27f5513.chunk.js`
+- Redeployed the Vercel frontend and relinked local Vercel project metadata:
+  - `vercel.cmd link --yes --project retirement-portfolio --scope jhonkims-projects` linked the repo locally and added `.vercel` to `.gitignore`
+  - `vercel.cmd deploy --prod --yes --scope jhonkims-projects` created production deployment `dpl_8vZoZtkVBosRr8GYiAFYC2skYEQz`
+  - the production alias `https://retirement-portfolio-omega.vercel.app` now points at `https://retirement-portfolio-dnn04kcy0-jhonkims-projects.vercel.app`
 
 ## Verification
 
@@ -155,6 +159,8 @@ npm.cmd run codex:save
 - `npm.cmd run lint` passed after removing the shared account selector summary box.
 - `npm.cmd run build:frontend` passed after removing the shared account selector summary box.
 - Public deployment verification against `https://retirement-portfolio-omega.vercel.app/login` returned `200`, but deployed `asset-manifest.json` and chunk/source-map inspection showed the production site is still serving older frontend assets containing the removed account summary box.
+- `vercel.cmd deploy --prod --yes --scope jhonkims-projects` completed successfully and aliased production to deployment `dpl_8vZoZtkVBosRr8GYiAFYC2skYEQz`.
+- Post-deploy verification against `https://retirement-portfolio-omega.vercel.app` returned `200`, `asset-manifest.json` switched to `main.70a496c4.js`, `100.67d24fac.chunk.js`, and `188.c27f5513.chunk.js`, and those deployed assets no longer contain `account-switcher-summary`, `현재 알고리즘`, or `선택된 계좌 상태`.
 
 ## Next Actions
 
@@ -168,7 +174,6 @@ npm.cmd run codex:save
   - `GH_TOKEN`
   - `RAILWAY_TOKEN` or `RAILWAY_API_TOKEN`
 - Redeploy Railway backend from latest `codex-handoff`, then verify `/api/version` and `/api/screener/watch-items`.
-- Redeploy or promote the Vercel frontend from the latest `codex-handoff` output, then re-check `https://retirement-portfolio-omega.vercel.app` to confirm the account summary box is gone.
 - Continue the UI improvement plan from `docs/ui-improvement-step-plan.md` in this order:
   1. Step 4 trade log vs audit trail separation polish
   2. Step 5 analytics trust-guard rules
