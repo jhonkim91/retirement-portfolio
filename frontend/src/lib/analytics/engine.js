@@ -36,15 +36,7 @@ const inferCashMultiplier = (rows = []) => {
 
 const buildExternalCashFlows = ({ cashFlows, transactions, accountType }) => {
   if (cashFlows.length > 0) {
-    return cashFlows
-      .filter((row) => {
-        const category = String(row.category || '').toLowerCase();
-        if (!category) return true;
-        if (category === 'deposit' || category === 'contribution' || category === 'transfer_in') return true;
-        if (category === 'withdrawal' || category === 'withdraw' || category === 'distribution' || category === 'transfer_out') return true;
-        return accountType === 'brokerage' && (category === 'buy' || category === 'sell');
-      })
-      .map((row) => ({ ...row, amount: toNumber(row.amount) }));
+    return cashFlows.map((row) => ({ ...row, amount: toNumber(row.amount) }));
   }
 
   const depositFlows = transactions
@@ -88,10 +80,6 @@ const buildCashLedger = ({ calendar, currentCash, transactions, enabled }) => {
       deltaByDate.set(transaction.date, previous - amount);
     } else if (transaction.type === 'sell') {
       deltaByDate.set(transaction.date, previous + amount);
-    } else if (transaction.type === 'dividend') {
-      deltaByDate.set(transaction.date, previous + amount);
-    } else if (transaction.type === 'fee' || transaction.type === 'tax' || transaction.type === 'withdrawal' || transaction.type === 'withdraw') {
-      deltaByDate.set(transaction.date, previous - Math.abs(amount));
     }
   });
 
@@ -651,13 +639,13 @@ export const computePortfolioAnalytics = (inputs = {}, options = {}) => {
   const mwr = calculateMWR(cashFlowStream);
 
   const netExternalFlows = externalCashFlows.reduce((total, flow) => total + flow.amount, 0);
-  const dividendFlow = normalized.cashFlows
+  const dividendFlow = externalCashFlows
     .filter((flow) => String(flow.category || '').toLowerCase() === 'dividend')
     .reduce((total, flow) => total + toNumber(flow.amount), 0);
-  const feeFlow = normalized.cashFlows
+  const feeFlow = externalCashFlows
     .filter((flow) => String(flow.category || '').toLowerCase() === 'fee')
     .reduce((total, flow) => total + toNumber(flow.amount), 0);
-  const taxFlow = normalized.cashFlows
+  const taxFlow = externalCashFlows
     .filter((flow) => String(flow.category || '').toLowerCase() === 'tax')
     .reduce((total, flow) => total + toNumber(flow.amount), 0);
   const flowVsMarket = [{

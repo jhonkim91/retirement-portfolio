@@ -1,6 +1,6 @@
 # Codex Shared Memory
 
-Last updated: 2026-05-04 10:06 KST
+Last updated: 2026-04-30 22:44 KST
 
 ## Current State
 
@@ -15,8 +15,6 @@ Last updated: 2026-05-04 10:06 KST
 - Playwright Chromium was installed on this PC so browser-based local verification can run without extra setup.
 - UI improvement Step 2 is implemented: the dashboard first screen now separates primary KPIs, the immediate action/status rail, and secondary summary cards so the user sees current state, warnings, and next actions before the detailed panels.
 - UI improvement Step 3 is implemented: the portfolio trend workspace now auto-selects the top holdings, remembers the latest per-account trend mix, separates left-side entry/management from right-side chart work, and keeps holdings visible even while trend data is still loading.
-- Portfolio/status graph value check completed: product trend windows now anchor manual ranges to the latest date instead of the purchase-date opening window, and dashboard analytics now separates ledger cash movements from performance-adjustment cash flows so buy/sell ledger entries do not distort graph returns.
-- Local/web sync check completed: `main` was fast-forwarded to `codex-handoff` and pushed, which triggered a fresh Vercel frontend deployment. The Railway backend still serves the old code path for `/api/screener/watch-items` and needs a Railway redeploy once auth/token access is restored.
 
 ## Resume Checklist
 
@@ -95,16 +93,6 @@ npm.cmd run codex:save
   - `frontend/src/pages/Portfolio.jsx`: added per-account trend selection memory, default top-3 holding selection, right-side trend summary/actions, explicit empty-state recovery actions, and split product-vs-trend loading so holdings appear before trend sync completes
   - `frontend/src/styles/Portfolio.css`: added the trend summary strip, action-row styling, and responsive chart-empty-state layout
   - `frontend/src/pages/__tests__/Portfolio.test.jsx`: added coverage for default top-3 selection and saved-selection restore
-- Fixed abnormal graph value behavior under the holdings/status views:
-  - `frontend/src/pages/Portfolio.jsx`: trend date windows now end at the latest local date and clamp the start to the selected products' first purchase date, so "1개월" means the latest 1-month window rather than the first month after purchase
-  - `frontend/src/lib/analytics/adapters.js`: domain-model cash flows now convert ledger-signed buy/sell rows into proper transaction amounts and performance flows, while retirement buy/sell ledger movements remain internal
-  - `frontend/src/lib/analytics/engine.js`: external cash-flow adjustment excludes dividend/fee/tax from return normalization while keeping them in flow attribution, and cash ledger handling now accounts for dividend/fee/tax/withdrawal movements
-  - Added regression coverage in `frontend/src/pages/__tests__/Portfolio.test.jsx` and `frontend/src/lib/analytics/__tests__/engine.test.js`
-  - Updated the dashboard snapshot for the current next-rebalance date (`2026-06-01`)
-- Synced local and web-facing Git state:
-  - `origin/main`, local `main`, `origin/codex-handoff`, and local `codex-handoff` were aligned at `e00ab4c79c0c77212e5c792829775cc9810e83a3`
-  - Production Vercel frontend changed from the stale 2026-04-28 asset `static/js/main.973bbd0a.js` to the fresh 2026-05-04 asset `static/js/main.609addc4.js`
-  - Production Railway backend still returns 404 for unauthenticated `/api/screener/watch-items` instead of the latest-code 401, and `railway.cmd whoami` reports expired OAuth/unauthorized
 
 ## Verification
 
@@ -129,18 +117,6 @@ npm.cmd run codex:save
 - `npm.cmd run test:frontend` passed: 14 suites / 35 tests after adding Portfolio trend workspace coverage.
 - `npm.cmd run build:frontend` passed after Step 3 portfolio workspace changes.
 - Browser verification against the local dev server with mocked `/api` responses confirmed the Portfolio route loads with visible content, no console errors or overlay, default top-3 trend chips render, and the clear/restore actions work; screenshot saved to `test-results/portfolio-step3-verified.png`.
-- `npm.cmd --prefix frontend run test -- src/pages/__tests__/Portfolio.test.jsx --watchAll=false` passed after trend-window regression tests.
-- `npm.cmd --prefix frontend run test -- src/lib/analytics/__tests__/engine.test.js --watchAll=false` passed after domain cash-flow regression coverage.
-- `npm.cmd --prefix frontend run test -- src/lib/analytics/__tests__/domainModel.test.js --watchAll=false` passed after keeping dividend attribution visible while excluding it from external-flow return adjustment.
-- `npm.cmd run test:frontend` passed: 14 suites / 38 tests.
-- `npm.cmd run build:frontend` passed.
-- `npm.cmd run lint` passed.
-- Local browser verification with frontend `http://127.0.0.1:3001` and backend `http://127.0.0.1:5000` confirmed the Portfolio graph renders SVG series with no console errors; "1개월" now shows `2026-04-04 - 2026-05-04`. Screenshots saved under `test-results/portfolio-graph-verified.png` and `test-results/portfolio-graph-one-month-verified.png`.
-
-- `npm.cmd run test:backend` passed after confirming `main` could fast-forward to `codex-handoff`.
-- `npm.cmd run typecheck` passed after confirming `main` could fast-forward to `codex-handoff`.
-- Production frontend probe passed: `https://retirement-portfolio-omega.vercel.app/?poll=...` returned `200`, `Last-Modified: Mon, 04 May 2026 01:02:24 GMT`, asset `static/js/main.609addc4.js`.
-- Production backend parity probe remains blocked/stale: `https://backend-production-2516.up.railway.app/api/screener/watch-items` returns 404, indicating Railway has not been redeployed to latest backend code.
 
 ## Next Actions
 
@@ -154,7 +130,6 @@ npm.cmd run codex:save
   - `GH_TOKEN`
   - `RAILWAY_TOKEN` or `RAILWAY_API_TOKEN`
 - Redeploy Railway backend from latest `codex-handoff`, then verify `/api/version` and `/api/screener/watch-items`.
-- Restore Railway CLI auth (`railway login`) or set `RAILWAY_TOKEN`/`RAILWAY_API_TOKEN`, then run `npm.cmd run ops:redeploy-railway-backend` to finish local/web backend parity.
 - Continue the UI improvement plan from `docs/ui-improvement-step-plan.md` in this order:
   1. Step 4 trade log vs audit trail separation polish
   2. Step 5 analytics trust-guard rules

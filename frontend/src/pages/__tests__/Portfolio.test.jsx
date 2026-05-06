@@ -1,6 +1,6 @@
 import React from 'react';
 import { render, screen, waitFor, within } from '@testing-library/react';
-import Portfolio, { __portfolioTestables } from '../Portfolio';
+import Portfolio from '../Portfolio';
 import { __mocks } from '../../utils/api';
 
 const mockUseResolvedAccount = jest.fn();
@@ -153,37 +153,5 @@ describe('Portfolio trend workspace', () => {
     expect(within(selectedList).getByRole('button', { name: /Delta Cashflow/i })).toBeInTheDocument();
     expect(within(selectedList).getByRole('button', { name: /Beta Dividend/i })).toBeInTheDocument();
     expect(within(selectedList).queryByRole('button', { name: /Alpha Core/i })).not.toBeInTheDocument();
-  });
-
-  it('anchors manual trend ranges to the latest date instead of the purchase date', () => {
-    const { buildTrendDateWindow, formatDateKey } = __portfolioTestables;
-    const selected = new Set(['1', '2', '3']);
-
-    const window = buildTrendDateWindow({
-      products: productFixtures,
-      selectedTrendProductSet: selected,
-      rangeAmount: 1,
-      rangeUnit: 'month',
-      todayDate: new Date(2026, 4, 4)
-    });
-
-    expect(formatDateKey(window.startDate)).toBe('2026-04-04');
-    expect(formatDateKey(window.endDate)).toBe('2026-05-04');
-  });
-
-  it('does not start a trend range before the selected holdings exist', () => {
-    const { buildTrendDateWindow, formatDateKey } = __portfolioTestables;
-    const selected = new Set(['3']);
-
-    const window = buildTrendDateWindow({
-      products: productFixtures,
-      selectedTrendProductSet: selected,
-      rangeAmount: 1,
-      rangeUnit: 'year',
-      todayDate: new Date(2026, 4, 4)
-    });
-
-    expect(formatDateKey(window.startDate)).toBe('2026-03-11');
-    expect(formatDateKey(window.endDate)).toBe('2026-05-04');
   });
 });
