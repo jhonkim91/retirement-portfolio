@@ -1,6 +1,6 @@
 # Codex Shared Memory
 
-Last updated: 2026-05-06 15:01 KST
+Last updated: 2026-05-06 15:24 KST
 
 ## Current State
 
@@ -22,6 +22,7 @@ Last updated: 2026-05-06 15:01 KST
 - The public Vercel deployment at `https://retirement-portfolio-omega.vercel.app` has been redeployed from the latest `codex-handoff` code and now serves the frontend build without the removed account summary box strings.
 - The `계좌 심층 분석` panel now falls back to the legacy analytics inputs when the production Railway backend is missing `/api/portfolio/domain-model`, so the panel can still open on production while backend parity is still pending.
 - Vercel production was redeployed again from clean `codex-handoff` HEAD `7525a24`, and `retirement-portfolio-omega.vercel.app` now points at deployment `dpl_G3MRPiAAmJwCrJy86LaxzYZRg1Pe`.
+- The stock-research account analytics panel no longer crashes when it renders before `report` is ready; production now shows the fallback notice and dashboard instead of blanking the page even while Railway still fails the `domain-model` CORS/preflight request.
 
 ## Resume Checklist
 
@@ -128,6 +129,11 @@ npm.cmd run codex:save
   - `frontend/src/components/__tests__/AccountAnalyticsPanel.test.jsx`: added coverage for the production-style `404` domain-model fallback path
   - redeployed Vercel production with `vercel.cmd deploy --prod --yes --scope jhonkims-projects`, creating deployment `dpl_5zrtBhySekuhQ3xPiMT2dFDTLnZF`
 - Re-ran Vercel production deploy from the saved branch head with `vercel.cmd deploy --prod --yes --scope jhonkims-projects`, creating deployment `dpl_G3MRPiAAmJwCrJy86LaxzYZRg1Pe`.
+- Fixed the stock-research analytics render race and redeployed production:
+  - `frontend/src/components/analytics/AnalyticsDashboard.jsx`: added a stable empty-report fallback so chart transformers and summary sections stay null-safe before analytics data arrives
+  - `frontend/src/components/AccountAnalyticsPanel.jsx`: toggling the panel open now primes `analyticsLoading` immediately so the first expanded render stays on the loading state instead of racing through a null `report`
+  - `frontend/src/components/analytics/__tests__/AnalyticsDashboard.test.jsx`: added coverage for the loading and empty states when the dashboard receives no report
+  - redeployed Vercel production with `vercel.cmd deploy --prod --yes --scope jhonkims-projects`, creating deployment `dpl_D9A6rNLX6bf3E3LSVVDpQCWuxhU8`
 
 ## Verification
 
@@ -174,6 +180,10 @@ npm.cmd run codex:save
 - `npm.cmd run build:frontend` passed after the analytics-panel fallback update.
 - `vercel.cmd deploy --prod --yes --scope jhonkims-projects` completed successfully and aliased production to deployment `dpl_5zrtBhySekuhQ3xPiMT2dFDTLnZF`, now serving `main.161fd7e8.js`.
 - `vercel.cmd deploy --prod --yes --scope jhonkims-projects` completed successfully again from clean HEAD `7525a24`, and `vercel.cmd inspect retirement-portfolio-omega.vercel.app --scope jhonkims-projects` confirmed aliasing to `dpl_G3MRPiAAmJwCrJy86LaxzYZRg1Pe`.
+- `npm.cmd --prefix frontend run test -- --runTestsByPath src/components/analytics/__tests__/AnalyticsDashboard.test.jsx src/components/__tests__/AccountAnalyticsPanel.test.jsx --watchAll=false -u` passed after the stock-research analytics null-report fix.
+- `npm.cmd run lint` passed after the stock-research analytics null-report fix.
+- `npm.cmd run build:frontend` passed after the stock-research analytics null-report fix.
+- Public production verification with a newly registered Railway user confirmed `https://retirement-portfolio-omega.vercel.app/stock-research` now stays rendered after clicking `열기`; the page shows the fallback notice and analytics dashboard, with no page error, while the backend still logs the expected `domain-model` CORS/preflight failure. Screenshot saved to `test-results/stock-research-prod-after-fix.png`.
 
 ## Next Actions
 
@@ -188,6 +198,7 @@ npm.cmd run codex:save
   - `RAILWAY_TOKEN` or `RAILWAY_API_TOKEN`
 - Redeploy Railway backend from latest `codex-handoff`, then verify `/api/version` and `/api/screener/watch-items`.
 - Redeploy Railway backend from latest `codex-handoff`, then verify `/api/version`, `/api/screener/watch-items`, and `/api/portfolio/domain-model`.
+- After Railway backend parity lands, re-verify production `stock-research` without the fallback notice and confirm the `domain-model` preflight/CORS path is clean.
 - Continue the UI improvement plan from `docs/ui-improvement-step-plan.md` in this order:
   1. Step 4 trade log vs audit trail separation polish
   2. Step 5 analytics trust-guard rules

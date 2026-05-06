@@ -324,6 +324,19 @@ function AccountAnalyticsPanel({
   }), [dashboardAsOf]);
 
   const isStale = isStaleAsOf(dashboardAsOf, 'internal_ledger') || isStaleAsOf(marketBadge.asOf, marketBadge.freshnessClass);
+  const handleToggleExpanded = useCallback(() => {
+    setExpanded((prev) => {
+      const next = !prev;
+      if (next && accountReady) {
+        setAnalyticsLoading(true);
+        setAnalyticsError('');
+      }
+      if (!next) {
+        setAnalyticsLoading(false);
+      }
+      return next;
+    });
+  }, [accountReady]);
 
   return (
     <section className="account-analytics-shell" aria-label={title}>
@@ -335,7 +348,7 @@ function AccountAnalyticsPanel({
         <button
           type="button"
           className="account-analytics-toggle"
-          onClick={() => setExpanded((prev) => !prev)}
+          onClick={handleToggleExpanded}
         >
           {expanded ? '접기' : '열기'}
         </button>

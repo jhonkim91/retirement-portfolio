@@ -34,6 +34,26 @@ const PORTFOLIO_COLOR = '#33658a';
 const RISK_COLOR = '#d94841';
 const SAFE_COLOR = '#256f68';
 const CASH_COLOR = '#7b8794';
+const EMPTY_ANALYTICS_REPORT = {
+  meta: {
+    startDate: '',
+    endDate: '',
+    benchmarkName: ''
+  },
+  series: {
+    timeline: [],
+    benchmarkTimeline: [],
+    monthlyReturns: [],
+    allocationTimeline: []
+  },
+  contributions: {
+    byAsset: [],
+    flowVsMarket: []
+  },
+  metrics: {},
+  rebalancing: null,
+  templates: []
+};
 
 const formatPercent = (value) => `${Number(value || 0).toFixed(2)}%`;
 const formatNumber = (value, digits = 2) => Number(value || 0).toFixed(digits);
@@ -246,24 +266,27 @@ function AnalyticsDashboard({
 }) {
   const [scaleMode, setScaleMode] = useState('linear');
   const [showBenchmark, setShowBenchmark] = useState(true);
+  const safeReport = report || EMPTY_ANALYTICS_REPORT;
+  const hasTimeline = Boolean(report?.series?.timeline?.length);
+  report = safeReport;
 
   const cumulativeData = useMemo(
-    () => buildCumulativeComparisonChart(report, { showBenchmark }),
-    [report, showBenchmark]
+    () => buildCumulativeComparisonChart(safeReport, { showBenchmark }),
+    [safeReport, showBenchmark]
   );
   const drawdownData = useMemo(
-    () => buildDrawdownChart(report, { showBenchmark }),
-    [report, showBenchmark]
+    () => buildDrawdownChart(safeReport, { showBenchmark }),
+    [safeReport, showBenchmark]
   );
-  const heatmapData = useMemo(() => buildMonthlyHeatmap(report), [report]);
-  const contributionRows = useMemo(() => buildContributionWaterfall(report), [report]);
-  const flowAttributionRows = useMemo(() => buildFlowAttributionChart(report), [report]);
-  const driftData = useMemo(() => buildAllocationDriftChart(report), [report]);
-  const riskCards = useMemo(() => buildRiskCards(report), [report]);
+  const heatmapData = useMemo(() => buildMonthlyHeatmap(safeReport), [safeReport]);
+  const contributionRows = useMemo(() => buildContributionWaterfall(safeReport), [safeReport]);
+  const flowAttributionRows = useMemo(() => buildFlowAttributionChart(safeReport), [safeReport]);
+  const driftData = useMemo(() => buildAllocationDriftChart(safeReport), [safeReport]);
+  const riskCards = useMemo(() => buildRiskCards(safeReport), [safeReport]);
   const cumulativePortfolioKey = scaleMode === 'log' ? 'portfolioIndex' : 'portfolio';
   const cumulativeBenchmarkKey = scaleMode === 'log' ? 'benchmarkIndex' : 'benchmark';
 
-  if (loading) {
+  if (loading && !hasTimeline) {
     return <section className="analytics-section"><div className="analytics-empty">분석 엔진을 계산하는 중입니다...</div></section>;
   }
 
@@ -271,7 +294,7 @@ function AnalyticsDashboard({
     return <section className="analytics-section"><div className="analytics-empty error">{error}</div></section>;
   }
 
-  if (!report?.series?.timeline?.length) {
+  if (!hasTimeline) {
     return <section className="analytics-section"><div className="analytics-empty">분석할 시계열이 아직 충분하지 않습니다.</div></section>;
   }
 
