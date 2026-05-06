@@ -1,6 +1,6 @@
 # Codex Shared Memory
 
-Last updated: 2026-04-30 22:44 KST
+Last updated: 2026-05-06 12:34 KST
 
 ## Current State
 
@@ -15,6 +15,7 @@ Last updated: 2026-04-30 22:44 KST
 - Playwright Chromium was installed on this PC so browser-based local verification can run without extra setup.
 - UI improvement Step 2 is implemented: the dashboard first screen now separates primary KPIs, the immediate action/status rail, and secondary summary cards so the user sees current state, warnings, and next actions before the detailed panels.
 - UI improvement Step 3 is implemented: the portfolio trend workspace now auto-selects the top holdings, remembers the latest per-account trend mix, separates left-side entry/management from right-side chart work, and keeps holdings visible even while trend data is still loading.
+- Dashboard/stock-analysis follow-up is implemented: `현황` is back to a summary-first view with risk-vs-safe allocation, principal-based performance, and current-holdings return charts, while the heavier benchmark/analytics workflow now lives in the `종목 분석` tab.
 
 ## Resume Checklist
 
@@ -93,6 +94,12 @@ npm.cmd run codex:save
   - `frontend/src/pages/Portfolio.jsx`: added per-account trend selection memory, default top-3 holding selection, right-side trend summary/actions, explicit empty-state recovery actions, and split product-vs-trend loading so holdings appear before trend sync completes
   - `frontend/src/styles/Portfolio.css`: added the trend summary strip, action-row styling, and responsive chart-empty-state layout
   - `frontend/src/pages/__tests__/Portfolio.test.jsx`: added coverage for default top-3 selection and saved-selection restore
+- Rebalanced the dashboard and stock-analysis surfaces around the user's preferred workflow:
+  - `frontend/src/pages/Dashboard.jsx` + `frontend/src/styles/Dashboard.css`: replaced the ops-cockpit first screen with summary cards, a risk/safe allocation donut, principal-vs-performance summary, a current-holdings return chart, and a holdings table
+  - `frontend/src/components/AccountAnalyticsPanel.jsx` + `frontend/src/styles/AccountAnalyticsPanel.css`: extracted the benchmark selection and analytics dashboard loader into a reusable panel
+  - `frontend/src/pages/StockResearch.jsx` + `frontend/src/styles/StockResearch.css`: added the new account analytics panel below the stock research workspace and updated the tab/page framing to `종목 분석`
+  - `frontend/src/components/Navigation.jsx`: renamed the navigation entry from the old stock-info label to `종목 분석`
+  - `frontend/src/pages/__tests__/Dashboard.test.jsx`: replaced the old snapshot-heavy dashboard checks with focused overview assertions and removed the obsolete dashboard snapshot file
 
 ## Verification
 
@@ -117,6 +124,11 @@ npm.cmd run codex:save
 - `npm.cmd run test:frontend` passed: 14 suites / 35 tests after adding Portfolio trend workspace coverage.
 - `npm.cmd run build:frontend` passed after Step 3 portfolio workspace changes.
 - Browser verification against the local dev server with mocked `/api` responses confirmed the Portfolio route loads with visible content, no console errors or overlay, default top-3 trend chips render, and the clear/restore actions work; screenshot saved to `test-results/portfolio-step3-verified.png`.
+- `npm.cmd run test:frontend -- --runTestsByPath src/pages/__tests__/Dashboard.test.jsx --watch=false` passed after restoring the summary-first dashboard.
+- `npm.cmd run lint` passed after moving analytics into the stock-research tab.
+- `npm.cmd run build:frontend` passed after the dashboard/stock-analysis split.
+- `npm.cmd run test:frontend` passed again: 14 suites / 34 tests.
+- Local frontend dev server responded at `http://127.0.0.1:3001` after the redesign build.
 
 ## Next Actions
 

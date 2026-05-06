@@ -1,6 +1,7 @@
-.stock-research-page { max-width: 1240px; margin: 0 auto; padding: 24px 20px 48px; }
-.stock-research-page-header h1 { margin: 0 0 8px; color: #102a43; }
-.stock-research-page-header p { margin: 0 0 18px; color: #697586; line-height: 1.5; }
+.stock-research-page { display: grid; gap: 18px; max-width: 1240px; margin: 0 auto; padding: 24px 20px 48px; }
+.stock-research-page-header { display: grid; gap: 6px; }
+.stock-research-page-header h1 { margin: 0; color: #102a43; }
+.stock-research-page-header p { margin: 0; color: #697586; line-height: 1.5; }
 .stock-research-loading { min-height: 220px; display: grid; place-items: center; border: 1px dashed #cbd5e1; border-radius: 10px; background: #fbfdff; color: #52606d; }
 .stock-research-panel { display: grid; gap: 14px; background: #fff; border: 1px solid #d9e2ec; border-radius: 8px; padding: 18px; box-shadow: 0 4px 14px rgba(15, 23, 42, .05); }
 .stock-research-header { display: flex; justify-content: space-between; gap: 12px; align-items: start; }

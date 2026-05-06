@@ -21,16 +21,16 @@ function Navigation({ setUser }) {
   return (
     <nav className="navbar">
       <div className="navbar-container">
-        <Link to="/" className="navbar-logo">자산관리 대장</Link>
+        <Link to="/" className="navbar-logo">자산관리대장</Link>
         <div className="nav-menu">
           <Link to="/" className={linkClass('/')}>현황</Link>
           <Link to="/portfolio" className={linkClass('/portfolio')}>상품 추이</Link>
           <Link to="/trade-logs" className={linkClass('/trade-logs')}>매매일지</Link>
           <Link to="/imports" className={linkClass('/imports')}>불러오기</Link>
-          <Link to="/stock-research" className={linkClass('/stock-research')}>종목 정보</Link>
+          <Link to="/stock-research" className={linkClass('/stock-research')}>종목 분석</Link>
           <Link to="/stock-screener" className={linkClass('/stock-screener')}>스크리너</Link>
           <Link to="/about" className={linkClass('/about')}>소개</Link>
-          <Link to="/help" className={linkClass('/help')}>도움말</Link>
+          <Link to="/help" className={linkClass('/help')}>이용안내</Link>
           <Link to="/privacy-policy" className={linkClass('/privacy-policy')}>개인정보</Link>
           <Link to="/data-deletion" className={linkClass('/data-deletion')}>삭제요청</Link>
           <Link to="/contact" className={linkClass('/contact')}>문의처</Link>

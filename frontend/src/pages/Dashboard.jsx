@@ -1,24 +1,30 @@
-import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  LabelList,
+  Pie,
+  PieChart,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis
+} from 'recharts';
 import AccountSelector from '../components/AccountSelector';
 import DataBadge from '../components/DataBadge';
-import {
-  buildAnalyticsInputs,
-  buildAnalyticsInputsFromDomain,
-  DEFAULT_BENCHMARKS
-} from '../lib/analytics/adapters';
-import { computePortfolioAnalytics } from '../lib/analytics/engine';
-import {
-  getBenchmarkPresetOptions,
-  readStoredBenchmarkSelection,
-  writeStoredBenchmarkSelection
-} from '../lib/analytics/preferences';
-import { buildDataBadgeDescriptor, inferSourceKeyFromCode } from '../lib/sourceRegistry';
 import useResolvedAccount from '../hooks/useResolvedAccount';
-import { portfolioAPI, tradeLogAPI } from '../utils/api';
+import { buildDataBadgeDescriptor, inferSourceKeyFromCode } from '../lib/sourceRegistry';
+import { portfolioAPI } from '../utils/api';
 import '../styles/Dashboard.css';
 
-const LazyAnalyticsDashboard = lazy(() => import('../components/analytics/AnalyticsDashboard'));
-const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+const ASSET_COLORS = {
+  risk: '#d94841',
+  safe: '#256f68'
+};
+const HOLDING_COLORS = ['#33658a', '#d94841', '#256f68', '#f6ae2d', '#6a4c93', '#2f4858', '#9f6b2e', '#0081a7'];
 
 const formatCurrency = (value) => new Intl.NumberFormat('ko-KR', {
   style: 'currency',
@@ -28,11 +34,11 @@ const formatCurrency = (value) => new Intl.NumberFormat('ko-KR', {
 
 const formatPercent = (value) => `${Number(value || 0).toFixed(2)}%`;
 
-const formatDate = (value) => {
+const formatDateTime = (value) => {
   if (!value) return '-';
-  const asDate = new Date(value);
-  if (Number.isNaN(asDate.getTime())) return String(value);
-  return asDate.toLocaleString('ko-KR', {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  return parsed.toLocaleString('ko-KR', {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -41,39 +47,23 @@ const formatDate = (value) => {
   });
 };
 
-const parseDateMs = (value) => {
-  if (!value) return 0;
-  const timestamp = new Date(value).getTime();
-  return Number.isFinite(timestamp) ? timestamp : 0;
-};
+const renderProfitLabel = ({ x = 0, y = 0, width = 0, height = 0, value = 0 }) => {
+  const numericValue = Number(value || 0);
+  const positive = numericValue >= 0;
+  const labelX = positive ? x + width + 8 : x + width - 8;
 
-const isStaleAsOf = (asOf, freshnessClass = 'internal_ledger') => {
-  const timestamp = parseDateMs(asOf);
-  if (!timestamp) return true;
-  const ageMs = Date.now() - timestamp;
-  if (freshnessClass === 'realtime') return ageMs > (15 * 60 * 1000);
-  if (freshnessClass === 'delayed_20m') return ageMs > (45 * 60 * 1000);
-  if (freshnessClass === 'internal_ledger') return ageMs > (2 * ONE_DAY_MS);
-  return ageMs > (2 * ONE_DAY_MS);
-};
-
-const nextRebalanceDate = () => {
-  const now = new Date();
-  const next = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-  while (next.getDay() === 0 || next.getDay() === 6) {
-    next.setDate(next.getDate() + 1);
-  }
-  return next;
-};
-
-const isToday = (value) => {
-  if (!value) return false;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return false;
-  const now = new Date();
-  return date.getFullYear() === now.getFullYear()
-    && date.getMonth() === now.getMonth()
-    && date.getDate() === now.getDate();
+  return (
+    <text
+      x={labelX}
+      y={y + (height / 2) + 4}
+      fill="#102a43"
+      fontSize="12"
+      fontWeight="700"
+      textAnchor={positive ? 'start' : 'end'}
+    >
+      {`${numericValue.toFixed(1)}%`}
+    </text>
+  );
 };
 
 function Dashboard() {
@@ -86,47 +76,27 @@ function Dashboard() {
   } = useResolvedAccount();
   const [summary, setSummary] = useState(null);
   const [products, setProducts] = useState([]);
-  const [recentLogs, setRecentLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [syncing, setSyncing] = useState(false);
-  const [showInsights, setShowInsights] = useState(false);
-  const [analyticsLoading, setAnalyticsLoading] = useState(false);
-  const [analyticsError, setAnalyticsError] = useState('');
-  const [analyticsRaw, setAnalyticsRaw] = useState({
-    allProducts: [],
-    transactions: [],
-    trends: [],
-    benchmark: { name: DEFAULT_BENCHMARKS.retirement.name, series: [] }
-  });
-  const analyticsScope = 'account';
-  const [domainModel, setDomainModel] = useState(null);
-  const [selectedAnalyticsAccountId, setSelectedAnalyticsAccountId] = useState('');
-  const [benchmarkSelection, setBenchmarkSelection] = useState(null);
-  const [benchmarkQuery, setBenchmarkQuery] = useState('');
-  const [benchmarkSearchResults, setBenchmarkSearchResults] = useState([]);
-  const [benchmarkSearchLoading, setBenchmarkSearchLoading] = useState(false);
+  const [lastLoadedAt, setLastLoadedAt] = useState('');
 
-  const fetchCoreDashboardData = useCallback(async ({ silent = false } = {}) => {
+  const fetchDashboardData = useCallback(async ({ silent = false } = {}) => {
     if (!accountReady) return;
+
     try {
       if (!silent) setLoading(true);
       setError('');
-      const [summaryResponse, productsResponse, logsResponse] = await Promise.all([
+
+      const [summaryResponse, productsResponse] = await Promise.all([
         portfolioAPI.getSummary(accountName),
-        portfolioAPI.getProducts(accountName),
-        tradeLogAPI.getLogs({ accountName })
+        portfolioAPI.getProducts(accountName)
       ]);
-      setSummary(summaryResponse);
+
+      setSummary(summaryResponse || null);
       setProducts(Array.isArray(productsResponse) ? productsResponse : []);
-      setRecentLogs(Array.isArray(logsResponse) ? logsResponse : []);
-      setAnalyticsRaw((prev) => ({
-        ...prev,
-        benchmark: prev.benchmark?.code
-          ? prev.benchmark
-          : { name: DEFAULT_BENCHMARKS[summaryResponse?.account_type]?.name || DEFAULT_BENCHMARKS.retirement.name, series: [] }
-      }));
+      setLastLoadedAt(new Date().toISOString());
     } catch (fetchError) {
       setError(fetchError.message || '현황을 불러오지 못했습니다.');
     } finally {
@@ -134,302 +104,22 @@ function Dashboard() {
     }
   }, [accountName, accountReady]);
 
-  const fetchAnalyticsData = useCallback(async () => {
-    if (!accountReady) return;
-    try {
-      setAnalyticsLoading(true);
-      setAnalyticsError('');
-      const [allProductsResponse, trendsResponse, tradeLogsResponse, domainResponse] = await Promise.all([
-        portfolioAPI.getAllProducts(accountName),
-        portfolioAPI.getTrends(accountName, { includeSold: true }),
-        tradeLogAPI.getLogs({ accountName }),
-        portfolioAPI.getDomainModel(accountName, analyticsScope)
-      ]);
-      setAnalyticsRaw((prev) => ({
-        ...prev,
-        allProducts: Array.isArray(allProductsResponse) ? allProductsResponse : [],
-        transactions: Array.isArray(tradeLogsResponse) ? tradeLogsResponse : [],
-        trends: Array.isArray(trendsResponse) ? trendsResponse : []
-      }));
-      setDomainModel(domainResponse || null);
-    } catch (fetchError) {
-      setAnalyticsError(fetchError.message || '심층 분석 데이터를 불러오지 못했습니다.');
-      setDomainModel(null);
-    } finally {
-      setAnalyticsLoading(false);
-    }
-  }, [accountName, accountReady, analyticsScope]);
-
   useEffect(() => {
     if (!accountReady) return undefined;
-    fetchCoreDashboardData();
-    const interval = setInterval(() => fetchCoreDashboardData({ silent: true }), 60000);
+
+    fetchDashboardData();
+    const interval = setInterval(() => fetchDashboardData({ silent: true }), 60000);
     return () => clearInterval(interval);
-  }, [accountReady, fetchCoreDashboardData]);
+  }, [accountReady, fetchDashboardData]);
 
-  useEffect(() => {
-    if (accountReady && showInsights) fetchAnalyticsData();
-  }, [accountReady, fetchAnalyticsData, showInsights]);
-
-  useEffect(() => {
-    if (!summary?.account_type) return;
-    const storedSelection = readStoredBenchmarkSelection(accountName, summary.account_type);
-    setBenchmarkSelection({ ...storedSelection, accountName });
-  }, [accountName, summary?.account_type]);
-
-  useEffect(() => {
-    if (!showInsights || !summary?.account_type || !benchmarkSelection?.code) return;
-    let active = true;
-    (async () => {
-      try {
-        const response = await portfolioAPI.getBenchmarkChart(benchmarkSelection.code, 520);
-        if (!active) return;
-        setAnalyticsRaw((prev) => ({
-          ...prev,
-          benchmark: {
-            code: benchmarkSelection.code,
-            name: benchmarkSelection.name,
-            series: response?.series || []
-          }
-        }));
-      } catch (fetchError) {
-        if (!active) return;
-        setAnalyticsRaw((prev) => ({
-          ...prev,
-          benchmark: {
-            code: benchmarkSelection.code,
-            name: benchmarkSelection.name,
-            series: []
-          }
-        }));
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, [benchmarkSelection, showInsights, summary?.account_type]);
-
-  useEffect(() => {
-    if (!showInsights) return undefined;
-    const query = benchmarkQuery.trim();
-    if (query.length < 2) {
-      setBenchmarkSearchResults([]);
-      setBenchmarkSearchLoading(false);
-      return undefined;
-    }
-    let active = true;
-    const timer = setTimeout(async () => {
-      setBenchmarkSearchLoading(true);
-      try {
-        const results = await portfolioAPI.searchProducts(query);
-        if (active) setBenchmarkSearchResults((results || []).slice(0, 8));
-      } catch (fetchError) {
-        if (active) setBenchmarkSearchResults([]);
-      } finally {
-        if (active) setBenchmarkSearchLoading(false);
-      }
-    }, 250);
-    return () => {
-      active = false;
-      clearTimeout(timer);
-    };
-  }, [benchmarkQuery, showInsights]);
-
-  useEffect(() => {
-    const wrappers = Array.isArray(domainModel?.account_wrappers) ? domainModel.account_wrappers : [];
-    if (wrappers.length === 0 || analyticsScope === 'all') {
-      setSelectedAnalyticsAccountId('');
-      return;
-    }
-    const matched = wrappers.find((wrapper) => wrapper.account_name === accountName) || wrappers[0];
-    setSelectedAnalyticsAccountId(matched?.id || '');
-  }, [accountName, analyticsScope, domainModel]);
-
-  const benchmarkPresetOptions = useMemo(
-    () => getBenchmarkPresetOptions(summary?.account_type || 'retirement'),
-    [summary?.account_type]
-  );
-
-  const benchmarkOptions = useMemo(() => {
-    const options = [...benchmarkPresetOptions];
-    if (benchmarkSelection?.code && !options.some((option) => option.code === benchmarkSelection.code)) {
-      options.push({
-        code: benchmarkSelection.code,
-        name: benchmarkSelection.name,
-        source: benchmarkSelection.source || 'custom'
-      });
-    }
-    return options;
-  }, [benchmarkPresetOptions, benchmarkSelection]);
-
-  const applyBenchmarkSelection = useCallback((selection, source = selection?.source || 'custom') => {
-    if (!selection?.code || !selection?.name) return;
-    const nextSelection = {
-      accountName,
-      code: selection.code,
-      name: selection.name,
-      source
-    };
-    writeStoredBenchmarkSelection(accountName, nextSelection);
-    setBenchmarkSelection(nextSelection);
-    setBenchmarkQuery('');
-    setBenchmarkSearchResults([]);
-    setNotice(`${nextSelection.name} 벤치마크를 적용했습니다.`);
-  }, [accountName]);
-
-  const moveBenchmarkFromSearchResult = useCallback((item) => {
-    applyBenchmarkSelection({ code: item.code, name: item.name }, 'custom');
-  }, [applyBenchmarkSelection]);
-
-  const chooseBenchmarkPreset = useCallback((code) => {
-    const selected = benchmarkOptions.find((option) => option.code === code);
-    if (!selected) return;
-    applyBenchmarkSelection(selected, selected.source || 'preset');
-  }, [applyBenchmarkSelection, benchmarkOptions]);
-
-  const analyticsResult = useMemo(() => {
-    if (!showInsights || !summary) return { report: null, runtimeError: '' };
-    try {
-      const hasDomainModel = Array.isArray(domainModel?.account_wrappers) && domainModel.account_wrappers.length > 0;
-      const analyticsInputs = hasDomainModel
-        ? buildAnalyticsInputsFromDomain(domainModel, {
-          mode: analyticsScope,
-          accountWrapperId: selectedAnalyticsAccountId
-        })
-        : buildAnalyticsInputs({
-          accountType: summary?.account_type || 'retirement',
-          holdings: analyticsRaw.allProducts,
-          products: analyticsRaw.allProducts,
-          summary,
-          transactions: analyticsRaw.transactions,
-          trends: analyticsRaw.trends,
-          benchmarkSeries: analyticsRaw.benchmark
-        });
-      return {
-        report: computePortfolioAnalytics(analyticsInputs),
-        runtimeError: ''
-      };
-    } catch (engineError) {
-      return {
-        report: null,
-        runtimeError: engineError.message || '분석 계산 중 오류가 발생했습니다.'
-      };
-    }
-  }, [analyticsRaw, analyticsScope, domainModel, selectedAnalyticsAccountId, showInsights, summary]);
-
-  const analyticsReport = analyticsResult.report;
-  const analyticsRuntimeError = analyticsResult.runtimeError;
-
-  const dashboardAsOf = useMemo(() => (
-    domainModel?.provenance?.asOf
-    || analyticsReport?.meta?.endDate
-    || recentLogs[0]?.created_at
-    || ''
-  ), [analyticsReport?.meta?.endDate, domainModel?.provenance?.asOf, recentLogs]);
-
-  const staleLedger = isStaleAsOf(dashboardAsOf, 'internal_ledger');
-  const firstMarketCode = products.find((item) => item?.product_code)?.product_code || '';
-  const marketBadge = useMemo(() => buildDataBadgeDescriptor({
-    source: inferSourceKeyFromCode(firstMarketCode),
-    freshnessClass: 'delayed_20m',
-    asOf: dashboardAsOf,
-    code: firstMarketCode,
-    note: '시세 기준'
-  }), [dashboardAsOf, firstMarketCode]);
-
-  const ledgerBadge = useMemo(() => buildDataBadgeDescriptor({
-    source: 'portfolio_ledger',
-    freshnessClass: 'internal_ledger',
-    asOf: dashboardAsOf,
-    note: '계좌 원장'
-  }), [dashboardAsOf]);
-
-  const staleMarket = isStaleAsOf(marketBadge.asOf, marketBadge.freshnessClass);
-  const isStale = staleLedger || staleMarket;
-
-  const todaysLogs = useMemo(
-    () => recentLogs.filter((row) => isToday(row.trade_date || row.created_at)),
-    [recentLogs]
-  );
-
-  const todayChange = useMemo(() => {
-    return todaysLogs.reduce((sum, row) => {
-      const amount = Number(row.total_amount || 0);
-      if (row.trade_type === 'sell') return sum + amount;
-      if (row.trade_type === 'buy') return sum - amount;
-      if (row.trade_type === 'deposit') return sum + amount;
-      return sum;
-    }, 0);
-  }, [todaysLogs]);
-
-  const targetRate = summary?.account_type === 'brokerage' ? 12 : 8;
-  const targetDeviation = Number(summary?.total_profit_rate || 0) - targetRate;
-  const riskShare = Number(summary?.asset_allocation?.risk?.percentage || 0);
-  const safeShare = Number(summary?.asset_allocation?.safe?.percentage || 0);
-  const accountTypeLabel = selectedAccountProfile?.account_type_label || summary?.account_type_label || '계좌';
-  const accountCategoryLabel = selectedAccountProfile?.account_category_label || summary?.account_category_label || '';
-  const accountContextLabel = [accountName, accountTypeLabel, accountCategoryLabel].filter(Boolean).join(' · ');
-  const accountStrategyHint = summary?.account_type === 'brokerage'
-    ? '주식 통장 기준으로 오늘 변동, 편차, 경고를 먼저 보고 필요한 상세 영역으로 내려가세요.'
-    : '퇴직연금 규칙과 오늘 변동을 먼저 확인하고, 필요한 상세 영역으로 이어서 점검하세요.';
-
-  const anomalies = useMemo(() => {
-    const issues = [];
-    if (isStale) issues.push('데이터 기준 시각이 오래되었습니다.');
-    if (products.some((item) => !item.product_code || Number(item.current_price || 0) <= 0)) {
-      issues.push('현재가 또는 종목코드가 비어있는 보유상품이 있습니다.');
-    }
-    if (recentLogs.length === 0) {
-      issues.push('최근 매매일지 기록이 없습니다.');
-    } else {
-      const latestLogAt = parseDateMs(recentLogs[0]?.created_at || recentLogs[0]?.trade_date);
-      if (latestLogAt && (Date.now() - latestLogAt) > (14 * ONE_DAY_MS)) {
-        issues.push('최근 14일간 매매일지 업데이트가 없습니다.');
-      }
-    }
-    if (summary?.account_type !== 'brokerage' && riskShare > 70) {
-      issues.push('퇴직연금 위험자산 비중이 70%를 초과했습니다.');
-    }
-    return issues;
-  }, [isStale, products, recentLogs, riskShare, summary?.account_type]);
-
-  const watchlistStatus = useMemo(() => (
-    [...products]
-      .sort((left, right) => Number(right.profit_rate || 0) - Number(left.profit_rate || 0))
-      .slice(0, 4)
-  ), [products]);
-
-  const largestHolding = useMemo(() => (
-    [...products]
-      .sort((left, right) => Number(right.current_value || 0) - Number(left.current_value || 0))[0] || null
-  ), [products]);
-
-  const topLoss = useMemo(() => (
-    [...products]
-      .sort((left, right) => Number(left.profit_rate || 0) - Number(right.profit_rate || 0))[0]
-  ), [products]);
-
-  const focusTone = anomalies.length > 0 ? 'warning' : (isStale ? 'stale' : 'stable');
-  const focusLabel = anomalies.length > 0 ? '주의 필요' : (isStale ? '갱신 필요' : '안정');
-  const focusDescription = anomalies[0]
-    || (isStale ? '시세 또는 원장 기준 시각을 한 번 갱신하는 편이 좋습니다.' : '큰 경고 없이 운영 중입니다.');
-  const dashboardAsOfLabel = dashboardAsOf ? formatDate(dashboardAsOf) : '기준 시각 없음';
-
-  const todayFocusItems = useMemo(() => {
-    const focus = [];
-    if (isStale) focus.push('먼저 가격 동기화를 눌러 최신 시세로 맞춰주세요.');
-    if (anomalies.length > 0) focus.push(`이상 징후 ${anomalies.length}건을 확인해 주세요.`);
-    if (topLoss) focus.push(`수익률 하위 종목: ${topLoss.product_name} (${formatPercent(topLoss.profit_rate)})`);
-    if (largestHolding) focus.push(`비중 점검 종목: ${largestHolding.product_name} (${formatCurrency(largestHolding.current_value)})`);
-    focus.push(`다음 리밸런싱 예정: ${nextRebalanceDate().toLocaleDateString('ko-KR')}`);
-    return focus;
-  }, [anomalies.length, isStale, largestHolding, topLoss]);
-
-  const emptyState = !loading && !error && products.length === 0;
-
-  const goSection = (sectionId) => {
-    const element = document.getElementById(sectionId);
-    if (element) element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const changeAccountName = (value) => {
+    persistAccountName(value);
+    setSummary(null);
+    setProducts([]);
+    setNotice('');
+    setError('');
+    setLoading(true);
+    setLastLoadedAt('');
   };
 
   const syncPrices = async () => {
@@ -438,7 +128,7 @@ function Dashboard() {
       setError('');
       setNotice('');
       const result = await portfolioAPI.syncPrices(accountName);
-      await fetchCoreDashboardData({ silent: true });
+      await fetchDashboardData({ silent: true });
       setNotice(result?.message || '가격 동기화를 완료했습니다.');
     } catch (syncError) {
       setError(syncError.message || '가격 동기화에 실패했습니다.');
@@ -447,97 +137,136 @@ function Dashboard() {
     }
   };
 
-  const changeAccountName = (value) => {
-    persistAccountName(value);
-    setSummary(null);
-    setProducts([]);
-    setRecentLogs([]);
-    setNotice('');
-    setError('');
-    setLoading(true);
-    setShowInsights(false);
-    setAnalyticsLoading(false);
-    setAnalyticsError('');
-  };
+  const accountTypeLabel = selectedAccountProfile?.account_type_label || summary?.account_type_label || '계좌';
+  const accountCategoryLabel = selectedAccountProfile?.account_category_label || summary?.account_category_label || '';
+  const accountContextLabel = [accountName, accountTypeLabel, accountCategoryLabel].filter(Boolean).join(' · ');
+  const summaryIntro = summary?.account_type === 'brokerage'
+    ? '현재 보유 종목의 평가액과 수익률을 바로 확인하고, 더 깊은 해석은 종목 분석 탭에서 이어갑니다.'
+    : '입금 원금 대비 현재 평가 상태를 먼저 확인하고, 심층 분석은 종목 분석 탭에서 이어갑니다.';
 
-  const primaryCards = [
+  const marketBadge = useMemo(() => buildDataBadgeDescriptor({
+    source: inferSourceKeyFromCode(products.find((item) => item?.product_code)?.product_code || ''),
+    freshnessClass: 'delayed_20m',
+    code: products.find((item) => item?.product_code)?.product_code || '',
+    note: '시세 기준'
+  }), [products]);
+
+  const ledgerBadge = useMemo(() => buildDataBadgeDescriptor({
+    source: 'portfolio_ledger',
+    freshnessClass: 'internal_ledger',
+    note: '계좌 원장'
+  }), []);
+
+  const allocationData = useMemo(() => ([
     {
-      key: 'total',
-      title: '총자산',
-      value: formatCurrency(summary?.total_current_value),
-      description: `원금 ${formatCurrency(summary?.total_investment)}`,
-      onClick: () => goSection('ops-drill-holdings'),
-      badge: ledgerBadge
+      key: 'risk',
+      name: '위험자산',
+      value: Number(summary?.asset_allocation?.risk?.percentage || 0),
+      amount: Number(summary?.asset_allocation?.risk?.value || 0)
     },
     {
-      key: 'today',
-      title: '오늘 변동',
-      value: formatCurrency(todayChange),
-      description: '오늘 매매/입금 기준 변동',
-      trend: todayChange >= 0 ? 'positive' : 'negative',
-      onClick: () => goSection('ops-drill-events'),
-      badge: ledgerBadge
-    },
-    {
-      key: 'goal',
-      title: '목표 대비 편차',
-      value: formatPercent(targetDeviation),
-      description: `목표 수익률 ${targetRate}%`,
-      trend: targetDeviation >= 0 ? 'positive' : 'negative',
-      onClick: () => goSection('ops-drill-holdings'),
-      badge: ledgerBadge
+      key: 'safe',
+      name: '안전자산',
+      value: Number(summary?.asset_allocation?.safe?.percentage || 0),
+      amount: Number(summary?.asset_allocation?.safe?.value || 0)
     }
-  ];
+  ]), [summary]);
 
-  const secondaryCards = [
+  const displayProducts = useMemo(() => {
+    const rows = [...products];
+    const cash = Number(summary?.total_cash || 0);
+
+    if (cash > 0) {
+      rows.push({
+        id: 'cash',
+        product_name: '보유 현금',
+        product_code: 'CASH',
+        asset_type: 'safe',
+        purchase_date: '-',
+        current_value: cash,
+        total_purchase_value: null,
+        profit_loss: null,
+        profit_rate: null,
+        is_cash: true
+      });
+    }
+
+    return rows;
+  }, [products, summary]);
+
+  const profitData = useMemo(() => (
+    products
+      .map((product, index) => ({
+        key: product.id,
+        name: product.product_name,
+        shortName: product.product_name.length > 18 ? `${product.product_name.slice(0, 18)}...` : product.product_name,
+        returnRate: Number(product.profit_rate || 0),
+        fill: product.asset_type === 'safe'
+          ? '#4f8f83'
+          : HOLDING_COLORS[index % HOLDING_COLORS.length]
+      }))
+      .sort((left, right) => right.returnRate - left.returnRate)
+  ), [products]);
+
+  const profitChartHeight = Math.max(260, profitData.length * 52);
+  const profitDomain = useMemo(() => {
+    if (profitData.length === 0) return [-10, 10];
+
+    const values = profitData.map((item) => item.returnRate);
+    const min = Math.min(0, ...values);
+    const max = Math.max(0, ...values);
+    const padding = Math.max(4, (max - min) * 0.12 || 4);
+    return [
+      Math.floor((min - padding) * 10) / 10,
+      Math.ceil((max + padding) * 10) / 10
+    ];
+  }, [profitData]);
+
+  const hasVisibleHoldings = displayProducts.length > 0;
+  const emptyState = !loading && !error && !hasVisibleHoldings;
+
+  const summaryCards = [
     {
-      key: 'anomaly',
-      title: '데이터 이상 징후',
-      value: `${anomalies.length}건`,
-      description: anomalies[0] || '현재 이상 징후가 없습니다.',
-      onClick: () => goSection('ops-drill-anomalies'),
-      badge: marketBadge
+      key: 'principal',
+      title: '입금 원금',
+      value: formatCurrency(summary?.total_investment),
+      tone: ''
     },
     {
-      key: 'allocation',
-      title: '자산 비중',
-      value: `위험 ${formatPercent(riskShare)}`,
-      description: `안전자산 ${formatPercent(safeShare)}`,
-      trend: summary?.account_type !== 'brokerage' && riskShare > 70 ? 'negative' : 'positive',
-      onClick: () => goSection('ops-drill-holdings'),
-      badge: marketBadge
+      key: 'cash',
+      title: '보유 현금',
+      value: formatCurrency(summary?.total_cash),
+      tone: ''
     },
     {
-      key: 'journal',
-      title: '최근 일지',
-      value: `${Math.min(recentLogs.length, 3)}건`,
-      description: recentLogs[0]
-        ? `${recentLogs[0].product_name} (${recentLogs[0].trade_type})`
-        : '기록이 없습니다.',
-      onClick: () => goSection('ops-drill-journal'),
-      badge: ledgerBadge
+      key: 'current',
+      title: '현재 평가액',
+      value: formatCurrency(summary?.total_current_value),
+      tone: ''
     },
     {
-      key: 'watch',
-      title: '보유 상위 종목',
-      value: `${watchlistStatus.length}종목`,
-      description: largestHolding
-        ? `${largestHolding.product_name} ${formatCurrency(largestHolding.current_value)}`
-        : '보유 종목이 없습니다.',
-      onClick: () => goSection('ops-drill-holdings'),
-      badge: marketBadge
+      key: 'profit-loss',
+      title: '원금 대비 평가손익',
+      value: formatCurrency(summary?.total_profit_loss),
+      tone: Number(summary?.total_profit_loss || 0) >= 0 ? 'profit' : 'loss'
+    },
+    {
+      key: 'profit-rate',
+      title: '원금 대비 수익률',
+      value: formatPercent(summary?.total_profit_rate),
+      tone: Number(summary?.total_profit_rate || 0) >= 0 ? 'profit' : 'loss'
     }
   ];
 
   if (loading) {
     return (
-      <main className="dashboard dashboard-cockpit">
+      <main className="dashboard dashboard-overview">
         <AccountSelector value={accountName} onChange={changeAccountName} onAccountsChange={syncAccountProfiles} />
-        <section className="ops-loading" aria-label="운영 대시보드 로딩" role="status" aria-live="polite">
-          <h1>운영 대시보드</h1>
-          <div className="ops-skeleton-grid">
-            {Array.from({ length: 7 }).map((_, index) => (
-              <article key={`sk-${index}`} className="ops-skeleton-card" aria-hidden="true" />
+        <section className="overview-loading" aria-label="현황 로딩" role="status" aria-live="polite">
+          <h1>현황</h1>
+          <div className="overview-skeleton-grid">
+            {Array.from({ length: 6 }).map((_, index) => (
+              <article key={`sk-${index}`} className="overview-skeleton-card" aria-hidden="true" />
             ))}
           </div>
         </section>
@@ -547,12 +276,12 @@ function Dashboard() {
 
   if (error && !summary) {
     return (
-      <main className="dashboard dashboard-cockpit">
+      <main className="dashboard dashboard-overview">
         <AccountSelector value={accountName} onChange={changeAccountName} onAccountsChange={syncAccountProfiles} />
-        <section className="ops-error" role="alert" aria-live="assertive">
-          <h1>운영 대시보드</h1>
+        <section className="overview-error" role="alert" aria-live="assertive">
+          <h1>현황</h1>
           <p>{error}</p>
-          <button type="button" onClick={() => fetchCoreDashboardData()} aria-label="현황 다시 불러오기">
+          <button type="button" onClick={() => fetchDashboardData()}>
             다시 시도
           </button>
         </section>
@@ -561,264 +290,225 @@ function Dashboard() {
   }
 
   return (
-    <main className="dashboard dashboard-cockpit">
+    <main className="dashboard dashboard-overview">
       <AccountSelector value={accountName} onChange={changeAccountName} onAccountsChange={syncAccountProfiles} />
 
-      <header className="ops-hero">
-        <div className="ops-hero-main">
-          <p className="ops-eyebrow">{accountContextLabel}</p>
-          <h1>운영 대시보드</h1>
-          <p className="ops-hero-copy">{accountStrategyHint}</p>
-          <div className="ops-source-row" aria-label="데이터 기준 정보">
+      <section className="overview-header">
+        <div className="overview-header-copy">
+          <p className="overview-eyebrow">{accountContextLabel}</p>
+          <h1>현황</h1>
+          <p>{summaryIntro}</p>
+          <div className="overview-source-row" aria-label="데이터 기준 정보">
             <DataBadge descriptor={ledgerBadge} compact />
             <DataBadge descriptor={marketBadge} compact />
-            <span className="ops-asof">기준 {dashboardAsOfLabel}</span>
+            <span className="overview-last-updated">마지막 조회 {formatDateTime(lastLoadedAt)}</span>
           </div>
         </div>
-
-        <aside className="ops-command-panel" aria-label="빠른 작업">
-          <div className="ops-command-status">
-            <span className={`ops-status-chip ${focusTone}`}>{focusLabel}</span>
-            <p>{focusDescription}</p>
-          </div>
-          <div className="ops-header-actions">
-            <button type="button" onClick={syncPrices} disabled={syncing} aria-label="가격 동기화">
-              {syncing ? '동기화 중...' : '가격 동기화'}
-            </button>
-            <button type="button" onClick={() => fetchCoreDashboardData({ silent: true })} aria-label="대시보드 새로고침">
-              새로고침
-            </button>
-          </div>
-          <button
-            type="button"
-            className="ops-link-button ops-link-button-inline"
-            onClick={() => setShowInsights((prev) => !prev)}
-            aria-label="심층 차트 토글"
-          >
-            {showInsights ? '심층 분석 접기' : '심층 분석 열기'}
+        <div className="overview-header-actions">
+          <button type="button" onClick={syncPrices} disabled={syncing}>
+            {syncing ? '가격 동기화 중...' : '가격 동기화'}
           </button>
-        </aside>
-      </header>
-
-      {notice && <div className="ops-notice" role="status">{notice}</div>}
-      {error && <div className="ops-error-inline" role="alert">{error}</div>}
-      {isStale && (
-        <div className="ops-stale-banner" role="alert" aria-label="stale data warning">
-          <strong>주의:</strong> 일부 데이터 기준 시각이 오래되었습니다. 시세/원장을 다시 동기화해 주세요.
-          <span className="stale-badge">STALE</span>
+          <button type="button" onClick={() => fetchDashboardData({ silent: true })}>
+            새로고침
+          </button>
         </div>
-      )}
-
-      <section className="ops-priority-layout" aria-label="오늘의 우선순위">
-        <div className="ops-priority-main">
-          <div className="ops-section-copy">
-            <h2>지금 확인할 핵심</h2>
-            <p>총자산, 오늘 변동, 목표 편차부터 본 뒤 필요한 상세 패널로 내려가세요.</p>
-          </div>
-          <section className="ops-cards ops-cards-primary" aria-label="핵심 운영 카드">
-            {primaryCards.map((card) => (
-              <article
-                key={card.key}
-                className="ops-card ops-card-primary"
-                role="button"
-                tabIndex={0}
-                aria-label={`${card.title} 카드`}
-                onClick={card.onClick}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    card.onClick();
-                  }
-                }}
-              >
-                <div className="ops-card-head">
-                  <h3>{card.title}</h3>
-                </div>
-                <p className={`ops-card-value ${card.trend || ''}`}>{card.value}</p>
-                <p className="ops-card-desc">{card.description}</p>
-              </article>
-            ))}
-          </section>
-        </div>
-
-        <aside className="ops-focus-panel" aria-label="오늘 볼 것">
-          <div className="ops-focus-head">
-            <h2>오늘 볼 것</h2>
-            <span className={`ops-status-chip ${focusTone}`}>{focusLabel}</span>
-          </div>
-          <ul className="ops-focus-list">
-            {todayFocusItems.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
-          <div className="ops-focus-actions">
-            <button type="button" onClick={() => goSection('ops-drill-anomalies')}>
-              경고 보기
-            </button>
-            <button type="button" onClick={() => goSection('ops-drill-holdings')}>
-              보유 보기
-            </button>
-          </div>
-        </aside>
       </section>
 
-      <section className="ops-secondary-band" aria-label="보조 운영 카드">
-        <div className="ops-section-copy">
-          <h2>운영 요약</h2>
-          <p>자산 비중, 경고, 최근 기록, 보유 상위 종목을 한 줄에서 빠르게 훑습니다.</p>
-        </div>
-        <section className="ops-cards ops-cards-secondary" aria-label="보조 운영 카드">
-          {secondaryCards.map((card) => (
-            <article
-              key={card.key}
-              className="ops-card ops-card-secondary"
-              role="button"
-              tabIndex={0}
-              aria-label={`${card.title} 카드`}
-              onClick={card.onClick}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  card.onClick();
-                }
-              }}
-            >
-              <div className="ops-card-head">
-                <h3>{card.title}</h3>
-              </div>
-              <p className={`ops-card-value ${card.trend || ''}`}>{card.value}</p>
-              <p className="ops-card-desc">{card.description}</p>
-            </article>
-          ))}
-        </section>
+      {notice && <div className="overview-notice" role="status">{notice}</div>}
+      {error && <div className="overview-error-inline" role="alert">{error}</div>}
+
+      <section className="overview-summary-grid" aria-label="현황 요약">
+        {summaryCards.map((card) => (
+          <article key={card.key} className="overview-stat-card">
+            <h2>{card.title}</h2>
+            <strong className={card.tone}>{card.value}</strong>
+          </article>
+        ))}
       </section>
 
       {emptyState && (
-        <section className="ops-onboarding" aria-label="초기 설정 안내">
+        <section className="dashboard-empty-state" aria-label="초기 설정 안내">
           <h2>아직 보유 상품이 없습니다</h2>
-          <p>매매일지에서 첫 매수 기록을 입력하면 운영 대시보드가 자동으로 채워집니다.</p>
-          <div className="ops-onboarding-actions">
+          <p>매매일지에서 첫 매수 기록을 입력하면 현황 화면이 자동으로 채워집니다.</p>
+          <div className="dashboard-empty-actions">
             <button type="button" onClick={() => (window.location.href = '/trade-logs')}>매매일지로 이동</button>
             <button type="button" onClick={() => (window.location.href = '/portfolio')}>상품 추이 보기</button>
           </div>
         </section>
       )}
 
-      <section className="ops-drill-grid" aria-label="상세 운영 패널">
-        <section id="ops-drill-anomalies" className="ops-panel" aria-label="데이터 이상 징후 상세">
-          <div className="ops-panel-head">
-            <h2>데이터 이상 징후</h2>
-            <DataBadge descriptor={marketBadge} compact />
-          </div>
-          {anomalies.length === 0 ? (
-            <p className="ops-empty">현재 확인된 이상 징후가 없습니다.</p>
-          ) : (
-            <ul className="ops-list">
-              {anomalies.map((issue) => <li key={issue}>{issue}</li>)}
-            </ul>
-          )}
-        </section>
-
-        <section id="ops-drill-events" className="ops-panel" aria-label="오늘의 이벤트">
-          <div className="ops-panel-head">
-            <h2>오늘의 이벤트</h2>
+      <section className="overview-panels">
+        <article className="overview-panel" aria-label="위험 안전 자산 비율">
+          <div className="overview-panel-head">
+            <h2>위험 / 안전 자산 비율</h2>
             <DataBadge descriptor={ledgerBadge} compact />
           </div>
-          <p className="ops-next-rebalance">다음 리밸런싱: {nextRebalanceDate().toLocaleDateString('ko-KR')}</p>
-          {todaysLogs.length === 0 ? (
-            <p className="ops-empty">오늘 기록된 이벤트가 없습니다.</p>
+          {allocationData.every((item) => item.amount <= 0) ? (
+            <p className="overview-no-data">아직 집계할 자산이 없습니다.</p>
           ) : (
-            <ul className="ops-list">
-              {todaysLogs.slice(0, 5).map((log) => (
-                <li key={log.id}>{log.product_name} {log.trade_type} {formatCurrency(log.total_amount)}</li>
-              ))}
-            </ul>
+            <>
+              <div className="overview-chart-shell">
+                <ResponsiveContainer width="100%" height={280}>
+                  <PieChart>
+                    <Pie
+                      data={allocationData}
+                      dataKey="value"
+                      nameKey="name"
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={58}
+                      outerRadius={88}
+                      label={({ name, value }) => `${name} ${Number(value).toFixed(1)}%`}
+                    >
+                      {allocationData.map((entry) => (
+                        <Cell key={entry.key} fill={ASSET_COLORS[entry.key]} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(value, name, item) => [`${Number(value).toFixed(2)}% (${formatCurrency(item.payload.amount)})`, name]} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="overview-allocation-list">
+                {allocationData.map((item) => (
+                  <div key={item.key} className="overview-allocation-row">
+                    <span className="swatch" style={{ backgroundColor: ASSET_COLORS[item.key] }} />
+                    <span>{item.name}</span>
+                    <strong>{formatPercent(item.value)}</strong>
+                    <small>{formatCurrency(item.amount)}</small>
+                  </div>
+                ))}
+              </div>
+            </>
           )}
-        </section>
+        </article>
 
-        <section id="ops-drill-journal" className="ops-panel" aria-label="최근 일지">
-          <div className="ops-panel-head">
-            <h2>최근 일지 3개</h2>
-            <DataBadge descriptor={ledgerBadge} compact />
+        <article className="overview-panel overview-performance-panel" aria-label="원금 대비 성과">
+          <div className="overview-panel-head">
+            <h2>원금 대비 성과</h2>
+            <span className={`overview-performance-pill ${Number(summary?.total_profit_rate || 0) >= 0 ? 'profit' : 'loss'}`}>
+              {formatPercent(summary?.total_profit_rate)}
+            </span>
           </div>
-          {recentLogs.length === 0 ? (
-            <p className="ops-empty">최근 기록이 없습니다.</p>
-          ) : (
-            <ul className="ops-log-list">
-              {recentLogs.slice(0, 3).map((log) => (
-                <li key={log.id}>
-                  <strong>{log.product_name}</strong>
-                  <span>{log.trade_type}</span>
-                  <span>{formatCurrency(log.total_amount)}</span>
-                  <time>{formatDate(log.trade_date)}</time>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+          <div className="overview-performance-hero">
+            <span>원금 대비 평가손익</span>
+            <strong className={Number(summary?.total_profit_loss || 0) >= 0 ? 'profit' : 'loss'}>
+              {formatCurrency(summary?.total_profit_loss)}
+            </strong>
+            <small>현재 평가액 {formatCurrency(summary?.total_current_value)}</small>
+          </div>
+          <div className="overview-performance-list">
+            <div>
+              <span>입금 원금</span>
+              <strong>{formatCurrency(summary?.total_investment)}</strong>
+            </div>
+            <div>
+              <span>보유 현금</span>
+              <strong>{formatCurrency(summary?.total_cash)}</strong>
+            </div>
+            <div>
+              <span>계좌 유형</span>
+              <strong>{[accountTypeLabel, accountCategoryLabel].filter(Boolean).join(' · ') || '-'}</strong>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="overview-link-button"
+            onClick={() => (window.location.href = '/stock-research')}
+          >
+            종목 분석으로 이어서 보기
+          </button>
+        </article>
 
-        <section id="ops-drill-holdings" className="ops-panel" aria-label="관심 종목 상태">
-          <div className="ops-panel-head">
-            <h2>관심 종목 상태</h2>
+        <article className="overview-panel overview-panel-wide" aria-label="현재 보유 종목 수익률">
+          <div className="overview-panel-head">
+            <h2>현재 보유 종목 수익률</h2>
             <DataBadge descriptor={marketBadge} compact />
           </div>
-          {watchlistStatus.length === 0 ? (
-            <p className="ops-empty">보유 종목이 없습니다.</p>
+          {profitData.length === 0 ? (
+            <p className="overview-no-data">보유 중인 종목이 없어서 수익률 차트를 아직 그릴 수 없습니다.</p>
           ) : (
-            <ul className="ops-holding-list">
-              {watchlistStatus.map((item) => (
-                <li key={item.id}>
-                  <div>
-                    <strong>{item.product_name}</strong>
-                    <p>{item.product_code}</p>
-                  </div>
-                  <div>
-                    <strong className={Number(item.profit_rate || 0) >= 0 ? 'positive' : 'negative'}>
-                      {formatPercent(item.profit_rate)}
-                    </strong>
-                    <p>{formatCurrency(item.current_value)}</p>
-                  </div>
-                </li>
-              ))}
-            </ul>
+            <div className="overview-chart-shell">
+              <ResponsiveContainer width="100%" height={profitChartHeight}>
+                <BarChart
+                  data={profitData}
+                  layout="vertical"
+                  margin={{ top: 8, right: 44, left: 4, bottom: 8 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <ReferenceLine x={0} stroke="#94a3b8" />
+                  <XAxis
+                    type="number"
+                    domain={profitDomain}
+                    tickFormatter={(value) => `${Number(value).toFixed(0)}%`}
+                  />
+                  <YAxis
+                    type="category"
+                    dataKey="shortName"
+                    width={136}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <Tooltip formatter={(value) => `${Number(value).toFixed(2)}%`} />
+                  <Bar dataKey="returnRate" radius={[0, 6, 6, 0]}>
+                    {profitData.map((entry) => (
+                      <Cell key={entry.key} fill={entry.fill} />
+                    ))}
+                    <LabelList dataKey="returnRate" content={renderProfitLabel} />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           )}
-        </section>
+        </article>
       </section>
 
-      <section className="ops-insights" aria-label="심층 분석">
-        <div className="ops-panel-head">
-          <h2>심층 분석</h2>
-          <span className="ops-insight-caption">필요할 때만 열기</span>
+      <section className="overview-products" aria-label="현재 보유 종목 목록">
+        <div className="overview-panel-head">
+          <h2>현재 보유 종목</h2>
+          <DataBadge descriptor={ledgerBadge} compact />
         </div>
-        {!showInsights && (
-          <p className="ops-empty">첫 화면 성능을 위해 심층 차트는 필요할 때만 불러옵니다.</p>
-        )}
-        {showInsights && (
-          <Suspense fallback={<div className="ops-skeleton-card">심층 차트를 불러오는 중...</div>}>
-            <LazyAnalyticsDashboard
-              report={analyticsReport}
-              loading={analyticsLoading}
-              error={analyticsError || analyticsRuntimeError || ''}
-              benchmarkSelection={benchmarkSelection}
-              benchmarkOptions={benchmarkOptions}
-              benchmarkQuery={benchmarkQuery}
-              benchmarkSearchResults={benchmarkSearchResults}
-              benchmarkSearchLoading={benchmarkSearchLoading}
-              onChangeBenchmarkQuery={setBenchmarkQuery}
-              onSelectBenchmark={moveBenchmarkFromSearchResult}
-              onChangeBenchmarkPreset={chooseBenchmarkPreset}
-              onExportReport={() => {}}
-              exportingReport={false}
-              linkedCandidate={benchmarkSelection?.source === 'screener' ? benchmarkSelection : null}
-              dataBadges={[ledgerBadge, marketBadge]}
-              freshnessWarning={isStale ? '데이터 최신성을 먼저 확인하세요.' : ''}
-            />
-          </Suspense>
+        {!hasVisibleHoldings ? (
+          <p className="overview-no-data">등록된 보유 상품이 없습니다.</p>
+        ) : (
+          <div className="overview-table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>상품명</th>
+                  <th>자산 구분</th>
+                  <th>매입일</th>
+                  <th>매수금액</th>
+                  <th>평가액</th>
+                  <th>평가손익</th>
+                  <th>수익률</th>
+                </tr>
+              </thead>
+              <tbody>
+                {displayProducts.map((product) => (
+                  <tr key={product.id}>
+                    <td>
+                      {product.product_name}
+                      <span className="overview-code">{product.product_code}</span>
+                    </td>
+                    <td>{product.asset_type === 'risk' ? '위험자산' : '안전자산'}</td>
+                    <td>{product.purchase_date || '-'}</td>
+                    <td>{product.is_cash ? '-' : formatCurrency(product.total_purchase_value)}</td>
+                    <td>{formatCurrency(product.current_value)}</td>
+                    <td className={product.is_cash ? '' : (Number(product.profit_loss || 0) >= 0 ? 'profit' : 'loss')}>
+                      {product.is_cash ? '-' : formatCurrency(product.profit_loss)}
+                    </td>
+                    <td className={product.is_cash ? '' : (Number(product.profit_rate || 0) >= 0 ? 'profit' : 'loss')}>
+                      {product.is_cash ? '-' : formatPercent(product.profit_rate)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
     </main>
   );
 }
 
-export const __dashboardTestables = { isStaleAsOf };
 export default Dashboard;
