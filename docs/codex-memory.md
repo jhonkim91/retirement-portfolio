@@ -1,6 +1,6 @@
 # Codex Shared Memory
 
-Last updated: 2026-05-06 14:05 KST
+Last updated: 2026-05-06 13:57 KST
 
 ## Current State
 
@@ -17,8 +17,8 @@ Last updated: 2026-05-06 14:05 KST
 - UI improvement Step 3 is implemented: the portfolio trend workspace now auto-selects the top holdings, remembers the latest per-account trend mix, separates left-side entry/management from right-side chart work, and keeps holdings visible even while trend data is still loading.
 - Dashboard/stock-analysis follow-up is implemented: `현황` is back to a summary-first view with risk-vs-safe allocation, principal-based performance, and current-holdings return charts, while the heavier benchmark/analytics workflow now lives in the `종목 분석` tab.
 - Logged-in navigation was simplified again by removing the `소개`, `도움말`, `개인정보`, `삭제요청`, and `문의처` tabs from the top menu while leaving the underlying routes intact.
-
 - Dashboard cash editing is restored on the summary card, and saving cash now refreshes both the dashboard totals and account-profile metadata so the selector stays in sync.
+- The shared account selector summary card was removed from the app surface, leaving only the dropdown and settings controls so the dashboard area starts more cleanly.
 
 ## Resume Checklist
 
@@ -110,6 +110,9 @@ npm.cmd run codex:save
   - `frontend/src/pages/Dashboard.jsx`: added inline `보유 현금` edit state, validation, save/cancel controls, and post-save refresh of both summary data and account profiles
   - `frontend/src/styles/Dashboard.css`: added summary-card cash editor styles for the input, buttons, helper copy, and mobile layout
   - `frontend/src/pages/__tests__/Dashboard.test.jsx`: rewrote the dashboard test file in clean UTF-8 text and added cash-edit coverage
+- Removed the account summary box shown under the account selector:
+  - `frontend/src/components/AccountSelector.jsx`: removed the selected-account summary card markup and its unused cash formatter
+  - `frontend/src/App.css`: deleted the selector-summary styles that were only used by the removed box
 
 ## Verification
 
@@ -145,6 +148,8 @@ npm.cmd run codex:save
 - `npm.cmd run test:frontend` passed: 14 suites / 35 tests after adding dashboard cash-edit coverage.
 - `npm.cmd run lint` passed after restoring dashboard cash editing.
 - `npm.cmd run build:frontend` passed after restoring dashboard cash editing.
+- `npm.cmd run lint` passed after removing the shared account selector summary box.
+- `npm.cmd run build:frontend` passed after removing the shared account selector summary box.
 
 ## Next Actions
 

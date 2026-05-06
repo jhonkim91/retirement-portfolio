@@ -26,14 +26,7 @@ const RETIREMENT_ACCOUNT_OPTIONS = [
 ];
 
 const countFormatter = new Intl.NumberFormat('ko-KR');
-const currencyFormatter = new Intl.NumberFormat('ko-KR', {
-  style: 'currency',
-  currency: 'KRW',
-  maximumFractionDigits: 0
-});
-
 const formatCount = (value) => countFormatter.format(Number(value || 0));
-const formatCurrency = (value) => currencyFormatter.format(Number(value || 0));
 
 const buildAccountOptionLabel = (account) => {
   const details = [account.account_type_label];
@@ -244,54 +237,6 @@ function AccountSelector({ value, onChange, onAccountsChange }) {
           설정
         </button>
       </div>
-
-      {selectedAccount && (
-        <section className="account-switcher-summary" aria-label="선택된 계좌 상태">
-          <div className="account-switcher-summary-head">
-            <div>
-              <strong>{selectedAccount.display_name || selectedAccount.account_name}</strong>
-              <p className="account-switcher-summary-text">
-                {selectedAccount.account_type_label}
-                {selectedAccount.account_category_label ? ` · ${selectedAccount.account_category_label}` : ''}
-              </p>
-            </div>
-            <div className="account-switcher-badges">
-              {selectedAccount.is_default && <span className="account-switcher-badge">기본</span>}
-              {selectedAccount.is_empty && <span className="account-switcher-badge account-switcher-badge-muted">빈 계좌</span>}
-              {selectedAccount.has_name_issue && <span className="account-switcher-badge account-switcher-badge-warning">이름 확인 필요</span>}
-            </div>
-          </div>
-          <div className="account-switcher-stats" aria-label="계좌 데이터 요약">
-            <div>
-              <span>보유</span>
-              <strong>{formatCount(selectedAccount.holding_count)}개</strong>
-            </div>
-            <div>
-              <span>거래</span>
-              <strong>{formatCount(selectedAccount.trade_log_count)}건</strong>
-            </div>
-            <div>
-              <span>현금</span>
-              <strong>{formatCurrency(selectedAccount.cash_balance)}</strong>
-            </div>
-          </div>
-          {selectedAccount.is_empty && (
-            <p className="account-switcher-empty-note">
-              이 계좌에는 아직 거래나 보유 상품이 없습니다.
-            </p>
-          )}
-          {selectedAccount.has_name_issue && (
-            <p className="account-switcher-warning">
-              계좌 이름에 깨진 문자가 보여서 정리 또는 이름 변경이 필요합니다.
-            </p>
-          )}
-          <p className="account-switcher-meta">
-            현재 알고리즘: {selectedAccount.account_type === 'brokerage'
-              ? '주식형, 현재 보유 상품 기준 원금/평가액'
-              : '퇴직연금형, 입금 원금 + 보유 현금 포함'}
-          </p>
-        </section>
-      )}
 
       {showSettings && (
         <div className="account-settings-panel">
