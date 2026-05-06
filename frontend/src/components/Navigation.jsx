@@ -29,11 +29,6 @@ function Navigation({ setUser }) {
           <Link to="/imports" className={linkClass('/imports')}>불러오기</Link>
           <Link to="/stock-research" className={linkClass('/stock-research')}>종목 분석</Link>
           <Link to="/stock-screener" className={linkClass('/stock-screener')}>스크리너</Link>
-          <Link to="/about" className={linkClass('/about')}>소개</Link>
-          <Link to="/help" className={linkClass('/help')}>이용안내</Link>
-          <Link to="/privacy-policy" className={linkClass('/privacy-policy')}>개인정보</Link>
-          <Link to="/data-deletion" className={linkClass('/data-deletion')}>삭제요청</Link>
-          <Link to="/contact" className={linkClass('/contact')}>문의처</Link>
         </div>
         <div className="nav-user">
           <span className="user-name">{user.username}</span>

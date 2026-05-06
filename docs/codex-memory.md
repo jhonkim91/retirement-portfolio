@@ -1,6 +1,6 @@
 # Codex Shared Memory
 
-Last updated: 2026-05-06 12:34 KST
+Last updated: 2026-05-06 12:40 KST
 
 ## Current State
 
@@ -16,6 +16,7 @@ Last updated: 2026-05-06 12:34 KST
 - UI improvement Step 2 is implemented: the dashboard first screen now separates primary KPIs, the immediate action/status rail, and secondary summary cards so the user sees current state, warnings, and next actions before the detailed panels.
 - UI improvement Step 3 is implemented: the portfolio trend workspace now auto-selects the top holdings, remembers the latest per-account trend mix, separates left-side entry/management from right-side chart work, and keeps holdings visible even while trend data is still loading.
 - Dashboard/stock-analysis follow-up is implemented: `현황` is back to a summary-first view with risk-vs-safe allocation, principal-based performance, and current-holdings return charts, while the heavier benchmark/analytics workflow now lives in the `종목 분석` tab.
+- Logged-in navigation was simplified again by removing the `소개`, `도움말`, `개인정보`, `삭제요청`, and `문의처` tabs from the top menu while leaving the underlying routes intact.
 
 ## Resume Checklist
 
@@ -100,6 +101,8 @@ npm.cmd run codex:save
   - `frontend/src/pages/StockResearch.jsx` + `frontend/src/styles/StockResearch.css`: added the new account analytics panel below the stock research workspace and updated the tab/page framing to `종목 분석`
   - `frontend/src/components/Navigation.jsx`: renamed the navigation entry from the old stock-info label to `종목 분석`
   - `frontend/src/pages/__tests__/Dashboard.test.jsx`: replaced the old snapshot-heavy dashboard checks with focused overview assertions and removed the obsolete dashboard snapshot file
+- Simplified logged-in top navigation:
+  - `frontend/src/components/Navigation.jsx`: removed `소개`, `도움말`, `개인정보`, `삭제요청`, and `문의처` from the main tab row
 
 ## Verification
 
@@ -129,6 +132,7 @@ npm.cmd run codex:save
 - `npm.cmd run build:frontend` passed after the dashboard/stock-analysis split.
 - `npm.cmd run test:frontend` passed again: 14 suites / 34 tests.
 - Local frontend dev server responded at `http://127.0.0.1:3001` after the redesign build.
+- `npm.cmd run lint` passed after removing the extra navigation tabs.
 
 ## Next Actions
 
